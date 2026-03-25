@@ -70,6 +70,10 @@ pub struct AnalysisContext<'g> {
 
     /// Per-node aggregate co-change score (empty if no co-change data).
     pub co_change_summary: Arc<HashMap<petgraph::graph::NodeIndex, f64>>,
+
+    /// Full co-change matrix for pairwise file coupling queries.
+    /// `None` when git history is unavailable or co-change was not computed.
+    pub co_change_matrix: Option<Arc<crate::git::co_change::CoChangeMatrix>>,
 }
 
 impl<'g> AnalysisContext<'g> {
@@ -222,6 +226,7 @@ impl<'g> AnalysisContext<'g> {
             decorator_index: Arc::new(HashMap::new()),
             git_churn: Arc::new(HashMap::new()),
             co_change_summary: Arc::new(HashMap::new()),
+            co_change_matrix: None,
         }
     }
 
@@ -305,6 +310,7 @@ impl<'g> AnalysisContext<'g> {
             decorator_index: Arc::new(HashMap::new()),
             git_churn: Arc::new(HashMap::new()),
             co_change_summary: Arc::new(HashMap::new()),
+            co_change_matrix: None,
         }
     }
 }

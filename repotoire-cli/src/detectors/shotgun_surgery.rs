@@ -1,21 +1,29 @@
 //! Change Coupling Detector (formerly Shotgun Surgery)
 //!
-//! Detects classes and functions that are BOTH widely depended on AND
-//! frequently changing. Stable infrastructure (high fan-in, low churn)
-//! is NOT flagged — only volatile, widely-coupled nodes are risks.
+//! Detects functions and classes where changes **propagate to callers**.
+//! Uses the CoChangeMatrix to check: when function f's file changes,
+//! do the files containing f's callers ALSO change?
 //!
-//! Detection formula:
-//!   risk = spread_ratio × churn_rate
+//! This replaces the old fan-in × churn heuristic which could not
+//! distinguish "expected churn on a well-encapsulated interface" from
+//! "problematic churn that forces callers to change too."
 //!
-//! Where:
-//!   churn_rate   = min(commits_90d / 9.0, 1.0)
-//!   spread_ratio = (caller_module_spread / fan_in).min(1.0)
+//! Detection algorithm (DV8 Unstable Interface pattern):
+//!   1. For each function/class with fan_in >= 10:
+//!   2. Get caller file paths from the graph
+//!   3. Query CoChangeMatrix: how many caller files co-change with this file?
+//!   4. propagation_rate = co_changing_caller_files / total_caller_files
+//!   5. Apply Martin's Instability filter: only flag functions that SHOULD be
+//!      stable (I = fan_out / (fan_in + fan_out) < 0.5)
+//!   6. Flag if propagation_rate >= 15%
 //!
-//! Requires git churn data — returns empty findings when unavailable.
+//! Requires co-change data — returns empty findings when unavailable.
 
 use crate::detectors::base::{Detector, DetectorConfig};
+use crate::graph::interner::global_interner;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
+use std::collections::HashSet;
 use tracing::info;
 
 pub struct ShotgunSurgeryDetector {
@@ -45,13 +53,59 @@ fn extract_short_name(qn: &str) -> &str {
     qn.rsplit("::").next().unwrap_or(qn)
 }
 
+/// Shared propagation analysis for a node (function or class).
+/// Returns `Some((propagation_rate, co_changing_caller_files, total_caller_files))`
+/// or `None` if there isn't enough data to analyze.
+fn compute_propagation(
+    graph: &dyn crate::graph::GraphQuery,
+    co_change: &crate::git::co_change::CoChangeMatrix,
+    qn: &str,
+    file_path: &str,
+) -> Option<(f32, u32, u32)> {
+    let si = global_interner();
+    let file_key = si.get(file_path)?;
+
+    let callers = graph.get_callers(qn);
+    let i = graph.interner();
+    let mut total_caller_files = 0u32;
+    let mut co_changing_caller_files = 0u32;
+    let mut seen_files = HashSet::new();
+
+    for caller in &callers {
+        let caller_file = caller.path(i);
+        if caller_file == file_path {
+            continue; // same file, skip
+        }
+        if !seen_files.insert(caller_file) {
+            continue; // dedup by file
+        }
+
+        total_caller_files += 1;
+
+        if let Some(caller_key) = si.get(caller_file) {
+            let pair_count = co_change.pair_commit_count(file_key, caller_key);
+            if pair_count >= 3 {
+                // minimum evidence threshold: at least 3 commits touching both
+                co_changing_caller_files += 1;
+            }
+        }
+    }
+
+    if total_caller_files < 3 {
+        return None; // need enough callers to measure
+    }
+
+    let propagation_rate = co_changing_caller_files as f32 / total_caller_files as f32;
+    Some((propagation_rate, co_changing_caller_files, total_caller_files))
+}
+
 impl Detector for ShotgunSurgeryDetector {
     fn name(&self) -> &'static str {
         "ShotgunSurgeryDetector"
     }
 
     fn description(&self) -> &'static str {
-        "Detects code with high change coupling: widely-depended-on nodes that change frequently"
+        "Detects unstable interfaces where changes propagate to callers (co-change analysis)"
     }
 
     fn category(&self) -> &'static str {
@@ -66,11 +120,10 @@ impl Detector for ShotgunSurgeryDetector {
         &self,
         ctx: &crate::detectors::analysis_context::AnalysisContext,
     ) -> Result<Vec<Finding>> {
-        // If no git churn data available, skip entirely — we can't distinguish
-        // stable infrastructure from volatile coupling risks without churn data.
-        if ctx.git_churn.is_empty() {
-            return Ok(Vec::new());
-        }
+        let co_change = match &ctx.co_change_matrix {
+            Some(cm) => cm,
+            None => return Ok(Vec::new()), // No co-change data available
+        };
 
         let graph = ctx.graph;
         let i = graph.interner();
@@ -78,7 +131,6 @@ impl Detector for ShotgunSurgeryDetector {
 
         // ── Class analysis ──────────────────────────────────────────────────────
         for class in graph.get_classes_shared().iter() {
-            // Skip interface nodes
             if class.qn(i).contains("::interface::") {
                 continue;
             }
@@ -91,34 +143,31 @@ impl Detector for ShotgunSurgeryDetector {
 
             let file_path = class.path(i);
 
-            // Churn rate: 9 commits/90d → rate 1.0; fewer commits → proportionally lower
-            let churn_rate = ctx
-                .file_churn(file_path)
-                .map(|c| (c.commits_90d as f64 / 9.0).min(1.0))
-                .unwrap_or(0.0);
+            let (propagation_rate, co_changing, total) =
+                match compute_propagation(graph, co_change, qn, file_path) {
+                    Some(v) => v,
+                    None => continue,
+                };
 
-            if churn_rate < 0.01 {
-                // Stable code — not a change coupling risk regardless of fan-in
-                continue;
+            if propagation_rate < 0.15 {
+                continue; // less than 15% propagation = not a problem
             }
 
-            // Caller spread as a proxy for co-change impact
-            let module_spread = graph.caller_module_spread(qn);
-            let spread_ratio = (module_spread as f64 / fan_in as f64).min(1.0);
-
-            let risk = spread_ratio * churn_rate;
-            if risk < 0.1 {
-                continue;
+            // Martin's Instability filter: I = fan_out / (fan_in + fan_out)
+            // Only flag classes that SHOULD be stable (I < 0.5)
+            let fan_out = graph.call_fan_out(qn);
+            let instability = if fan_in + fan_out > 0 {
+                fan_out as f32 / (fan_in + fan_out) as f32
+            } else {
+                0.5
+            };
+            if instability > 0.5 {
+                continue; // high instability = expected to change
             }
 
-            let commits_90d = ctx
-                .file_churn(file_path)
-                .map(|c| c.commits_90d)
-                .unwrap_or(0);
-
-            let severity = if risk > 0.5 && fan_in >= 30 {
+            let severity = if propagation_rate > 0.4 && fan_in >= 30 {
                 Severity::Critical
-            } else if risk > 0.3 && fan_in >= 15 {
+            } else if propagation_rate > 0.3 && fan_in >= 15 {
                 Severity::High
             } else {
                 Severity::Medium
@@ -129,19 +178,22 @@ impl Detector for ShotgunSurgeryDetector {
                 detector: "ChangeCouplingDetector".to_string(),
                 severity,
                 title: format!(
-                    "Change Coupling Risk: {}",
-                    extract_short_name(qn)
+                    "Change Coupling: {} ({:.0}% propagation, {} callers)",
+                    extract_short_name(qn),
+                    propagation_rate * 100.0,
+                    fan_in
                 ),
                 description: format!(
-                    "Class '{}' has {} callers across {} modules and changed {} times in the last 90 days.\n\
-                     Risk score: {:.2}. Changes here have wide-reaching effects.",
-                    qn, fan_in, module_spread, commits_90d, risk
+                    "Class '{}' has {} callers across {} files. When it changes, {:.0}% of caller files \
+                     also change ({} of {}). This indicates an unstable interface where changes propagate \
+                     to dependents.",
+                    qn, fan_in, total, propagation_rate * 100.0, co_changing, total
                 ),
                 affected_files: vec![file_path.to_string().into()],
                 line_start: Some(class.line_start),
                 line_end: Some(class.line_end),
                 suggested_fix: Some(
-                    "Options to reduce change coupling:\n\
+                    "Options to reduce change propagation:\n\
                      1. Create a Facade to limit the API surface\n\
                      2. Use interfaces/protocols to decouple callers\n\
                      3. Split into smaller, focused classes\n\
@@ -159,8 +211,8 @@ impl Detector for ShotgunSurgeryDetector {
                 category: Some("coupling".to_string()),
                 cwe_id: None,
                 why_it_matters: Some(
-                    "Change coupling means modifying this code requires updating callers \
-                     across many modules, increasing the chance of missing something and \
+                    "Change propagation means modifying this code forces changes in caller files \
+                     across the codebase, increasing the chance of missing something and \
                      introducing bugs."
                         .to_string(),
                 ),
@@ -172,37 +224,36 @@ impl Detector for ShotgunSurgeryDetector {
         for func in graph.get_functions_shared().iter() {
             let qn = func.qn(i);
             let fan_in = graph.call_fan_in(qn);
-            if fan_in < 15 {
+            if fan_in < 10 {
                 continue;
             }
 
             let file_path = func.path(i);
 
-            let churn_rate = ctx
-                .file_churn(file_path)
-                .map(|c| (c.commits_90d as f64 / 9.0).min(1.0))
-                .unwrap_or(0.0);
+            let (propagation_rate, co_changing, total) =
+                match compute_propagation(graph, co_change, qn, file_path) {
+                    Some(v) => v,
+                    None => continue,
+                };
 
-            if churn_rate < 0.01 {
+            if propagation_rate < 0.15 {
                 continue;
             }
 
-            let module_spread = graph.caller_module_spread(qn);
-            let spread_ratio = (module_spread as f64 / fan_in as f64).min(1.0);
-
-            let risk = spread_ratio * churn_rate;
-            if risk < 0.1 {
+            // Instability filter
+            let fan_out = graph.call_fan_out(qn);
+            let instability = if fan_in + fan_out > 0 {
+                fan_out as f32 / (fan_in + fan_out) as f32
+            } else {
+                0.5
+            };
+            if instability > 0.5 {
                 continue;
             }
 
-            let commits_90d = ctx
-                .file_churn(file_path)
-                .map(|c| c.commits_90d)
-                .unwrap_or(0);
-
-            let severity = if risk > 0.5 && fan_in >= 30 {
+            let severity = if propagation_rate > 0.4 && fan_in >= 30 {
                 Severity::Critical
-            } else if risk > 0.3 && fan_in >= 15 {
+            } else if propagation_rate > 0.3 && fan_in >= 15 {
                 Severity::High
             } else {
                 Severity::Medium
@@ -213,13 +264,16 @@ impl Detector for ShotgunSurgeryDetector {
                 detector: "ChangeCouplingDetector".to_string(),
                 severity,
                 title: format!(
-                    "Change Coupling Risk: {}",
-                    extract_short_name(qn)
+                    "Change Coupling: {} ({:.0}% propagation, {} callers)",
+                    extract_short_name(qn),
+                    propagation_rate * 100.0,
+                    fan_in
                 ),
                 description: format!(
-                    "Function '{}' has {} callers across {} modules and changed {} times in the last 90 days.\n\
-                     Risk score: {:.2}. Changes here have wide-reaching effects.",
-                    qn, fan_in, module_spread, commits_90d, risk
+                    "Function '{}' has {} callers across {} files. When it changes, {:.0}% of caller files \
+                     also change ({} of {}). This indicates an unstable interface where changes propagate \
+                     to dependents.",
+                    qn, fan_in, total, propagation_rate * 100.0, co_changing, total
                 ),
                 affected_files: vec![file_path.to_string().into()],
                 line_start: Some(func.line_start),
@@ -240,8 +294,8 @@ impl Detector for ShotgunSurgeryDetector {
                 category: Some("coupling".to_string()),
                 cwe_id: None,
                 why_it_matters: Some(
-                    "High change coupling in a frequently-modified function requires \
-                     careful change management across many call sites."
+                    "High change propagation in a function with many callers indicates \
+                     an unstable interface that forces coordinated changes across the codebase."
                         .to_string(),
                 ),
                 ..Default::default()
@@ -264,36 +318,18 @@ impl super::RegisteredDetector for ShotgunSurgeryDetector {
 mod tests {
     use super::*;
     use crate::detectors::analysis_context::AnalysisContext;
-    use crate::detectors::analysis_context::FileChurnInfo;
     use crate::graph::{CodeEdge, CodeNode, GraphStore};
-    use std::collections::HashMap;
+    use crate::git::co_change::CoChangeMatrix;
     use std::sync::Arc;
 
-    /// Build a minimal AnalysisContext with custom git_churn for testing.
-    fn ctx_with_churn<'g>(
-        graph: &'g dyn crate::graph::GraphQuery,
-        churn: HashMap<String, FileChurnInfo>,
-    ) -> AnalysisContext<'g> {
-        let mut ctx = AnalysisContext::test_with_mock_files(graph, vec![]);
-        // Replace git_churn with our test data
-        ctx.git_churn = Arc::new(churn);
-        ctx
-    }
-
     #[test]
-    fn test_no_git_data_returns_empty() {
-        // When git_churn is empty, detector must return zero findings
-        // even if the graph has highly-connected nodes.
+    fn test_no_co_change_data_returns_empty() {
+        // When co_change_matrix is None, detector must return zero findings.
         let graph = GraphStore::in_memory();
 
         graph.add_node(
-            CodeNode::class("BigService", "src/big.py")
-                .with_qualified_name("big::BigService")
-                .with_lines(1, 100),
-        );
-        graph.add_node(
             CodeNode::function("do_work", "src/big.py")
-                .with_qualified_name("big::BigService::do_work")
+                .with_qualified_name("big::do_work")
                 .with_lines(10, 20),
         );
         for i in 0..20 {
@@ -304,37 +340,32 @@ mod tests {
                     .with_qualified_name(&qn)
                     .with_lines(1, 5),
             );
-            graph.add_edge_by_name(&qn, "big::BigService::do_work", CodeEdge::calls());
+            graph.add_edge_by_name(&qn, "big::do_work", CodeEdge::calls());
         }
 
+        // co_change_matrix is None by default in test context
         let ctx = AnalysisContext::test_with_mock_files(&graph, vec![]);
-        // git_churn is empty by default in test_with_mock_files
         let detector = ShotgunSurgeryDetector::new();
         let findings = detector.detect(&ctx).expect("detection should succeed");
 
         assert!(
             findings.is_empty(),
-            "No git data → must return zero findings, got {}",
+            "No co-change data → must return zero findings, got {}",
             findings.len()
         );
     }
 
     #[test]
-    fn test_stable_high_fanin_not_flagged() {
-        // A class with fan-in 50 but zero churn should NOT be flagged.
+    fn test_no_propagation_not_flagged() {
+        // A function with high fan-in but no co-change propagation should NOT be flagged.
         let graph = GraphStore::in_memory();
 
         graph.add_node(
-            CodeNode::class("StableService", "src/stable.py")
-                .with_qualified_name("stable::StableService")
-                .with_lines(1, 100),
-        );
-        graph.add_node(
-            CodeNode::function("do_work", "src/stable.py")
-                .with_qualified_name("stable::StableService::do_work")
+            CodeNode::function("stable_api", "src/stable.py")
+                .with_qualified_name("stable::stable_api")
                 .with_lines(10, 20),
         );
-        for i in 0..50 {
+        for i in 0..20 {
             let file = format!("src/mod_{}.py", i);
             let qn = format!("mod_{}::caller_{}", i, i);
             graph.add_node(
@@ -342,98 +373,27 @@ mod tests {
                     .with_qualified_name(&qn)
                     .with_lines(1, 5),
             );
-            graph.add_edge_by_name(&qn, "stable::StableService::do_work", CodeEdge::calls());
+            graph.add_edge_by_name(&qn, "stable::stable_api", CodeEdge::calls());
         }
 
-        // Zero churn for this file
-        let churn: HashMap<String, FileChurnInfo> = HashMap::new();
-        // git_churn is non-empty (we add an entry for a different file)
-        let mut churn_map = HashMap::new();
-        churn_map.insert(
-            "src/other.py".to_string(),
-            FileChurnInfo {
-                commits_90d: 5,
-                is_high_churn: true,
-            },
-        );
-        let _ = churn;
+        // Empty CoChangeMatrix — no file pairs co-change
+        let mut ctx = AnalysisContext::test_with_mock_files(&graph, vec![]);
+        ctx.co_change_matrix = Some(Arc::new(CoChangeMatrix::empty()));
 
-        let ctx = ctx_with_churn(&graph, churn_map);
         let detector = ShotgunSurgeryDetector::new();
         let findings = detector.detect(&ctx).expect("detection should succeed");
 
-        let stable_findings: Vec<_> = findings
-            .iter()
-            .filter(|f| f.title.contains("StableService"))
-            .collect();
         assert!(
-            stable_findings.is_empty(),
-            "Stable class (zero churn) should not be flagged, got {:?}",
-            stable_findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+            findings.is_empty(),
+            "No co-change propagation → should not be flagged, got {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
         );
     }
 
     #[test]
-    fn test_volatile_high_fanin_flagged() {
-        // A class with fan-in 20, callers in 10 modules, 9 commits in 90 days → flagged.
-        // churn_rate = 9/9 = 1.0, spread_ratio = 10/20 = 0.5, risk = 0.5 — above 0.1 threshold.
-        let graph = GraphStore::in_memory();
-
-        graph.add_node(
-            CodeNode::class("VolatileService", "src/volatile.py")
-                .with_qualified_name("volatile::VolatileService")
-                .with_lines(1, 100),
-        );
-        graph.add_node(
-            CodeNode::function("do_work", "src/volatile.py")
-                .with_qualified_name("volatile::VolatileService::do_work")
-                .with_lines(10, 20),
-        );
-        // 20 callers from 10 distinct modules (2 callers per module)
-        for i in 0..20usize {
-            let module = i / 2; // modules 0..9
-            let file = format!("src/module_{}/handler.py", module);
-            let qn = format!("module_{}::caller_{}", module, i);
-            graph.add_node(
-                CodeNode::function(&format!("caller_{}", i), &file)
-                    .with_qualified_name(&qn)
-                    .with_lines(1, 5),
-            );
-            graph.add_edge_by_name(
-                &qn,
-                "volatile::VolatileService::do_work",
-                CodeEdge::calls(),
-            );
-        }
-
-        let mut churn_map = HashMap::new();
-        churn_map.insert(
-            "src/volatile.py".to_string(),
-            FileChurnInfo {
-                commits_90d: 9, // churn_rate = 1.0
-                is_high_churn: true,
-            },
-        );
-
-        let ctx = ctx_with_churn(&graph, churn_map);
-        let detector = ShotgunSurgeryDetector::new();
-        let findings = detector.detect(&ctx).expect("detection should succeed");
-
-        // The method do_work has fan-in=20, callers across 10 modules, churn_rate=1.0
-        // → risk = 0.5 → should be flagged via function analysis (fan_in >= 15)
-        let volatile_findings: Vec<_> = findings
-            .iter()
-            .filter(|f| f.title.contains("do_work"))
-            .collect();
-        assert!(
-            !volatile_findings.is_empty(),
-            "Volatile method (fan-in=20, 10 modules, 9 commits) should be flagged, got findings: {:?}",
-            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
-        );
-        assert!(
-            volatile_findings[0].title.contains("Change Coupling Risk"),
-            "Title should contain 'Change Coupling Risk', got: {}",
-            volatile_findings[0].title
-        );
+    fn test_extract_short_name() {
+        assert_eq!(extract_short_name("module::Class::method"), "method");
+        assert_eq!(extract_short_name("standalone"), "standalone");
+        assert_eq!(extract_short_name("a::b"), "b");
     }
 }

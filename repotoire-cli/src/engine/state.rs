@@ -66,8 +66,8 @@ pub(crate) struct EngineState {
     /// Hash of all cross-file edges for topology change detection.
     pub edge_fingerprint: u64,
 
-    /// Co-change matrix retained for report context generation.
-    pub co_change: Option<crate::git::co_change::CoChangeMatrix>,
+    /// Co-change matrix retained for report context generation and detector queries.
+    pub co_change: Option<Arc<crate::git::co_change::CoChangeMatrix>>,
 
     /// Expensive precomputed data (~3.9s to rebuild).
     /// Option because it's not persisted — rebuilt on first analyze() after load().

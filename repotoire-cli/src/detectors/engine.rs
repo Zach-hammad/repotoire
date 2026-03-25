@@ -45,6 +45,8 @@ pub struct PrecomputedAnalysis {
     pub git_churn: Arc<HashMap<String, super::analysis_context::FileChurnInfo>>,
     /// Per-node aggregate co-change score (empty if no co-change data).
     pub co_change_summary: Arc<HashMap<petgraph::graph::NodeIndex, f64>>,
+    /// Full co-change matrix for pairwise file coupling queries.
+    pub co_change_matrix: Option<Arc<crate::git::co_change::CoChangeMatrix>>,
 }
 
 impl Clone for PrecomputedAnalysis {
@@ -63,6 +65,7 @@ impl Clone for PrecomputedAnalysis {
             decorator_index: Arc::clone(&self.decorator_index),
             git_churn: Arc::clone(&self.git_churn),
             co_change_summary: Arc::clone(&self.co_change_summary),
+            co_change_matrix: self.co_change_matrix.as_ref().map(Arc::clone),
         }
     }
 }
@@ -93,6 +96,7 @@ impl PrecomputedAnalysis {
             decorator_index: Arc::clone(&self.decorator_index),
             git_churn: Arc::clone(&self.git_churn),
             co_change_summary: Arc::clone(&self.co_change_summary),
+            co_change_matrix: self.co_change_matrix.as_ref().map(Arc::clone),
         }
     }
 
@@ -133,6 +137,7 @@ impl PrecomputedAnalysis {
             decorator_index: Arc::clone(&self.decorator_index),
             git_churn: Arc::clone(&self.git_churn),
             co_change_summary: Arc::clone(&self.co_change_summary),
+            co_change_matrix: self.co_change_matrix.as_ref().map(Arc::clone),
         }
     }
 }
@@ -279,6 +284,7 @@ pub fn precompute_gd_startup(
         decorator_index: Arc::new(decorator_index_map),
         git_churn: Arc::new(HashMap::new()),
         co_change_summary: Arc::new(HashMap::new()),
+        co_change_matrix: None,
     }
 }
 

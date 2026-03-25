@@ -238,7 +238,7 @@ impl AnalysisEngine {
 
     /// Returns a reference to the co-change matrix if git enrichment was run.
     pub fn co_change(&self) -> Option<&crate::git::co_change::CoChangeMatrix> {
-        self.state.as_ref().and_then(|s| s.co_change.as_ref())
+        self.state.as_ref().and_then(|s| s.co_change.as_deref())
     }
 
     /// Returns the calibrated style profile (if available).
@@ -396,12 +396,16 @@ impl AnalysisEngine {
         // Extract file churn before moving git_out fields
         let file_churn = Arc::new(git_out.file_churn);
 
+        // Wrap co_change matrix in Arc for sharing with detectors and state
+        let co_change_arc: Option<Arc<crate::git::co_change::CoChangeMatrix>> =
+            Some(Arc::new(git_out.co_change_matrix));
+
         // Freeze: convert mutable GraphStore → immutable CodeGraph with indexes
         let frozen = timed(&mut timings, "freeze", || {
             graph::freeze_graph(
                 &graph_out.mutable_graph,
                 graph_out.value_store,
-                Some(&git_out.co_change_matrix),
+                co_change_arc.as_ref().map(|a| a.as_ref()),
             )
         });
 
@@ -428,6 +432,7 @@ impl AnalysisEngine {
                 workers: config.workers,
                 progress: self.progress.clone(),
                 file_churn: Arc::clone(&file_churn),
+                co_change_matrix: co_change_arc.as_ref().map(Arc::clone),
                 all_detectors: config.all_detectors,
                 // Cold path — no incremental hints
                 changed_files: None,
@@ -493,7 +498,7 @@ impl AnalysisEngine {
             graph: frozen.graph,
             mutable_graph: Some(graph_out.mutable_graph),
             edge_fingerprint: frozen.edge_fingerprint,
-            co_change: Some(git_out.co_change_matrix),
+            co_change: co_change_arc,
             precomputed: Some(detect_out.precomputed),
             style_profile: calibrate_out.style_profile,
             ngram_model: calibrate_out.ngram_model,
@@ -568,13 +573,17 @@ impl AnalysisEngine {
             };
 
             let file_churn = Arc::new(git_out.file_churn);
-            let co_change = if config.no_git { prev_co_change.take() } else { Some(git_out.co_change_matrix) };
+            let co_change: Option<Arc<crate::git::co_change::CoChangeMatrix>> = if config.no_git {
+                prev_co_change.take()
+            } else {
+                Some(Arc::new(git_out.co_change_matrix))
+            };
 
             let frozen = timed(&mut timings, "freeze", || {
                 graph::freeze_graph(
                     &graph_out.mutable_graph,
                     graph_out.value_store,
-                    co_change.as_ref(),
+                    co_change.as_ref().map(|a| a.as_ref()),
                 )
             });
 
@@ -606,7 +615,7 @@ impl AnalysisEngine {
                 std::collections::HashMap::new()
             });
 
-            let co_change = prev_co_change.take();
+            let co_change: Option<Arc<crate::git::co_change::CoChangeMatrix>> = prev_co_change.take();
 
             (frozen, file_churn, co_change, None)
         };
@@ -648,6 +657,7 @@ impl AnalysisEngine {
                 workers: config.workers,
                 progress: self.progress.clone(),
                 file_churn: Arc::clone(&file_churn),
+                co_change_matrix: co_change.as_ref().map(Arc::clone),
                 all_detectors: config.all_detectors,
                 // Incremental hints
                 changed_files: Some(&delta_files),

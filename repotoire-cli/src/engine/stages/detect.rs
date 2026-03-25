@@ -36,6 +36,9 @@ pub struct DetectInput<'a> {
     /// Per-file git churn data from git enrichment stage.
     pub file_churn: Arc<HashMap<String, FileChurnInfo>>,
 
+    /// Full co-change matrix for pairwise file coupling queries.
+    pub co_change_matrix: Option<Arc<crate::git::co_change::CoChangeMatrix>>,
+
     /// Run all detectors including deep-scan detectors (default: false).
     pub all_detectors: bool,
 
@@ -135,8 +138,9 @@ pub fn detect_stage(input: &DetectInput) -> Result<DetectOutput> {
     // Inject pre-computed taint results into security detectors
     inject_taint_precomputed(&detectors, &precomputed.taint_results);
 
-    // Inject git churn data into precomputed analysis
+    // Inject git churn data and co-change matrix into precomputed analysis
     precomputed.git_churn = Arc::clone(&input.file_churn);
+    precomputed.co_change_matrix = input.co_change_matrix.as_ref().map(Arc::clone);
 
     // Build analysis context from precomputed data
     let ctx = precomputed.to_context(graph, &resolver);
@@ -239,6 +243,7 @@ fn detect_stage_incremental(
         let cached = input.cached_gd_precomputed.unwrap();
         let mut reused = cached.clone(); // cheap: all Arc bumps
         reused.git_churn = Arc::clone(&input.file_churn);
+        reused.co_change_matrix = input.co_change_matrix.as_ref().map(Arc::clone);
 
         let needs_taint = detectors.iter().any(|d| d.taint_category().is_some());
         if needs_taint {
@@ -286,6 +291,7 @@ fn detect_stage_incremental(
         );
         inject_taint_precomputed(detectors, &precomputed.taint_results);
         precomputed.git_churn = Arc::clone(&input.file_churn);
+        precomputed.co_change_matrix = input.co_change_matrix.as_ref().map(Arc::clone);
         precomputed
     };
     let precompute_duration = precompute_start.elapsed();
