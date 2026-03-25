@@ -17,6 +17,39 @@ use super::indexes::GraphIndexes;
 use super::interner::{global_interner, StrKey, StringInterner};
 use super::store_models::{CodeEdge, CodeNode, EdgeKind, ExtraProps, NodeKind};
 
+/// Apply a single metric or flag property to a node.
+/// Handles numeric metrics (complexity, paramCount, etc.) and boolean flags (is_async, etc.).
+/// Author and last_modified are handled separately via pre-interning.
+fn apply_node_metric(node: &mut CodeNode, key: &str, value: &serde_json::Value) {
+    match key {
+        "complexity" => node.complexity = value.as_i64().unwrap_or(0) as u16,
+        "paramCount" => node.param_count = value.as_i64().unwrap_or(0) as u8,
+        "methodCount" => node.method_count = value.as_i64().unwrap_or(0) as u16,
+        "maxNesting" | "nesting_depth" => {
+            node.max_nesting = value.as_i64().unwrap_or(0) as u8
+        }
+        "returnCount" => node.return_count = value.as_i64().unwrap_or(0) as u8,
+        "commit_count" => node.commit_count = value.as_i64().unwrap_or(0) as u16,
+        "is_async" => apply_flag_if_true(node, value, super::store_models::FLAG_IS_ASYNC),
+        "is_exported" => apply_flag_if_true(node, value, super::store_models::FLAG_IS_EXPORTED),
+        "is_public" => apply_flag_if_true(node, value, super::store_models::FLAG_IS_PUBLIC),
+        "is_method" => apply_flag_if_true(node, value, super::store_models::FLAG_IS_METHOD),
+        "address_taken" => apply_flag_if_true(node, value, super::store_models::FLAG_ADDRESS_TAKEN),
+        "has_decorators" => {
+            apply_flag_if_true(node, value, super::store_models::FLAG_HAS_DECORATORS)
+        }
+        // author and last_modified handled via pre-interning in update_node_properties
+        _ => {}
+    }
+}
+
+/// Set a flag on a node if the JSON value is truthy.
+fn apply_flag_if_true(node: &mut CodeNode, value: &serde_json::Value, flag: u8) {
+    if value.as_bool().unwrap_or(false) {
+        node.set_flag(flag);
+    }
+}
+
 /// Mutable graph builder. Used during parse, graph build, and git enrichment.
 /// No locks — all methods take `&mut self` or `&self`.
 pub struct GraphBuilder {
@@ -268,54 +301,7 @@ impl GraphBuilder {
 
         if let Some(node) = self.graph.node_weight_mut(idx) {
             for (key, value) in props {
-                match *key {
-                    "complexity" => node.complexity = value.as_i64().unwrap_or(0) as u16,
-                    "paramCount" => node.param_count = value.as_i64().unwrap_or(0) as u8,
-                    "methodCount" => {
-                        node.method_count = value.as_i64().unwrap_or(0) as u16
-                    }
-                    "maxNesting" | "nesting_depth" => {
-                        node.max_nesting = value.as_i64().unwrap_or(0) as u8
-                    }
-                    "returnCount" => {
-                        node.return_count = value.as_i64().unwrap_or(0) as u8
-                    }
-                    "commit_count" => {
-                        node.commit_count = value.as_i64().unwrap_or(0) as u16
-                    }
-                    "is_async" => {
-                        if value.as_bool().unwrap_or(false) {
-                            node.set_flag(super::store_models::FLAG_IS_ASYNC);
-                        }
-                    }
-                    "is_exported" => {
-                        if value.as_bool().unwrap_or(false) {
-                            node.set_flag(super::store_models::FLAG_IS_EXPORTED);
-                        }
-                    }
-                    "is_public" => {
-                        if value.as_bool().unwrap_or(false) {
-                            node.set_flag(super::store_models::FLAG_IS_PUBLIC);
-                        }
-                    }
-                    "is_method" => {
-                        if value.as_bool().unwrap_or(false) {
-                            node.set_flag(super::store_models::FLAG_IS_METHOD);
-                        }
-                    }
-                    "address_taken" => {
-                        if value.as_bool().unwrap_or(false) {
-                            node.set_flag(super::store_models::FLAG_ADDRESS_TAKEN);
-                        }
-                    }
-                    "has_decorators" => {
-                        if value.as_bool().unwrap_or(false) {
-                            node.set_flag(super::store_models::FLAG_HAS_DECORATORS);
-                        }
-                    }
-                    // author and last_modified handled above via pre-interning
-                    _ => {}
-                }
+                apply_node_metric(node, key, value);
             }
             if has_extras {
                 let ep = self.extra_props.entry(intern_qn).or_default();

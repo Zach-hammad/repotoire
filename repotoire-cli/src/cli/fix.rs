@@ -312,11 +312,27 @@ fn run_batch_fix(path: &Path, findings: &[Finding], options: FixOptions, telemet
     }
 
     // Auto mode - apply all fixes
+    let (applied, skipped, failed) =
+        apply_fixable_batch(&term, path, &fixable, options, telemetry)?;
+
+    display_batch_summary(&term, applied, skipped, failed)?;
+
+    Ok(())
+}
+
+/// Apply each fixable finding, returning (applied, skipped, failed) counts.
+fn apply_fixable_batch(
+    term: &Term,
+    path: &Path,
+    fixable: &[(usize, &Finding, RuleFix)],
+    options: FixOptions,
+    telemetry: &crate::telemetry::Telemetry,
+) -> Result<(usize, usize, usize)> {
     let mut applied = 0;
     let mut skipped = 0;
     let mut failed = 0;
 
-    for (idx, finding, rule_fix) in &fixable {
+    for (idx, finding, rule_fix) in fixable {
         if !rule_fix.auto_applicable || rule_fix.patch.is_none() {
             skipped += 1;
             continue;
@@ -341,7 +357,7 @@ fn run_batch_fix(path: &Path, findings: &[Finding], options: FixOptions, telemet
             ))?;
 
             if let Some(ref patch) = rule_fix.patch {
-                display_patch_preview(&term, patch)?;
+                display_patch_preview(term, patch)?;
             }
 
             if !confirm("Apply this fix?")? {
@@ -375,6 +391,11 @@ fn run_batch_fix(path: &Path, findings: &[Finding], options: FixOptions, telemet
         }
     }
 
+    Ok((applied, skipped, failed))
+}
+
+/// Display the summary line after batch-applying fixes.
+fn display_batch_summary(term: &Term, applied: usize, skipped: usize, failed: usize) -> Result<()> {
     term.write_line("")?;
     term.write_line(&format!(
         "{} {} applied, {} skipped, {} failed",
@@ -490,6 +511,144 @@ fn run_single_fix(path: &Path, finding: &Finding, index: usize, options: FixOpti
     }
 }
 
+/// Display a colored unified diff on the terminal.
+fn display_colored_diff(term: &Term, diff: &str) -> Result<()> {
+    for line in diff.lines() {
+        if line.starts_with('+') && !line.starts_with("+++") {
+            term.write_line(&format!("{}", style(line).green()))?;
+        } else if line.starts_with('-') && !line.starts_with("---") {
+            term.write_line(&format!("{}", style(line).red()))?;
+        } else if line.starts_with("@@") {
+            term.write_line(&format!("{}", style(line).cyan()))?;
+        } else {
+            term.write_line(line)?;
+        }
+    }
+    Ok(())
+}
+
+/// Display AI fix metadata (title, confidence, description, rationale, diff).
+fn display_ai_fix_details(
+    term: &Term,
+    fix: &crate::ai::FixProposal,
+    path: &Path,
+) -> Result<()> {
+    term.write_line(&format!("{} {}\n", style("Fix:").green().bold(), fix.title))?;
+
+    term.write_line(&format!(
+        "  {} {:?}\n  {} {}\n",
+        style("Confidence:").bold(),
+        fix.confidence,
+        style("Valid syntax:").bold(),
+        if fix.syntax_valid {
+            style("✓").green()
+        } else {
+            style("✗").red()
+        }
+    ))?;
+
+    term.write_line(&format!(
+        "{}\n{}\n",
+        style("Description:").bold(),
+        fix.description
+    ))?;
+
+    term.write_line(&format!(
+        "{}\n{}\n",
+        style("Rationale:").bold(),
+        fix.rationale
+    ))?;
+
+    term.write_line(&format!("{}\n", style("Changes:").bold()))?;
+    let diff = fix.diff(path);
+    display_colored_diff(term, &diff)
+}
+
+/// Attempt to apply an AI fix, handling confirmation and telemetry.
+fn apply_ai_fix(
+    term: &Term,
+    fix: &crate::ai::FixProposal,
+    path: &Path,
+    finding: &Finding,
+    index: usize,
+    options: FixOptions,
+    ai_provider_name: Option<String>,
+    telemetry: &crate::telemetry::Telemetry,
+) -> Result<()> {
+    if options.dry_run {
+        term.write_line(&format!(
+            "\n{} Dry run mode - no changes applied.",
+            style("🔍").cyan()
+        ))?;
+        term.write_line(&format!(
+            "   To apply: {}\n",
+            style(format!("repotoire fix {} --apply", index)).cyan()
+        ))?;
+        return Ok(());
+    }
+
+    let should_apply = options.apply || options.auto;
+
+    if should_apply {
+        if !fix.syntax_valid && !options.auto {
+            term.write_line(&format!(
+                "\n{} Fix has syntax errors, not applying automatically.",
+                style("Warning:").yellow().bold()
+            ))?;
+            term.write_line("Review the changes and apply manually if appropriate.\n")?;
+        } else {
+            let confirmed = if options.auto {
+                true
+            } else {
+                confirm("Apply this fix?")?
+            };
+
+            if confirmed {
+                term.write_line(&format!("\n{} Applying fix...", style("⚡").cyan()))?;
+                fix.apply(path)?;
+                send_fix_applied_telemetry(path, finding, true, true, ai_provider_name, telemetry);
+                term.write_line(&format!(
+                    "{} Fix applied successfully!\n",
+                    style("✓").green().bold()
+                ))?;
+            } else {
+                send_fix_applied_telemetry(path, finding, true, false, ai_provider_name, telemetry);
+                term.write_line(&format!("\n{} Fix not applied.\n", style("ℹ️").dim()))?;
+            }
+        }
+    } else {
+        term.write_line(&format!(
+            "\n{} To apply this fix, run:",
+            style("Tip:").cyan().bold()
+        ))?;
+        term.write_line(&format!("  repotoire fix {} --apply\n", index))?;
+    }
+
+    Ok(())
+}
+
+/// Return the provider name string for an LLM backend.
+fn backend_display_name(backend: LlmBackend) -> &'static str {
+    match backend {
+        LlmBackend::Anthropic => "Anthropic",
+        LlmBackend::OpenAi => "OpenAI",
+        LlmBackend::Deepinfra => "Deepinfra",
+        LlmBackend::OpenRouter => "OpenRouter",
+        LlmBackend::Ollama => "Ollama (local)",
+    }
+}
+
+/// Return the provider ID string for telemetry.
+fn backend_telemetry_id(backend: LlmBackend) -> &'static str {
+    match backend {
+        LlmBackend::Anthropic => "anthropic",
+        LlmBackend::OpenAi => "openai",
+        LlmBackend::Deepinfra => "deepinfra",
+        LlmBackend::OpenRouter => "openrouter",
+        LlmBackend::Ollama => "ollama",
+    }
+}
+
 /// Run AI-powered fix generation
 fn run_ai_fix(
     path: &Path,
@@ -520,123 +679,17 @@ fn run_ai_fix(
         "  {} {} ({})\n",
         style("Using:").dim(),
         client.model(),
-        match client.backend() {
-            LlmBackend::Anthropic => "Anthropic",
-            LlmBackend::OpenAi => "OpenAI",
-            LlmBackend::Deepinfra => "Deepinfra",
-            LlmBackend::OpenRouter => "OpenRouter",
-            LlmBackend::Ollama => "Ollama (local)",
-        }
+        backend_display_name(client.backend()),
     ))?;
 
-    // Generate fix using async runtime
-    // Capture AI provider name before consuming client
-    let ai_provider_name = Some(match client.backend() {
-        LlmBackend::Anthropic => "anthropic".to_string(),
-        LlmBackend::OpenAi => "openai".to_string(),
-        LlmBackend::Deepinfra => "deepinfra".to_string(),
-        LlmBackend::OpenRouter => "openrouter".to_string(),
-        LlmBackend::Ollama => "ollama".to_string(),
-    });
+    let ai_provider_name = Some(backend_telemetry_id(client.backend()).to_string());
 
     // Sync — no runtime needed (ureq)
     let generator = FixGenerator::new(client);
-
     let fix = generator.generate_fix_with_retry(finding, path, 2)?;
 
-    // Display fix
-    term.write_line(&format!("{} {}\n", style("Fix:").green().bold(), fix.title))?;
-
-    term.write_line(&format!(
-        "  {} {:?}\n  {} {}\n",
-        style("Confidence:").bold(),
-        fix.confidence,
-        style("Valid syntax:").bold(),
-        if fix.syntax_valid {
-            style("✓").green()
-        } else {
-            style("✗").red()
-        }
-    ))?;
-
-    term.write_line(&format!(
-        "{}\n{}\n",
-        style("Description:").bold(),
-        fix.description
-    ))?;
-
-    term.write_line(&format!(
-        "{}\n{}\n",
-        style("Rationale:").bold(),
-        fix.rationale
-    ))?;
-
-    // Show diff
-    term.write_line(&format!("{}\n", style("Changes:").bold()))?;
-    let diff = fix.diff(path);
-    for line in diff.lines() {
-        if line.starts_with('+') && !line.starts_with("+++") {
-            term.write_line(&format!("{}", style(line).green()))?;
-        } else if line.starts_with('-') && !line.starts_with("---") {
-            term.write_line(&format!("{}", style(line).red()))?;
-        } else if line.starts_with("@@") {
-            term.write_line(&format!("{}", style(line).cyan()))?;
-        } else {
-            term.write_line(line)?;
-        }
-    }
-
-    // Dry run - just show, don't apply
-    if options.dry_run {
-        term.write_line(&format!(
-            "\n{} Dry run mode - no changes applied.",
-            style("🔍").cyan()
-        ))?;
-        term.write_line(&format!(
-            "   To apply: {}\n",
-            style(format!("repotoire fix {} --apply", index)).cyan()
-        ))?;
-        return Ok(());
-    }
-
-    // Apply if requested (--apply or --auto)
-    let should_apply = options.apply || options.auto;
-
-    if should_apply {
-        if !fix.syntax_valid && !options.auto {
-            term.write_line(&format!(
-                "\n{} Fix has syntax errors, not applying automatically.",
-                style("Warning:").yellow().bold()
-            ))?;
-            term.write_line("Review the changes and apply manually if appropriate.\n")?;
-        } else {
-            // Confirm unless --auto is set
-            let confirmed = if options.auto {
-                true
-            } else {
-                confirm("Apply this fix?")?
-            };
-
-            if confirmed {
-                term.write_line(&format!("\n{} Applying fix...", style("⚡").cyan()))?;
-                fix.apply(path)?;
-                send_fix_applied_telemetry(path, finding, true, true, ai_provider_name, telemetry);
-                term.write_line(&format!(
-                    "{} Fix applied successfully!\n",
-                    style("✓").green().bold()
-                ))?;
-            } else {
-                send_fix_applied_telemetry(path, finding, true, false, ai_provider_name, telemetry);
-                term.write_line(&format!("\n{} Fix not applied.\n", style("ℹ️").dim()))?;
-            }
-        }
-    } else {
-        term.write_line(&format!(
-            "\n{} To apply this fix, run:",
-            style("Tip:").cyan().bold()
-        ))?;
-        term.write_line(&format!("  repotoire fix {} --apply\n", index))?;
-    }
+    display_ai_fix_details(&term, &fix, path)?;
+    apply_ai_fix(&term, &fix, path, finding, index, options, ai_provider_name, telemetry)?;
 
     // Save fix proposal
     let fixes_dir = crate::cache::cache_dir(path).join("fixes");

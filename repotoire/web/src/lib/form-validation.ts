@@ -448,16 +448,15 @@ export function createDebouncedValidator<T>(
     }
 
     return new Promise((resolve) => {
-      timeoutId = setTimeout(() => {
-        lastPromise = validator(value);
-        lastPromise
-          .then((result) => {
-            resolve(result);
-          })
-          .catch((err) => {
-            console.error('Async validation failed:', err);
-            resolve(null);
-          });
+      timeoutId = setTimeout(async () => {
+        try {
+          lastPromise = validator(value);
+          const result = await lastPromise;
+          resolve(result);
+        } catch (err) {
+          console.error('Async validation failed:', err);
+          resolve(null);
+        }
       }, debounceMs);
     });
   };
