@@ -6,6 +6,7 @@
 #![allow(dead_code)] // Module under development - structs/helpers used in tests only
 
 use crate::graph::{EdgeKind, GraphStore, NodeKind};
+use crate::graph::GraphQueryExt;
 use std::collections::{HashMap, HashSet};
 use tracing::{debug, info};
 

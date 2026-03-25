@@ -7,6 +7,7 @@
 //! - Check if it's in a development-only module
 
 use crate::detectors::base::{Detector, DetectorConfig};
+use crate::graph::GraphQueryExt;
 use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;

@@ -8,6 +8,7 @@
 //! signal than any single metric.
 
 use crate::detectors::base::Detector;
+use crate::graph::GraphQueryExt;
 use crate::detectors::function_context::FunctionContextMap;
 use crate::models::Finding;
 use crate::predictive::PredictiveCodingEngine;

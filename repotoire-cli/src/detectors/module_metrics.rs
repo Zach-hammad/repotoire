@@ -3,7 +3,7 @@
 //! Pre-computed once during the startup phase and shared with all detectors
 //! via `AnalysisContext`.
 
-use crate::graph::GraphQuery;
+use crate::graph::{GraphQuery, GraphQueryExt};
 use std::collections::{HashMap, HashSet};
 
 /// Per-module metrics computed from the call graph.

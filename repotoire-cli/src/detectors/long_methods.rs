@@ -15,6 +15,7 @@
 //! - Unreachable code severity reduction
 
 use crate::detectors::analysis_context::AnalysisContext;
+use crate::graph::GraphQueryExt;
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::detectors::function_context::FunctionRole;
 use crate::graph::GraphStore;

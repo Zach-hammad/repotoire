@@ -11,7 +11,7 @@ use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 use petgraph::Direction;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
-use std::sync::{Mutex, RwLock};
+use std::sync::{Mutex, OnceLock, RwLock};
 
 use super::interner::StrKey;
 use super::store_models::ExtraProps;
@@ -23,6 +23,29 @@ type CallMapsRaw = (
     HashMap<usize, Vec<usize>>,
     HashMap<usize, Vec<usize>>,
 );
+
+/// Lazily-computed snapshot of graph data for the `_idx` trait methods.
+///
+/// Built on first access, captures a point-in-time snapshot from the
+/// `RwLock<StableGraph>` so that `&self` methods can return references
+/// without holding the lock.
+pub(crate) struct QuerySnapshot {
+    pub(crate) nodes: Vec<Option<CodeNode>>,
+    pub(crate) name_to_idx: HashMap<StrKey, NodeIndex>,
+    pub(crate) function_idxs: Vec<NodeIndex>,
+    pub(crate) class_idxs: Vec<NodeIndex>,
+    pub(crate) file_idxs: Vec<NodeIndex>,
+    pub(crate) callers_map: HashMap<NodeIndex, Vec<NodeIndex>>,
+    pub(crate) callees_map: HashMap<NodeIndex, Vec<NodeIndex>>,
+    pub(crate) importers_map: HashMap<NodeIndex, Vec<NodeIndex>>,
+    pub(crate) child_classes_map: HashMap<NodeIndex, Vec<NodeIndex>>,
+    pub(crate) call_edges: Vec<(NodeIndex, NodeIndex)>,
+    pub(crate) import_edges: Vec<(NodeIndex, NodeIndex)>,
+    pub(crate) inheritance_edges: Vec<(NodeIndex, NodeIndex)>,
+    pub(crate) import_cycles: Vec<Vec<NodeIndex>>,
+    pub(crate) file_functions: HashMap<StrKey, Vec<NodeIndex>>,
+    pub(crate) file_classes: HashMap<StrKey, Vec<NodeIndex>>,
+}
 
 /// Pure Rust graph store - replaces Kuzu
 pub struct GraphStore {
@@ -59,6 +82,8 @@ pub struct GraphStore {
     /// Lazy mode - query db directly instead of loading all into memory
     #[allow(dead_code)] // Config field for future lazy loading support
     lazy_mode: bool,
+    /// Lazily-built snapshot for `_idx` trait method implementations.
+    query_snapshot: OnceLock<QuerySnapshot>,
 }
 
 // redb table definitions
@@ -89,6 +114,7 @@ impl GraphStore {
             db: Some(db),
             db_path: Some(db_path.to_path_buf()),
             lazy_mode: false,
+            query_snapshot: OnceLock::new(),
         };
 
         // Load existing data
@@ -119,6 +145,7 @@ impl GraphStore {
             db: Some(db),
             db_path: Some(db_path.to_path_buf()),
             lazy_mode: true,
+            query_snapshot: OnceLock::new(),
         })
     }
 
@@ -139,6 +166,7 @@ impl GraphStore {
             db: None,
             db_path: None,
             lazy_mode: false,
+            query_snapshot: OnceLock::new(),
         }
     }
 
@@ -162,6 +190,128 @@ impl GraphStore {
         self.graph
             .write()
             .expect("graph lock poisoned — a thread panicked while holding this lock")
+    }
+
+    /// Get or build the query snapshot for `_idx` trait method implementations.
+    pub(crate) fn snapshot(&self) -> &QuerySnapshot {
+        self.query_snapshot.get_or_init(|| {
+            let graph = self.read_graph();
+            let si = self.interner();
+
+            // Build node array indexed by NodeIndex::index()
+            let max_idx = graph.node_indices().map(|i| i.index()).max().unwrap_or(0);
+            let mut nodes = vec![None; max_idx + 1];
+            let mut name_to_idx: HashMap<StrKey, NodeIndex> = HashMap::new();
+            let mut function_idxs = Vec::new();
+            let mut class_idxs = Vec::new();
+            let mut file_idxs = Vec::new();
+            let mut file_functions: HashMap<StrKey, Vec<NodeIndex>> = HashMap::new();
+            let mut file_classes: HashMap<StrKey, Vec<NodeIndex>> = HashMap::new();
+
+            for idx in graph.node_indices() {
+                if let Some(node) = graph.node_weight(idx) {
+                    nodes[idx.index()] = Some(*node);
+                    name_to_idx.insert(node.qualified_name, idx);
+                    match node.kind {
+                        NodeKind::Function => {
+                            function_idxs.push(idx);
+                            file_functions.entry(node.file_path).or_default().push(idx);
+                        }
+                        NodeKind::Class => {
+                            class_idxs.push(idx);
+                            file_classes.entry(node.file_path).or_default().push(idx);
+                        }
+                        NodeKind::File => file_idxs.push(idx),
+                        _ => {}
+                    }
+                }
+            }
+
+            // Sort for determinism
+            let sort_by_qn = |idxs: &mut Vec<NodeIndex>| {
+                idxs.sort_by_cached_key(|&idx| {
+                    nodes[idx.index()]
+                        .map(|n| si.resolve(n.qualified_name).to_owned())
+                        .unwrap_or_default()
+                });
+            };
+            sort_by_qn(&mut function_idxs);
+            sort_by_qn(&mut class_idxs);
+            sort_by_qn(&mut file_idxs);
+
+            // Build edge maps
+            let mut callers_map: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::new();
+            let mut callees_map: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::new();
+            let mut importers_map: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::new();
+            let mut child_classes_map: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::new();
+            let mut call_edges = Vec::new();
+            let mut import_edges = Vec::new();
+            let mut inheritance_edges = Vec::new();
+
+            for edge in graph.edge_references() {
+                let src = edge.source();
+                let tgt = edge.target();
+                match edge.weight().kind {
+                    EdgeKind::Calls => {
+                        call_edges.push((src, tgt));
+                        callees_map.entry(src).or_default().push(tgt);
+                        callers_map.entry(tgt).or_default().push(src);
+                    }
+                    EdgeKind::Imports => {
+                        import_edges.push((src, tgt));
+                        importers_map.entry(tgt).or_default().push(src);
+                    }
+                    EdgeKind::Inherits => {
+                        inheritance_edges.push((src, tgt));
+                        child_classes_map.entry(tgt).or_default().push(src);
+                    }
+                    _ => {}
+                }
+            }
+
+            // Import cycles via Tarjan SCC on import subgraph
+            let import_cycles = {
+                let mut filtered: StableGraph<(), ()> = StableGraph::new();
+                let mut fwd: HashMap<NodeIndex, NodeIndex> = HashMap::new();
+                let mut rev: HashMap<NodeIndex, NodeIndex> = HashMap::new();
+                for &(src, tgt) in &import_edges {
+                    let fs = *fwd.entry(src).or_insert_with(|| filtered.add_node(()));
+                    let ft = *fwd.entry(tgt).or_insert_with(|| filtered.add_node(()));
+                    rev.entry(fs).or_insert(src);
+                    rev.entry(ft).or_insert(tgt);
+                    filtered.add_edge(fs, ft, ());
+                }
+                tarjan_scc(&filtered)
+                    .into_iter()
+                    .filter(|scc| scc.len() > 1)
+                    .map(|scc| {
+                        let mut cycle: Vec<NodeIndex> = scc.into_iter()
+                            .filter_map(|fi| rev.get(&fi).copied())
+                            .collect();
+                        cycle.sort_by_key(|i| i.index());
+                        cycle
+                    })
+                    .collect()
+            };
+
+            QuerySnapshot {
+                nodes,
+                name_to_idx,
+                function_idxs,
+                class_idxs,
+                file_idxs,
+                callers_map,
+                callees_map,
+                importers_map,
+                child_classes_map,
+                call_edges,
+                import_edges,
+                inheritance_edges,
+                import_cycles,
+                file_functions,
+                file_classes,
+            }
+        })
     }
 
     /// Pre-allocate capacity for the graph and node index.
@@ -1606,6 +1756,7 @@ impl GraphStore {
             db: None,
             db_path: None,
             lazy_mode: false,
+            query_snapshot: OnceLock::new(),
         };
 
         // Re-intern StrKeys from the string table: old raw u32 → new StrKey

@@ -13,6 +13,7 @@ pub mod structural;
 pub mod token_level;
 
 use crate::detectors::function_context::FunctionContextMap;
+use crate::graph::GraphQueryExt;
 use crate::models::Severity;
 
 /// Prediction error at a single hierarchy level for a single entity.

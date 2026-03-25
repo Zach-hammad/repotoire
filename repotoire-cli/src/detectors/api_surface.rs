@@ -5,6 +5,7 @@
 //! findings should be reported.
 
 use crate::graph::GraphQuery;
+use crate::graph::GraphQueryExt;
 
 /// Check if the function at the given file:line is part of the public API surface.
 /// API surface = exported function with 3+ callers.

@@ -10,6 +10,7 @@
 //! - Functions called by test fixtures
 
 use crate::calibrate::MetricKind;
+use crate::graph::GraphQueryExt;
 use crate::detectors::analysis_context::AnalysisContext;
 use crate::detectors::base::{Detector, DetectorConfig, DetectorScope};
 use crate::detectors::function_context::FunctionRole;

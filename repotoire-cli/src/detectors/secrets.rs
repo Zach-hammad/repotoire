@@ -4,6 +4,7 @@
 //! CWE-798: Use of Hard-coded Credentials
 
 use crate::detectors::base::{is_test_file, Detector, DetectorConfig};
+use crate::graph::GraphQueryExt;
 use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;

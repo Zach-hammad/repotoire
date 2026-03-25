@@ -8,6 +8,7 @@
 //! - Phase 3: Graph BFS — find hidden N+1 across function boundaries
 
 use crate::detectors::analysis_context::AnalysisContext;
+use crate::graph::GraphQueryExt;
 use crate::detectors::ast_fingerprint::{get_ts_language, parse_root};
 use crate::detectors::base::Detector;
 use crate::detectors::framework_detection::{detect_frameworks, Framework};

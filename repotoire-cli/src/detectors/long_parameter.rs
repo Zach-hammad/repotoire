@@ -23,6 +23,7 @@
 //! - The function has poor API design
 
 use crate::calibrate::MetricKind;
+use crate::graph::GraphQueryExt;
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::detectors::function_context::FunctionRole;
 use crate::graph::GraphStore;

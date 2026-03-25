@@ -4,6 +4,7 @@
 //! Now enhanced with function context for smarter role-based detection.
 
 use crate::detectors::base::{Detector, DetectorConfig};
+use crate::graph::GraphQueryExt;
 use crate::detectors::function_context::{FunctionContextMap, FunctionRole};
 use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};

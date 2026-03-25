@@ -4,6 +4,7 @@
 //! Avoids redundant graph queries and Vec<CodeNode> cloning across detectors.
 
 use crate::detectors::class_context::ClassContextMap;
+use crate::graph::GraphQueryExt;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

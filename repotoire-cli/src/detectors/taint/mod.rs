@@ -57,7 +57,7 @@ mod heuristic;
 #[cfg(test)]
 mod tests;
 
-use crate::graph::{GraphStore, GraphQuery, NodeKind};
+use crate::graph::{GraphQueryExt, GraphStore, GraphQuery, NodeKind};
 use crate::models::Finding;
 use crate::parsers::lightweight::Language;
 use std::collections::{HashMap, HashSet, VecDeque};

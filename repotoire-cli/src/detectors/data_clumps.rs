@@ -9,6 +9,7 @@
 //! - Identifies refactoring opportunities where params travel through call chains
 
 use crate::detectors::base::{Detector, DetectorConfig};
+use crate::graph::GraphQueryExt;
 use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;

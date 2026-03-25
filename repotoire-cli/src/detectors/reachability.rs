@@ -3,7 +3,7 @@
 //! Pre-computed once during the startup phase and shared with all detectors
 //! via `AnalysisContext`.
 
-use crate::graph::GraphQuery;
+use crate::graph::{GraphQuery, GraphQueryExt};
 use std::collections::{HashMap, HashSet, VecDeque};
 
 /// Index of functions reachable from entry points via BFS on the call graph.

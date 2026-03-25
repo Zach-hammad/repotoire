@@ -7,6 +7,7 @@
 //! - Identify if commented code is old (references non-existent functions)
 
 use crate::detectors::base::{Detector, DetectorConfig};
+use crate::graph::GraphQueryExt;
 use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;

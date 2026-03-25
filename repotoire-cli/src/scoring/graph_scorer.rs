@@ -5,7 +5,7 @@
 
 use crate::config::ProjectConfig;
 use crate::detectors::api_surface::is_api_surface;
-use crate::graph::GraphQuery;
+use crate::graph::{GraphQuery, GraphQueryExt};
 use crate::models::{Finding, Severity};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};

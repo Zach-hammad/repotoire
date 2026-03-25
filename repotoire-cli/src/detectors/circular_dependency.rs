@@ -7,6 +7,7 @@
 //! - Suggest specific refactoring based on what's being imported
 
 use crate::detectors::base::{Detector, DetectorConfig, DetectorScope};
+use crate::graph::GraphQueryExt;
 use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;

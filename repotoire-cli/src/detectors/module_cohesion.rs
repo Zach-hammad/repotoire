@@ -6,6 +6,7 @@
 //! restructuring.
 
 use crate::detectors::base::{Detector, DetectorConfig};
+use crate::graph::GraphQueryExt;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use rustc_hash::FxHashMap;

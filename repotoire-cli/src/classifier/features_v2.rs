@@ -442,103 +442,10 @@ fn category_ordinal(detector: &str) -> f64 {
 mod tests {
     use super::*;
     use crate::graph::store_models::CodeNode;
-    use crate::graph::traits::{GraphQuery, GraphQueryExt};
+    use crate::graph::{CodeEdge, GraphStore};
+    use crate::graph::traits::GraphQueryExt;
     use std::collections::HashMap;
     use std::path::PathBuf;
-
-    // -----------------------------------------------------------------------
-    // Minimal in-memory graph for testing
-    // -----------------------------------------------------------------------
-
-    /// A tiny graph implementation sufficient for feature extraction tests.
-    struct TestGraph {
-        functions: Vec<CodeNode>,
-        classes: Vec<CodeNode>,
-        cycles: Vec<Vec<String>>,
-    }
-
-    impl TestGraph {
-        fn empty() -> Self {
-            Self {
-                functions: Vec::new(),
-                classes: Vec::new(),
-                cycles: Vec::new(),
-            }
-        }
-
-        fn with_function(mut self, func: CodeNode) -> Self {
-            self.functions.push(func);
-            self
-        }
-
-        fn with_class(mut self, cls: CodeNode) -> Self {
-            self.classes.push(cls);
-            self
-        }
-
-        #[allow(dead_code)]
-        fn with_cycle(mut self, cycle: Vec<String>) -> Self {
-            self.cycles.push(cycle);
-            self
-        }
-    }
-
-    impl GraphQuery for TestGraph {
-        fn primitives(&self) -> &crate::graph::primitives::GraphPrimitives {
-            static EMPTY: std::sync::LazyLock<crate::graph::primitives::GraphPrimitives> = std::sync::LazyLock::new(crate::graph::primitives::GraphPrimitives::default);
-            &EMPTY
-        }
-
-        fn interner(&self) -> &crate::graph::interner::StringInterner {
-            crate::graph::interner::global_interner()
-        }
-
-        fn extra_props(&self, _qn: crate::graph::interner::StrKey) -> Option<crate::graph::store_models::ExtraProps> {
-            None
-        }
-
-        fn get_functions(&self) -> Vec<CodeNode> {
-            self.functions.clone()
-        }
-
-        fn get_classes(&self) -> Vec<CodeNode> {
-            self.classes.clone()
-        }
-
-        fn get_functions_in_file(&self, file_path: &str) -> Vec<CodeNode> {
-            let i = self.interner();
-            self.functions
-                .iter()
-                .filter(|f| f.path(i) == file_path)
-                .cloned()
-                .collect()
-        }
-
-        fn get_classes_in_file(&self, file_path: &str) -> Vec<CodeNode> {
-            let i = self.interner();
-            self.classes
-                .iter()
-                .filter(|c| c.path(i) == file_path)
-                .cloned()
-                .collect()
-        }
-
-        fn call_fan_in(&self, _qn: &str) -> usize {
-            3 // fixed for tests
-        }
-
-        fn call_fan_out(&self, _qn: &str) -> usize {
-            2 // fixed for tests
-        }
-
-        fn find_import_cycles(&self) -> Vec<Vec<String>> {
-            self.cycles.clone()
-        }
-
-        fn stats(&self) -> std::collections::BTreeMap<String, i64> {
-            std::collections::BTreeMap::new()
-        }
-    }
 
     // -----------------------------------------------------------------------
     // Helper: build a test finding
@@ -561,14 +468,36 @@ mod tests {
         }
     }
 
-    fn make_graph() -> TestGraph {
+    fn make_graph() -> GraphStore {
+        let store = GraphStore::in_memory();
+
         let func = CodeNode::function("handle_query", "src/api/users.py")
             .with_qualified_name("src.api.users.handle_query")
             .with_lines(10, 50)
             .with_property("complexity", 8)
             .with_property("nesting_depth", 3);
+        store.add_node(func);
 
-        TestGraph::empty().with_function(func)
+        // 3 callers (fan_in=3)
+        for i in 0..3 {
+            let name = format!("caller_{i}");
+            store.add_node(
+                CodeNode::function(&name, "src/other.py")
+                    .with_qualified_name(&name),
+            );
+            store.add_edge_by_name(&name, "src.api.users.handle_query", CodeEdge::calls());
+        }
+        // 2 callees (fan_out=2)
+        for i in 0..2 {
+            let name = format!("callee_{i}");
+            store.add_node(
+                CodeNode::function(&name, "src/other.py")
+                    .with_qualified_name(&name),
+            );
+            store.add_edge_by_name("src.api.users.handle_query", &name, CodeEdge::calls());
+        }
+
+        store
     }
 
     // -----------------------------------------------------------------------
@@ -776,7 +705,8 @@ mod tests {
             .with_lines(1, 100);
 
         // Graph has only a class, no function covering line 5.
-        let graph = TestGraph::empty().with_class(cls);
+        let graph = GraphStore::in_memory();
+        graph.add_node(cls);
 
         let features = extractor.extract(&finding, Some(&graph), None, None);
         // entity_type should be 2.0 (class)
@@ -788,14 +718,11 @@ mod tests {
         let extractor = FeatureExtractorV2::new();
         let finding = make_finding();
 
-        let graph = TestGraph {
-            functions: Vec::new(),
-            classes: Vec::new(),
-            cycles: vec![vec![
-                "src/api/users.py".to_string(),
-                "src/api/orders.py".to_string(),
-            ]],
-        };
+        let graph = GraphStore::in_memory();
+        graph.add_node(CodeNode::file("src/api/users.py"));
+        graph.add_node(CodeNode::file("src/api/orders.py"));
+        graph.add_edge_by_name("src/api/users.py", "src/api/orders.py", CodeEdge::imports());
+        graph.add_edge_by_name("src/api/orders.py", "src/api/users.py", CodeEdge::imports());
 
         let features = extractor.extract(&finding, Some(&graph), None, None);
         // File is in a cycle.

@@ -15,6 +15,7 @@
 //! - Deduplicate overlapping windows within the same file
 
 use crate::detectors::base::{is_test_file, Detector, DetectorScope};
+use crate::graph::GraphQueryExt;
 use crate::graph::interner::StrKey;
 use crate::models::{Finding, Severity};
 use anyhow::Result;

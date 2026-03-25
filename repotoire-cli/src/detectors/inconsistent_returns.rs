@@ -7,6 +7,7 @@
 //! - Skips test functions, constructors/factory functions, and guard-clause patterns
 
 use crate::detectors::base::{Detector, DetectorConfig};
+use crate::graph::GraphQueryExt;
 use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;

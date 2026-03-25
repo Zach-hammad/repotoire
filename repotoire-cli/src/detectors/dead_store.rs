@@ -5,6 +5,7 @@
 //! the ValueStore for assignment data, eliminating the old regex approach.
 
 use crate::detectors::analysis_context::AnalysisContext;
+use crate::graph::GraphQueryExt;
 use crate::detectors::base::{Detector, DetectorConfig, DetectorScope};
 use crate::graph::store_models::NodeKind;
 use crate::models::{Finding, Severity};

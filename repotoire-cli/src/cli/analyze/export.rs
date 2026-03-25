@@ -14,7 +14,7 @@ use crate::classifier::features_v2::{
     compute_cross_features, FeatureExtractorV2, GitFeatures, FEATURE_NAMES,
 };
 use crate::git::history::GitHistory;
-use crate::graph::traits::GraphQuery;
+use crate::graph::traits::{GraphQuery, GraphQueryExt};
 use crate::models::Finding;
 
 /// A single training sample with features, label, and metadata.

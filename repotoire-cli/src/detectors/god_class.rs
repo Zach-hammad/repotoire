@@ -12,6 +12,7 @@
 //! - Entry point classes (heavily used) have raised thresholds
 
 use crate::detectors::base::{Detector, DetectorConfig};
+use crate::graph::GraphQueryExt;
 use crate::detectors::class_context::{ClassContextBuilder, ClassContextMap, ClassRole};
 use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};

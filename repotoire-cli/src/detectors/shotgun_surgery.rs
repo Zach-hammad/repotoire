@@ -20,6 +20,7 @@
 //! Requires co-change data — returns empty findings when unavailable.
 
 use crate::detectors::base::{Detector, DetectorConfig};
+use crate::graph::GraphQueryExt;
 use crate::graph::interner::global_interner;
 use crate::models::{Finding, Severity};
 use anyhow::Result;

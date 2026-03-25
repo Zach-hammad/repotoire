@@ -12,6 +12,7 @@
 //! Dead function detection (fan_in == 0) is handled by DeadCodeDetector.
 
 use crate::detectors::analysis_context::AnalysisContext;
+use crate::graph::GraphQueryExt;
 use crate::detectors::ast_fingerprint::{get_ts_language, parse_root};
 use crate::detectors::base::Detector;
 use crate::models::{Finding, Severity};

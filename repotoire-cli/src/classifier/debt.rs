@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 
-use crate::graph::traits::GraphQuery;
+use crate::graph::traits::{GraphQuery, GraphQueryExt};
 use crate::models::{Finding, Severity};
 
 // ---------------------------------------------------------------------------
@@ -213,70 +213,53 @@ pub fn compute_debt(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::{CodeNode, NodeKind};
+    use crate::graph::{CodeEdge, CodeNode, GraphStore, NodeKind};
     use std::collections::HashMap;
     use std::path::PathBuf;
 
-    /// Minimal in-memory graph for testing.
-    struct MockGraph {
-        files: Vec<CodeNode>,
-        functions: Vec<CodeNode>,
-    }
+    /// Build a GraphStore-based mock with files, functions, and fake call edges.
+    fn build_mock_graph() -> GraphStore {
+        let store = GraphStore::in_memory();
 
-    impl GraphQuery for MockGraph {
-        fn primitives(&self) -> &crate::graph::primitives::GraphPrimitives {
-            static EMPTY: std::sync::LazyLock<crate::graph::primitives::GraphPrimitives> = std::sync::LazyLock::new(crate::graph::primitives::GraphPrimitives::default);
-            &EMPTY
+        // File node
+        let mut file_node = CodeNode::new(NodeKind::File, "src/main.rs", "src/main.rs");
+        file_node.line_start = 1;
+        file_node.line_end = 500;
+        store.add_node(file_node);
+
+        // Functions
+        store.add_node(
+            CodeNode::new(NodeKind::Function, "main", "src/main.rs")
+                .with_qualified_name("main"),
+        );
+        store.add_node(
+            CodeNode::new(NodeKind::Function, "helper", "src/main.rs")
+                .with_qualified_name("helper"),
+        );
+
+        // Fake callers: 3 callers for each function (fan_in=3)
+        for i in 0..3 {
+            let caller_name = format!("caller_{i}");
+            store.add_node(
+                CodeNode::new(NodeKind::Function, &caller_name, "src/other.rs")
+                    .with_qualified_name(&caller_name),
+            );
+            store.add_edge_by_name(&caller_name, "main", CodeEdge::calls());
+            store.add_edge_by_name(&caller_name, "helper", CodeEdge::calls());
         }
 
-        fn interner(&self) -> &crate::graph::interner::StringInterner {
-            crate::graph::interner::global_interner()
+        // Fake callees: 2 callees for each function (fan_out=2)
+        for i in 0..2 {
+            let callee_name = format!("callee_{i}");
+            store.add_node(
+                CodeNode::new(NodeKind::Function, &callee_name, "src/other.rs")
+                    .with_qualified_name(&callee_name),
+            );
+            store.add_edge_by_name("main", &callee_name, CodeEdge::calls());
+            store.add_edge_by_name("helper", &callee_name, CodeEdge::calls());
         }
 
-        fn extra_props(&self, _qn: crate::graph::interner::StrKey) -> Option<crate::graph::store_models::ExtraProps> {
-            None
-        }
-
-        fn get_functions(&self) -> Vec<CodeNode> {
-            self.functions.clone()
-        }
-
-        fn get_files(&self) -> Vec<CodeNode> {
-            self.files.clone()
-        }
-
-        fn get_functions_in_file(&self, file_path: &str) -> Vec<CodeNode> {
-            let i = self.interner();
-            self.functions
-                .iter()
-                .filter(|f| f.path(i) == file_path)
-                .cloned()
-                .collect()
-        }
-
-        fn call_fan_in(&self, _qn: &str) -> usize {
-            3
-        }
-
-        fn call_fan_out(&self, _qn: &str) -> usize {
-            2
-        }
-
-        fn stats(&self) -> std::collections::BTreeMap<String, i64> {
-            std::collections::BTreeMap::new()
-        }
-    }
-
-    fn make_file_node(path: &str, lines: u32) -> CodeNode {
-        let mut node = CodeNode::new(NodeKind::File, path, path);
-        node.line_start = 1;
-        node.line_end = lines;
-        node
-    }
-
-    fn make_function_node(name: &str, file_path: &str) -> CodeNode {
-        CodeNode::new(NodeKind::Function, name, file_path)
-            .with_qualified_name(name)
+        store
     }
 
     fn make_finding(path: &str, severity: Severity) -> Finding {
@@ -290,13 +273,7 @@ mod tests {
 
     #[test]
     fn test_debt_scoring_basic() {
-        let graph = MockGraph {
-            files: vec![make_file_node("src/main.rs", 500)],
-            functions: vec![
-                make_function_node("main", "src/main.rs"),
-                make_function_node("helper", "src/main.rs"),
-            ],
-        };
+        let graph = build_mock_graph();
 
         let findings = vec![
             make_finding("src/main.rs", Severity::High),
@@ -316,7 +293,7 @@ mod tests {
             d.risk_score <= 100.0,
             "risk_score should be at most 100"
         );
-        // finding_density: (3*3 + 2*1) / 0.499 ≈ weighted / kLOC — should be non-zero
+        // finding_density should be non-zero
         assert!(d.finding_density > 0.0);
         // coupling: 2 functions * (3 + 2) = 10
         assert!((d.coupling_score - 10.0).abs() < 0.01);
@@ -329,15 +306,16 @@ mod tests {
 
     #[test]
     fn test_debt_scoring_empty() {
-        let graph = MockGraph {
-            files: vec![make_file_node("src/lib.rs", 100)],
-            functions: vec![],
-        };
+        let store = GraphStore::in_memory();
+        let mut file_node = CodeNode::new(NodeKind::File, "src/lib.rs", "src/lib.rs");
+        file_node.line_start = 1;
+        file_node.line_end = 100;
+        store.add_node(file_node);
 
         let findings: Vec<Finding> = vec![];
         let churn: HashMap<String, (f64, usize, f64)> = HashMap::new();
 
-        let debts = compute_debt(&findings, &graph, &churn, &DebtWeights::default());
+        let debts = compute_debt(&findings, &store, &churn, &DebtWeights::default());
 
         assert!(
             debts.is_empty(),

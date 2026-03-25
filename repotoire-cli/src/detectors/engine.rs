@@ -9,6 +9,7 @@
 //! Actual detector execution lives in `runner.rs` (`run_detectors()`).
 
 use crate::detectors::context_hmm::{ContextClassifier, FunctionContext, FunctionFeatures, FunctionMetrics};
+use crate::graph::GraphQueryExt;
 use crate::detectors::function_context::{FunctionContextBuilder, FunctionContextMap};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;

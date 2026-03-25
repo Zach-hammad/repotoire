@@ -16,6 +16,7 @@
 //! - Style drift over time
 
 use crate::calibrate::NgramModel;
+use crate::graph::GraphQueryExt;
 use crate::detectors::base::Detector;
 use crate::models::{Finding, Severity};
 use anyhow::Result;

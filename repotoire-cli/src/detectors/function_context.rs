@@ -6,7 +6,7 @@
 #![allow(dead_code)] // Module under development - structs/helpers used in tests only
 
 use crate::graph::interner::StrKey;
-use crate::graph::GraphQuery;
+use crate::graph::{GraphQuery, GraphQueryExt};
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use tracing::{debug, info};

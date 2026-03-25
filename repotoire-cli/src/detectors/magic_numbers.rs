@@ -9,6 +9,7 @@
 //! - Suggests appropriate constant names based on context
 
 use crate::detectors::base::Detector;
+use crate::graph::GraphQueryExt;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use regex::Regex;

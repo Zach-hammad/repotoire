@@ -9,6 +9,7 @@
 //! Skip list: data classes, error types, enum-like types are excluded.
 
 use crate::detectors::base::{Detector, DetectorConfig};
+use crate::graph::GraphQueryExt;
 use crate::graph::store_models::CodeNode;
 use crate::models::{Finding, Severity};
 use anyhow::Result;

@@ -23,6 +23,7 @@
 //! Penguin shouldn't inherit from Bird if it can't fly.
 
 use crate::detectors::base::{Detector, DetectorConfig};
+use crate::graph::GraphQueryExt;
 use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;

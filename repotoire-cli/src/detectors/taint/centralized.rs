@@ -18,7 +18,7 @@
 
 use crate::detectors::file_cache::FileContentCache;
 use crate::detectors::taint::{TaintAnalyzer, TaintCategory, TaintPath};
-use crate::graph::GraphQuery;
+use crate::graph::{GraphQuery, GraphQueryExt};
 use crate::parsers::lightweight::Language;
 use rayon::prelude::*;
 use std::collections::HashMap;

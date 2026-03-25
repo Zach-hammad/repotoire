@@ -25,6 +25,7 @@ pub use store_models::{CodeEdge, CodeNode, EdgeKind, NodeKind};
 pub use store_models::{ExtraProps, FLAG_IS_ASYNC, FLAG_IS_EXPORTED, FLAG_IS_PUBLIC, FLAG_IS_METHOD, FLAG_ADDRESS_TAKEN, FLAG_HAS_DECORATORS};
 
 pub use traits::GraphQuery;
+pub use traits::GraphQueryExt;
 
 pub use builder::GraphBuilder;
 pub use frozen::CodeGraph;

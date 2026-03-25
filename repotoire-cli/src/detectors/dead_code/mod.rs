@@ -11,6 +11,7 @@
 //! replacing the previous 200+ hardcoded pattern lists.
 
 use crate::detectors::analysis_context::AnalysisContext;
+use crate::graph::GraphQueryExt;
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::detectors::context_hmm;
 use crate::detectors::function_context::FunctionRole;

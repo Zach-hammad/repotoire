@@ -1,4 +1,5 @@
 use crate::detectors::base::Detector;
+use crate::graph::GraphQueryExt;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use std::path::PathBuf;
