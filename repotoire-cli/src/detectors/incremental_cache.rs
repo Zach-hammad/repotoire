@@ -181,6 +181,7 @@ struct CacheData {
 }
 
 impl Default for CacheData {
+    // repotoire:ignore[mutual-recursion] — false positive: new() → load_cache() → invalidate_all() → default() is a call-graph cycle but not actual recursion; each function is called at most once per construction.
     fn default() -> Self {
         Self {
             version: CACHE_VERSION,

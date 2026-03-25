@@ -590,48 +590,7 @@ impl DataFlowAnalyzer {
         match stmt {
             // Assignment: x = y
             Stmt::Assign(assign) => {
-                let source_vars = self.extract_vars(&assign.value);
-
-                for target in &assign.targets {
-                    let target_line = self.expr_line(target);
-                    let target_name = self.expr_to_string(target);
-
-                    // Create edges from each source var to the target
-                    for (source_var, source_line) in &source_vars {
-                        self.add_edge(
-                            source_var.clone(),
-                            *source_line,
-                            target_name.clone(),
-                            target_line,
-                            DataFlowType::Assignment,
-                        );
-                    }
-
-                    // Handle tuple unpacking: x, y = z
-                    if let Expr::Tuple(t) = target {
-                        for elt in &t.elts {
-                            let elt_name = self.expr_to_string(elt);
-                            let elt_line = self.expr_line(elt);
-                            for (source_var, source_line) in &source_vars {
-                                self.add_edge(
-                                    source_var.clone(),
-                                    *source_line,
-                                    elt_name.clone(),
-                                    elt_line,
-                                    DataFlowType::Unpack,
-                                );
-                            }
-                            // Define the unpacked variable
-                            self.define_var(&elt_name, elt_line);
-                        }
-                    } else {
-                        // Define the target variable
-                        self.define_var(&target_name, target_line);
-                    }
-                }
-
-                // Process function calls in the RHS to track arguments flowing to functions
-                self.process_call_arguments(&assign.value);
+                self.visit_assign(&assign.targets, &assign.value);
             }
 
             // Annotated assignment: x: int = y
@@ -690,102 +649,12 @@ impl DataFlowAnalyzer {
 
             // Function definition: def foo(x, y): ...
             Stmt::FunctionDef(func) => {
-                let func_name = func.name.to_string();
-                let func_line = self.get_line(func.range);
-
-                self.push_scope(&func_name);
-
-                // Parameters are sources of data flow
-                for arg in &func.args.args {
-                    let param_name = arg.def.arg.to_string();
-                    let param_line = self.get_line(arg.def.range);
-
-                    // Parameter edge: caller flows to parameter
-                    self.add_edge(
-                        format!("{}:caller", func_name),
-                        func_line,
-                        param_name.clone(),
-                        param_line,
-                        DataFlowType::Parameter,
-                    );
-
-                    self.define_var(&param_name, param_line);
-
-                    // Default value flow
-                    if let Some(default) = &arg.default {
-                        let default_vars = self.extract_vars(default);
-                        for (src, src_line) in &default_vars {
-                            self.add_edge(
-                                src.clone(),
-                                *src_line,
-                                param_name.clone(),
-                                param_line,
-                                DataFlowType::Assignment,
-                            );
-                        }
-                    }
-                }
-
-                // Handle *args
-                if let Some(var_arg) = &func.args.vararg {
-                    let name = var_arg.arg.to_string();
-                    let line = self.get_line(var_arg.range);
-                    self.define_var(&name, line);
-                }
-
-                // Handle **kwargs
-                if let Some(kwarg) = &func.args.kwarg {
-                    let name = kwarg.arg.to_string();
-                    let line = self.get_line(kwarg.range);
-                    self.define_var(&name, line);
-                }
-
-                // Visit function body
-                for stmt in &func.body {
-                    self.visit_stmt(stmt);
-                }
-
-                self.pop_scope();
+                self.visit_function_def(&func.name, func.range, &func.args, &func.body);
             }
 
             // Async function definition
             Stmt::AsyncFunctionDef(func) => {
-                let func_name = func.name.to_string();
-                let func_line = self.get_line(func.range);
-
-                self.push_scope(&func_name);
-
-                for arg in &func.args.args {
-                    let param_name = arg.def.arg.to_string();
-                    let param_line = self.get_line(arg.def.range);
-
-                    self.add_edge(
-                        format!("{}:caller", func_name),
-                        func_line,
-                        param_name.clone(),
-                        param_line,
-                        DataFlowType::Parameter,
-                    );
-
-                    self.define_var(&param_name, param_line);
-                }
-
-                if let Some(var_arg) = &func.args.vararg {
-                    let name = var_arg.arg.to_string();
-                    let line = self.get_line(var_arg.range);
-                    self.define_var(&name, line);
-                }
-                if let Some(kwarg) = &func.args.kwarg {
-                    let name = kwarg.arg.to_string();
-                    let line = self.get_line(kwarg.range);
-                    self.define_var(&name, line);
-                }
-
-                for stmt in &func.body {
-                    self.visit_stmt(stmt);
-                }
-
-                self.pop_scope();
+                self.visit_function_def(&func.name, func.range, &func.args, &func.body);
             }
 
             // Return statement
@@ -824,80 +693,17 @@ impl DataFlowAnalyzer {
 
             // For loop: for x in iterable:
             Stmt::For(for_stmt) => {
-                let target_name = self.expr_to_string(&for_stmt.target);
-                let target_line = self.expr_line(&for_stmt.target);
-                let iter_vars = self.extract_vars(&for_stmt.iter);
-
-                // Iterable flows to loop variable
-                for (source_var, source_line) in &iter_vars {
-                    self.add_edge(
-                        source_var.clone(),
-                        *source_line,
-                        target_name.clone(),
-                        target_line,
-                        DataFlowType::Assignment,
-                    );
-                }
-
-                self.define_var(&target_name, target_line);
-
-                // Visit loop body
-                for stmt in &for_stmt.body {
-                    self.visit_stmt(stmt);
-                }
-                for stmt in &for_stmt.orelse {
-                    self.visit_stmt(stmt);
-                }
+                self.visit_for_loop(&for_stmt.target, &for_stmt.iter, &for_stmt.body, &for_stmt.orelse);
             }
 
             // Async for loop
             Stmt::AsyncFor(for_stmt) => {
-                let target_name = self.expr_to_string(&for_stmt.target);
-                let target_line = self.expr_line(&for_stmt.target);
-                let iter_vars = self.extract_vars(&for_stmt.iter);
-
-                for (source_var, source_line) in &iter_vars {
-                    self.add_edge(
-                        source_var.clone(),
-                        *source_line,
-                        target_name.clone(),
-                        target_line,
-                        DataFlowType::Assignment,
-                    );
-                }
-
-                self.define_var(&target_name, target_line);
-
-                for stmt in &for_stmt.body {
-                    self.visit_stmt(stmt);
-                }
-                for stmt in &for_stmt.orelse {
-                    self.visit_stmt(stmt);
-                }
+                self.visit_for_loop(&for_stmt.target, &for_stmt.iter, &for_stmt.body, &for_stmt.orelse);
             }
 
             // With statement: with open(f) as handle:
             Stmt::With(with_stmt) => {
-                for item in &with_stmt.items {
-                    if let Some(vars) = &item.optional_vars {
-                        let target_name = self.expr_to_string(vars);
-                        let target_line = self.expr_line(vars);
-                        let context_vars = self.extract_vars(&item.context_expr);
-
-                        for (source_var, source_line) in &context_vars {
-                            self.add_edge(
-                                source_var.clone(),
-                                *source_line,
-                                target_name.clone(),
-                                target_line,
-                                DataFlowType::Assignment,
-                            );
-                        }
-
-                        self.define_var(&target_name, target_line);
-                    }
-                }
-
+                self.visit_with_items(&with_stmt.items);
                 for stmt in &with_stmt.body {
                     self.visit_stmt(stmt);
                 }
@@ -905,26 +711,7 @@ impl DataFlowAnalyzer {
 
             // Async with
             Stmt::AsyncWith(with_stmt) => {
-                for item in &with_stmt.items {
-                    if let Some(vars) = &item.optional_vars {
-                        let target_name = self.expr_to_string(vars);
-                        let target_line = self.expr_line(vars);
-                        let context_vars = self.extract_vars(&item.context_expr);
-
-                        for (source_var, source_line) in &context_vars {
-                            self.add_edge(
-                                source_var.clone(),
-                                *source_line,
-                                target_name.clone(),
-                                target_line,
-                                DataFlowType::Assignment,
-                            );
-                        }
-
-                        self.define_var(&target_name, target_line);
-                    }
-                }
-
+                self.visit_with_items(&with_stmt.items);
                 for stmt in &with_stmt.body {
                     self.visit_stmt(stmt);
                 }
@@ -1043,6 +830,162 @@ impl DataFlowAnalyzer {
 
             // Import, Pass, Break, Continue, Raise, Assert, Delete, etc. don't create data flow edges
             _ => {}
+        }
+    }
+
+    /// Visit an assignment statement: x = y
+    fn visit_assign(&mut self, targets: &[Expr], value: &Expr) {
+        let source_vars = self.extract_vars(value);
+
+        for target in targets {
+            let target_line = self.expr_line(target);
+            let target_name = self.expr_to_string(target);
+
+            for (source_var, source_line) in &source_vars {
+                self.add_edge(
+                    source_var.clone(),
+                    *source_line,
+                    target_name.clone(),
+                    target_line,
+                    DataFlowType::Assignment,
+                );
+            }
+
+            if let Expr::Tuple(t) = target {
+                for elt in &t.elts {
+                    let elt_name = self.expr_to_string(elt);
+                    let elt_line = self.expr_line(elt);
+                    for (source_var, source_line) in &source_vars {
+                        self.add_edge(
+                            source_var.clone(),
+                            *source_line,
+                            elt_name.clone(),
+                            elt_line,
+                            DataFlowType::Unpack,
+                        );
+                    }
+                    self.define_var(&elt_name, elt_line);
+                }
+            } else {
+                self.define_var(&target_name, target_line);
+            }
+        }
+
+        self.process_call_arguments(value);
+    }
+
+    /// Visit a function definition (sync or async).
+    fn visit_function_def(
+        &mut self,
+        func_name: &ast::Identifier,
+        range: ast::text_size::TextRange,
+        args: &ast::Arguments,
+        body: &[Stmt],
+    ) {
+        let name_str = func_name.to_string();
+        let func_line = self.get_line(range);
+
+        self.push_scope(&name_str);
+
+        for arg in &args.args {
+            let param_name = arg.def.arg.to_string();
+            let param_line = self.get_line(arg.def.range);
+
+            self.add_edge(
+                format!("{}:caller", name_str),
+                func_line,
+                param_name.clone(),
+                param_line,
+                DataFlowType::Parameter,
+            );
+
+            self.define_var(&param_name, param_line);
+
+            if let Some(default) = &arg.default {
+                let default_vars = self.extract_vars(default);
+                for (src, src_line) in &default_vars {
+                    self.add_edge(
+                        src.clone(),
+                        *src_line,
+                        param_name.clone(),
+                        param_line,
+                        DataFlowType::Assignment,
+                    );
+                }
+            }
+        }
+
+        if let Some(var_arg) = &args.vararg {
+            let name = var_arg.arg.to_string();
+            let line = self.get_line(var_arg.range);
+            self.define_var(&name, line);
+        }
+
+        if let Some(kwarg) = &args.kwarg {
+            let name = kwarg.arg.to_string();
+            let line = self.get_line(kwarg.range);
+            self.define_var(&name, line);
+        }
+
+        for stmt in body {
+            self.visit_stmt(stmt);
+        }
+
+        self.pop_scope();
+    }
+
+    /// Visit a for loop (sync or async).
+    fn visit_for_loop(
+        &mut self,
+        target: &Expr,
+        iter: &Expr,
+        body: &[Stmt],
+        orelse: &[Stmt],
+    ) {
+        let target_name = self.expr_to_string(target);
+        let target_line = self.expr_line(target);
+        let iter_vars = self.extract_vars(iter);
+
+        for (source_var, source_line) in &iter_vars {
+            self.add_edge(
+                source_var.clone(),
+                *source_line,
+                target_name.clone(),
+                target_line,
+                DataFlowType::Assignment,
+            );
+        }
+
+        self.define_var(&target_name, target_line);
+
+        for stmt in body {
+            self.visit_stmt(stmt);
+        }
+        for stmt in orelse {
+            self.visit_stmt(stmt);
+        }
+    }
+
+    /// Visit with-statement items (context managers).
+    fn visit_with_items(&mut self, items: &[ast::WithItem]) {
+        for item in items {
+            if let Some(vars) = &item.optional_vars {
+                let target_name = self.expr_to_string(vars);
+                let target_line = self.expr_line(vars);
+                let context_vars = self.extract_vars(&item.context_expr);
+
+                for (source_var, source_line) in &context_vars {
+                    self.add_edge(
+                        source_var.clone(),
+                        *source_line,
+                        target_name.clone(),
+                        target_line,
+                        DataFlowType::Assignment,
+                    );
+                }
+
+                self.define_var(&target_name, target_line);
+            }
         }
     }
 

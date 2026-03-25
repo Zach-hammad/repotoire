@@ -1723,136 +1723,129 @@ impl TypeInference {
         let mut types = HashSet::new();
 
         match expr {
-            // Rule 3: Variable assignment - reference to another variable
             ast::Expr::Name(name) => {
-                // First check if this is a class (for Rule 1)
-                if let Some(resolved) = self.resolve_name(&name.id, scope_ns) {
-                    for ns in resolved {
-                        if self.classes.contains_key(&ns) {
-                            // This is a class reference, not an instantiation
-                            types.insert(ns);
-                        } else if self.functions.contains_key(&ns) {
-                            // This is a function reference
-                            types.insert(ns);
-                        } else {
-                            // Check assignments for this variable
-                            let var_ns = format!("{}::{}", scope_ns, name.id);
-                            if let Some(var_types) = self.assignments.get(&var_ns) {
-                                types.extend(var_types.iter().cloned());
-                            } else {
-                                // Fallback to the resolved namespace
-                                types.insert(ns);
-                            }
-                        }
-                    }
-                } else {
-                    // Try looking up in assignments directly
-                    let var_ns = format!("{}::{}", scope_ns, name.id);
-                    if let Some(var_types) = self.assignments.get(&var_ns) {
-                        types.extend(var_types.iter().cloned());
-                    }
-                }
+                self.infer_name_types(name, scope_ns, &mut types);
             }
-
-            // Rules 1, 2, 5: Call expressions (class instantiation, function call, method call)
             ast::Expr::Call(call) => {
-                match call.func.as_ref() {
-                    // Direct call: MyClass(), func()
-                    ast::Expr::Name(name) => {
-                        if let Some(resolved) = self.resolve_name(&name.id, scope_ns) {
-                            for ns in resolved {
-                                // Rule 1: Class instantiation
-                                if self.classes.contains_key(&ns) {
-                                    types.insert(ns);
-                                }
-                                // Rule 2: Function call with return types
-                                else if let Some(func_info) = self.functions.get(&ns) {
-                                    if func_info.has_return_types() {
-                                        types.extend(func_info.return_types.iter().cloned());
-                                    } else {
-                                        // No return type info, use the function namespace as placeholder
-                                        types.insert(format!("{}::return", ns));
-                                    }
-                                }
-                                // Unknown call - might be external
-                                else if let Some(def) = self.definitions.get(&ns) {
-                                    if def.def_type == DefType::External {
-                                        types.insert(format!("external:{}::return", ns));
-                                    } else {
-                                        types.insert(format!("{}::return", ns));
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // Rule 5: Method call: obj.method()
-                    ast::Expr::Attribute(attr) => {
-                        let method_name = &attr.attr;
-                        let receiver_types = self.infer_expr_types_for_propagation(&attr.value, scope_ns);
-
-                        for receiver_type in receiver_types {
-                            // Try to find the method in the class
-                            if let Some(class_info) = self.classes.get(&receiver_type) {
-                                // Look up method in MRO
-                                for base_ns in &class_info.mro {
-                                    if let Some(base_info) = self.classes.get(base_ns) {
-                                        if let Some(method_ns) = base_info.methods.get(method_name.as_str()) {
-                                            // Found the method, get its return types
-                                            if let Some(func_info) = self.functions.get(method_ns) {
-                                                if func_info.has_return_types() {
-                                                    types.extend(func_info.return_types.iter().cloned());
-                                                } else {
-                                                    types.insert(format!("{}::return", method_ns));
-                                                }
-                                            } else {
-                                                types.insert(format!("{}::return", method_ns));
-                                            }
-                                            break;
-                                        }
-                                    }
-                                }
-                            } else {
-                                // Unknown receiver type - construct a placeholder
-                                types.insert(format!("{}.{}::return", receiver_type, method_name));
-                            }
-                        }
-                    }
-
-                    _ => {}
-                }
+                self.infer_call_types(call, scope_ns, &mut types);
             }
-
-            // Rule 4: Attribute access: x = obj.attr
             ast::Expr::Attribute(attr) => {
-                let attr_name = &attr.attr;
-                let receiver_types = self.infer_expr_types_for_propagation(&attr.value, scope_ns);
-
-                for receiver_type in receiver_types {
-                    // Check if this is a class and look up the attribute
-                    if let Some(class_info) = self.classes.get(&receiver_type) {
-                        // Look for class attribute type
-                        if let Some(attr_types) = class_info.attributes.get(attr_name.as_str()) {
-                            types.extend(attr_types.iter().cloned());
-                        } else {
-                            // Attribute not found in class info, construct namespace
-                            types.insert(format!("{}.{}", receiver_type, attr_name));
-                        }
-                    } else {
-                        // Unknown receiver - construct attribute namespace
-                        types.insert(format!("{}.{}", receiver_type, attr_name));
-                    }
-                }
+                self.infer_attribute_types(attr, scope_ns, &mut types);
             }
-
-            // Handle other expression types
             _ => {
-                // For other expressions, fall back to basic inference
                 types.extend(self.infer_expr_types(expr, scope_ns));
             }
         }
 
         types
+    }
+
+    /// Infer types for a name expression (Rule 3: variable reference).
+    fn infer_name_types(&self, name: &ast::ExprName, scope_ns: &str, types: &mut HashSet<String>) {
+        if let Some(resolved) = self.resolve_name(&name.id, scope_ns) {
+            for ns in resolved {
+                if self.classes.contains_key(&ns) {
+                    types.insert(ns);
+                } else if self.functions.contains_key(&ns) {
+                    types.insert(ns);
+                } else {
+                    let var_ns = format!("{}::{}", scope_ns, name.id);
+                    if let Some(var_types) = self.assignments.get(&var_ns) {
+                        types.extend(var_types.iter().cloned());
+                    } else {
+                        types.insert(ns);
+                    }
+                }
+            }
+        } else {
+            let var_ns = format!("{}::{}", scope_ns, name.id);
+            if let Some(var_types) = self.assignments.get(&var_ns) {
+                types.extend(var_types.iter().cloned());
+            }
+        }
+    }
+
+    /// Infer types for a call expression (Rules 1, 2, 5).
+    fn infer_call_types(&self, call: &ast::ExprCall, scope_ns: &str, types: &mut HashSet<String>) {
+        match call.func.as_ref() {
+            ast::Expr::Name(name) => {
+                self.infer_direct_call_types(name, scope_ns, types);
+            }
+            ast::Expr::Attribute(attr) => {
+                self.infer_method_call_types(attr, scope_ns, types);
+            }
+            _ => {}
+        }
+    }
+
+    /// Infer types for a direct call: MyClass() or func().
+    fn infer_direct_call_types(&self, name: &ast::ExprName, scope_ns: &str, types: &mut HashSet<String>) {
+        if let Some(resolved) = self.resolve_name(&name.id, scope_ns) {
+            for ns in resolved {
+                if self.classes.contains_key(&ns) {
+                    types.insert(ns);
+                } else if let Some(func_info) = self.functions.get(&ns) {
+                    if func_info.has_return_types() {
+                        types.extend(func_info.return_types.iter().cloned());
+                    } else {
+                        types.insert(format!("{}::return", ns));
+                    }
+                } else if let Some(def) = self.definitions.get(&ns) {
+                    if def.def_type == DefType::External {
+                        types.insert(format!("external:{}::return", ns));
+                    } else {
+                        types.insert(format!("{}::return", ns));
+                    }
+                }
+            }
+        }
+    }
+
+    /// Infer types for a method call: obj.method() (Rule 5).
+    fn infer_method_call_types(&self, attr: &ast::ExprAttribute, scope_ns: &str, types: &mut HashSet<String>) {
+        let method_name = &attr.attr;
+        let receiver_types = self.infer_expr_types_for_propagation(&attr.value, scope_ns);
+
+        for receiver_type in receiver_types {
+            if let Some(class_info) = self.classes.get(&receiver_type) {
+                for base_ns in &class_info.mro {
+                    if let Some(base_info) = self.classes.get(base_ns) {
+                        if let Some(method_ns) = base_info.methods.get(method_name.as_str()) {
+                            if let Some(func_info) = self.functions.get(method_ns) {
+                                if func_info.has_return_types() {
+                                    types.extend(func_info.return_types.iter().cloned());
+                                } else {
+                                    types.insert(format!("{}::return", method_ns));
+                                }
+                            } else {
+                                types.insert(format!("{}::return", method_ns));
+                            }
+                            break;
+                        }
+                    }
+                }
+            } else {
+                types.insert(format!("{}.{}::return", receiver_type, method_name));
+            }
+        }
+    }
+
+    /// Infer types for an attribute access: obj.attr (Rule 4).
+    fn infer_attribute_types(&self, attr: &ast::ExprAttribute, scope_ns: &str, types: &mut HashSet<String>) {
+        let attr_name = &attr.attr;
+        let receiver_types = self.infer_expr_types_for_propagation(&attr.value, scope_ns);
+
+        for receiver_type in receiver_types {
+            if let Some(class_info) = self.classes.get(&receiver_type) {
+                if let Some(attr_types) = class_info.attributes.get(attr_name.as_str()) {
+                    types.extend(attr_types.iter().cloned());
+                } else {
+                    types.insert(format!("{}.{}", receiver_type, attr_name));
+                }
+            } else {
+                types.insert(format!("{}.{}", receiver_type, attr_name));
+            }
+        }
     }
 
     /// Get the containing class namespace for a scope (if any)

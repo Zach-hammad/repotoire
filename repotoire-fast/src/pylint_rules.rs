@@ -1,4 +1,4 @@
-use rustpython_parser::ast::{Stmt, Suite, Expr, StmtClassDef, ExceptHandler};
+use rustpython_parser::ast::{Stmt, Suite, Expr, StmtClassDef, StmtFunctionDef, ExceptHandler};
 use std::collections::HashSet;
 use rustc_hash::FxHashMap;
 use line_numbers::LinePositions;
@@ -467,54 +467,72 @@ pub fn check_attribute_defined_outside_init(ast: &Suite, source: &str) -> Vec<Fi
 
     for stmt in ast {
         if let Stmt::ClassDef(class) = stmt {
-            // Skip dataclasses - their attributes are defined via class-level annotations
-            if is_dataclass(class) {
-                continue;
-            }
-
-            let mut init_attrs: HashSet<String> = HashSet::new();
-
-            // Also collect class-level annotated attributes (for dataclass-like patterns)
-            for class_stmt in &class.body {
-                if let Stmt::AnnAssign(ann) = class_stmt {
-                    if let Expr::Name(name) = ann.target.as_ref() {
-                        init_attrs.insert(name.id.to_string());
-                    }
-                }
-            }
-
-            for class_stmt in &class.body {
-                if let Stmt::FunctionDef(func) = class_stmt {
-                    if func.name.as_str() == "__init__" {
-                        collect_self_attributes(&func.body, &mut init_attrs);
-                    }
-                }
-            }
-
-            for class_stmt in &class.body {
-                if let Stmt::FunctionDef(func) = class_stmt {
-                    if func.name.as_str() != "__init__" {
-                        let mut method_attrs: HashSet<String> = HashSet::new();
-                        collect_self_attribute_assignments(&func.body, &mut method_attrs);
-
-                        for attr in method_attrs {
-                            if !init_attrs.contains(&attr) {
-                                if let Some(line) = find_attr_assignment_line(&func.body, &attr, &line_positions) {
-                                    findings.push(Finding {
-                                        code: "W0201".to_string(),
-                                        message: format!("Attribute '{}' defined outside __init__ in {}.{}", attr, class.name, func.name),
-                                        line,
-                                    });
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            check_class_attributes(class, &line_positions, &mut findings);
         }
     }
 
     findings
+}
+
+fn check_class_attributes(
+    class: &StmtClassDef,
+    line_positions: &LinePositions,
+    findings: &mut Vec<Finding>,
+) {
+    // Skip dataclasses - their attributes are defined via class-level annotations
+    if is_dataclass(class) {
+        return;
+    }
+
+    let mut init_attrs: HashSet<String> = HashSet::new();
+
+    // Also collect class-level annotated attributes (for dataclass-like patterns)
+    for class_stmt in &class.body {
+        if let Stmt::AnnAssign(ann) = class_stmt {
+            if let Expr::Name(name) = ann.target.as_ref() {
+                init_attrs.insert(name.id.to_string());
+            }
+        }
+    }
+
+    for class_stmt in &class.body {
+        if let Stmt::FunctionDef(func) = class_stmt {
+            if func.name.as_str() == "__init__" {
+                collect_self_attributes(&func.body, &mut init_attrs);
+            }
+        }
+    }
+
+    for class_stmt in &class.body {
+        if let Stmt::FunctionDef(func) = class_stmt {
+            if func.name.as_str() != "__init__" {
+                check_method_attributes(func, class.name.as_str(), &init_attrs, line_positions, findings);
+            }
+        }
+    }
+}
+
+fn check_method_attributes(
+    func: &StmtFunctionDef,
+    class_name: &str,
+    init_attrs: &HashSet<String>,
+    line_positions: &LinePositions,
+    findings: &mut Vec<Finding>,
+) {
+    let mut method_attrs: HashSet<String> = HashSet::new();
+    collect_self_attribute_assignments(&func.body, &mut method_attrs);
+
+    for attr in method_attrs {
+        if !init_attrs.contains(&attr) {
+            if let Some(line) = find_attr_assignment_line(&func.body, &attr, line_positions) {
+                findings.push(Finding {
+                    code: "W0201".to_string(),
+                    message: format!("Attribute '{}' defined outside __init__ in {}.{}", attr, class_name, func.name),
+                    line,
+                });
+            }
+        }
+    }
 }
 
 fn collect_self_attributes(stmts: &[Stmt], attrs: &mut HashSet<String>) {

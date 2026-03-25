@@ -113,49 +113,7 @@ pub fn node_to_symbolic(
 
     // --- String literals ---
     if LanguageValueConfig::matches(config.string_literal_kinds, kind) {
-        // For concatenated_string, join child strings
-        if kind == "concatenated_string" {
-            let mut parts = Vec::new();
-            let mut cursor = node.walk();
-            for child in node.named_children(&mut cursor) {
-                parts.push(node_to_symbolic(child, source, config, _func_qn));
-            }
-            return if parts.len() == 1 {
-                parts.into_iter().next().expect("checked len == 1")
-            } else {
-                SymbolicValue::Concat(parts)
-            };
-        }
-
-        // Check for f-string (string with interpolation children)
-        let has_interpolation = has_interpolation_children(node);
-        if has_interpolation {
-            let mut parts = Vec::new();
-            let mut cursor = node.walk();
-            for child in node.children(&mut cursor) {
-                let ck = child.kind();
-                if ck == "interpolation" || ck == "string_content" {
-                    // Interpolation: extract the inner expression
-                    if ck == "interpolation" {
-                        if let Some(expr) = child.named_child(0) {
-                            parts.push(node_to_symbolic(expr, source, config, _func_qn));
-                        }
-                    } else {
-                        parts.push(SymbolicValue::Literal(LiteralValue::String(
-                            node_text(child, source).to_string(),
-                        )));
-                    }
-                }
-            }
-            return if parts.is_empty() {
-                SymbolicValue::Literal(LiteralValue::String(unquote(node_text(node, source))))
-            } else {
-                SymbolicValue::Concat(parts)
-            };
-        }
-
-        let text = node_text(node, source);
-        return SymbolicValue::Literal(LiteralValue::String(unquote(text)));
+        return convert_string_literal(node, source, config, _func_qn);
     }
 
     // --- Binary operators ---
@@ -188,107 +146,17 @@ pub fn node_to_symbolic(
 
     // --- Function calls ---
     if LanguageValueConfig::matches(config.call_kinds, kind) {
-        let callee = extract_callee_name(node, source);
-        let mut args = Vec::new();
-
-        // Most grammars use "arguments" as the field name for the argument list
-        if let Some(args_node) = node.child_by_field_name("arguments") {
-            let mut cursor = args_node.walk();
-            for child in args_node.named_children(&mut cursor) {
-                let ck = child.kind();
-                // Skip keyword/named argument wrappers — extract only the value
-                if ck == "keyword_argument" || ck == "named_argument" {
-                    if let Some(val) = child.child_by_field_name("value") {
-                        args.push(node_to_symbolic(val, source, config, _func_qn));
-                    }
-                } else if ck == "spread_element" || ck == "rest_pattern" {
-                    // Spread/rest: the whole call becomes partially unknown
-                    args.push(SymbolicValue::Unknown);
-                } else {
-                    args.push(node_to_symbolic(child, source, config, _func_qn));
-                }
-            }
-        }
-
-        return SymbolicValue::Call(callee, args);
+        return convert_call_expr(node, source, config, _func_qn);
     }
 
     // --- Field/attribute access ---
     if LanguageValueConfig::matches(config.field_access_kinds, kind) {
-        // Different grammars use different field names:
-        //   Python:  object / attribute
-        //   JS/TS:   object / property
-        //   Rust:    value / field
-        //   Go:      operand / field
-        //   Java:    object / field
-        //   C/C++:   argument / field
-        //   C#:      expression / name
-        let obj = node
-            .child_by_field_name("object")
-            .or_else(|| node.child_by_field_name("value"))
-            .or_else(|| node.child_by_field_name("operand"))
-            .or_else(|| node.child_by_field_name("argument"))
-            .or_else(|| node.child_by_field_name("expression"))
-            .or_else(|| node.named_child(0))
-            .map(|n| node_to_symbolic(n, source, config, _func_qn))
-            .unwrap_or(SymbolicValue::Unknown);
-
-        let attr_name = node
-            .child_by_field_name("attribute")
-            .or_else(|| node.child_by_field_name("property"))
-            .or_else(|| node.child_by_field_name("field"))
-            .or_else(|| node.child_by_field_name("name"))
-            .or_else(|| {
-                let count = node.named_child_count();
-                if count >= 2 {
-                    node.named_child(count - 1)
-                } else {
-                    None
-                }
-            })
-            .map(|n| node_text(n, source).to_string())
-            .unwrap_or_default();
-
-        return SymbolicValue::FieldAccess(Box::new(obj), attr_name);
+        return convert_field_access(node, source, config, _func_qn);
     }
 
     // --- Subscript/index access ---
     if LanguageValueConfig::matches(config.subscript_kinds, kind) {
-        // Different grammars use different field names:
-        //   Python:  value / subscript
-        //   JS/TS:   object / index
-        //   Rust:    value / index (index_expression)
-        //   Go:      operand / index
-        //   Java:    array / index (array_access)
-        //   C/C++:   argument / index (subscript_expression)
-        //   C#:      expression / argument_list
-        let obj = node
-            .child_by_field_name("value")
-            .or_else(|| node.child_by_field_name("object"))
-            .or_else(|| node.child_by_field_name("operand"))
-            .or_else(|| node.child_by_field_name("array"))
-            .or_else(|| node.child_by_field_name("argument"))
-            .or_else(|| node.child_by_field_name("expression"))
-            .or_else(|| node.named_child(0))
-            .map(|n| node_to_symbolic(n, source, config, _func_qn))
-            .unwrap_or(SymbolicValue::Unknown);
-
-        let key = node
-            .child_by_field_name("subscript")
-            .or_else(|| node.child_by_field_name("index"))
-            .or_else(|| {
-                // Fallback: look for named children after the value
-                let count = node.named_child_count();
-                if count >= 2 {
-                    node.named_child(count - 1)
-                } else {
-                    None
-                }
-            })
-            .map(|n| node_to_symbolic(n, source, config, _func_qn))
-            .unwrap_or(SymbolicValue::Unknown);
-
-        return SymbolicValue::Index(Box::new(obj), Box::new(key));
+        return convert_subscript(node, source, config, _func_qn);
     }
 
     // --- List literals ---
@@ -377,6 +245,156 @@ pub fn node_to_symbolic(
 
     // --- Fallback ---
     SymbolicValue::Unknown
+}
+
+/// Convert a string literal node (including concatenated and interpolated strings).
+fn convert_string_literal(
+    node: tree_sitter::Node,
+    source: &[u8],
+    config: &LanguageValueConfig,
+    func_qn: &str,
+) -> SymbolicValue {
+    let kind = node.kind();
+
+    // Concatenated string: join child strings
+    if kind == "concatenated_string" {
+        let mut parts = Vec::new();
+        let mut cursor = node.walk();
+        for child in node.named_children(&mut cursor) {
+            parts.push(node_to_symbolic(child, source, config, func_qn));
+        }
+        return if parts.len() == 1 {
+            parts.into_iter().next().expect("checked len == 1")
+        } else {
+            SymbolicValue::Concat(parts)
+        };
+    }
+
+    // F-string (string with interpolation children)
+    if has_interpolation_children(node) {
+        let mut parts = Vec::new();
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            let ck = child.kind();
+            if ck == "interpolation" {
+                if let Some(expr) = child.named_child(0) {
+                    parts.push(node_to_symbolic(expr, source, config, func_qn));
+                }
+            } else if ck == "string_content" {
+                parts.push(SymbolicValue::Literal(LiteralValue::String(
+                    node_text(child, source).to_string(),
+                )));
+            }
+        }
+        return if parts.is_empty() {
+            SymbolicValue::Literal(LiteralValue::String(unquote(node_text(node, source))))
+        } else {
+            SymbolicValue::Concat(parts)
+        };
+    }
+
+    let text = node_text(node, source);
+    SymbolicValue::Literal(LiteralValue::String(unquote(text)))
+}
+
+/// Convert a function call expression node.
+fn convert_call_expr(
+    node: tree_sitter::Node,
+    source: &[u8],
+    config: &LanguageValueConfig,
+    func_qn: &str,
+) -> SymbolicValue {
+    let callee = extract_callee_name(node, source);
+    let mut args = Vec::new();
+
+    if let Some(args_node) = node.child_by_field_name("arguments") {
+        let mut cursor = args_node.walk();
+        for child in args_node.named_children(&mut cursor) {
+            let ck = child.kind();
+            if ck == "keyword_argument" || ck == "named_argument" {
+                if let Some(val) = child.child_by_field_name("value") {
+                    args.push(node_to_symbolic(val, source, config, func_qn));
+                }
+            } else if ck == "spread_element" || ck == "rest_pattern" {
+                args.push(SymbolicValue::Unknown);
+            } else {
+                args.push(node_to_symbolic(child, source, config, func_qn));
+            }
+        }
+    }
+
+    SymbolicValue::Call(callee, args)
+}
+
+/// Convert a field/attribute access node.
+fn convert_field_access(
+    node: tree_sitter::Node,
+    source: &[u8],
+    config: &LanguageValueConfig,
+    func_qn: &str,
+) -> SymbolicValue {
+    let obj = node
+        .child_by_field_name("object")
+        .or_else(|| node.child_by_field_name("value"))
+        .or_else(|| node.child_by_field_name("operand"))
+        .or_else(|| node.child_by_field_name("argument"))
+        .or_else(|| node.child_by_field_name("expression"))
+        .or_else(|| node.named_child(0))
+        .map(|n| node_to_symbolic(n, source, config, func_qn))
+        .unwrap_or(SymbolicValue::Unknown);
+
+    let attr_name = node
+        .child_by_field_name("attribute")
+        .or_else(|| node.child_by_field_name("property"))
+        .or_else(|| node.child_by_field_name("field"))
+        .or_else(|| node.child_by_field_name("name"))
+        .or_else(|| {
+            let count = node.named_child_count();
+            if count >= 2 {
+                node.named_child(count - 1)
+            } else {
+                None
+            }
+        })
+        .map(|n| node_text(n, source).to_string())
+        .unwrap_or_default();
+
+    SymbolicValue::FieldAccess(Box::new(obj), attr_name)
+}
+
+/// Convert a subscript/index access node.
+fn convert_subscript(
+    node: tree_sitter::Node,
+    source: &[u8],
+    config: &LanguageValueConfig,
+    func_qn: &str,
+) -> SymbolicValue {
+    let obj = node
+        .child_by_field_name("value")
+        .or_else(|| node.child_by_field_name("object"))
+        .or_else(|| node.child_by_field_name("operand"))
+        .or_else(|| node.child_by_field_name("array"))
+        .or_else(|| node.child_by_field_name("argument"))
+        .or_else(|| node.child_by_field_name("expression"))
+        .or_else(|| node.named_child(0))
+        .map(|n| node_to_symbolic(n, source, config, func_qn))
+        .unwrap_or(SymbolicValue::Unknown);
+
+    let key = node
+        .child_by_field_name("subscript")
+        .or_else(|| node.child_by_field_name("index"))
+        .or_else(|| {
+            let count = node.named_child_count();
+            if count >= 2 {
+                node.named_child(count - 1)
+            } else {
+                None
+            }
+        })
+        .map(|n| node_to_symbolic(n, source, config, func_qn))
+        .unwrap_or(SymbolicValue::Unknown);
+
+    SymbolicValue::Index(Box::new(obj), Box::new(key))
 }
 
 /// Check if a string node contains interpolation children (f-string).

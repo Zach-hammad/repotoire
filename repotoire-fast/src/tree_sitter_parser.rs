@@ -2176,75 +2176,7 @@ fn extract_c_node(
                 }
             }
             "struct_specifier" | "class_specifier" => {
-                // Extract struct/class name
-                if let Some(name_node) = child.child_by_field_name("name") {
-                    if let Ok(name) = name_node.utf8_text(source.as_bytes()) {
-                        let qualified_name = format!("{}.{}", module_name, name);
-
-                        // Extract methods from class body (C++ only)
-                        let mut methods = Vec::new();
-                        if let Some(body) = child.child_by_field_name("body") {
-                            let mut body_cursor = body.walk();
-                            for body_child in body.children(&mut body_cursor) {
-                                if body_child.kind() == "function_definition" {
-                                    if let Some(declarator) = body_child.child_by_field_name("declarator") {
-                                        if let Some(method_name) = extract_c_declarator_name(&declarator, source) {
-                                            let method_qn = format!("{}.{}.{}", module_name, name, method_name);
-                                            methods.push(method_name.clone());
-
-                                            // C++: Check access specifier (public/private/protected)
-                                            // Default is private for class, public for struct
-                                            // For simplicity, we assume public in class body
-                                            let is_public = true;
-
-                                            // Calculate lines of code
-                                            let start_line = body_child.start_position().row + 1;
-                                            let end_line = body_child.end_position().row + 1;
-                                            let loc = end_line.saturating_sub(start_line) + 1;
-
-                                            functions.push(ExtractedFunction {
-                                                name: method_name,
-                                                qualified_name: method_qn.clone(),
-                                                start_line,
-                                                end_line,
-                                                start_byte: body_child.start_byte(),
-                                                end_byte: body_child.end_byte(),
-                                                parameters: vec![],
-                                                return_type: None,
-                                                docstring: None,
-                                                is_async: false,
-                                                is_method: true,
-                                                is_public,
-                                                parent_class: Some(name.to_string()),
-                                                decorators: vec![],
-                                                loc,
-                                            });
-
-                                            // Extract calls from method body
-                                            if let Some(method_body) = body_child.child_by_field_name("body") {
-                                                extract_c_calls(&method_body, source, &method_qn, calls);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        classes.push(ExtractedClass {
-                            name: name.to_string(),
-                            qualified_name,
-                            start_line: child.start_position().row + 1,
-                            end_line: child.end_position().row + 1,
-                            start_byte: child.start_byte(),
-                            end_byte: child.end_byte(),
-                            base_classes: vec![],
-                            docstring: None,
-                            decorators: vec![],
-                            methods,
-                            attributes: vec![],
-                        });
-                    }
-                }
+                extract_c_class_node(&child, source, module_name, functions, classes, calls);
             }
             "preproc_include" => {
                 // Extract #include directives
@@ -2267,6 +2199,93 @@ fn extract_c_node(
                 extract_c_node(&child, source, module_name, current_func, functions, classes, imports, calls);
             }
         }
+    }
+}
+
+/// Extract a C/C++ struct or class node, including its methods.
+fn extract_c_class_node(
+    node: &Node,
+    source: &str,
+    module_name: &str,
+    functions: &mut Vec<ExtractedFunction>,
+    classes: &mut Vec<ExtractedClass>,
+    calls: &mut Vec<ExtractedCall>,
+) {
+    let Some(name_node) = node.child_by_field_name("name") else { return };
+    let Ok(name) = name_node.utf8_text(source.as_bytes()) else { return };
+
+    let qualified_name = format!("{}.{}", module_name, name);
+
+    // Extract methods from class body (C++ only)
+    let mut methods = Vec::new();
+    if let Some(body) = node.child_by_field_name("body") {
+        let mut body_cursor = body.walk();
+        for body_child in body.children(&mut body_cursor) {
+            if body_child.kind() == "function_definition" {
+                extract_c_method_from_class(
+                    &body_child, source, module_name, name,
+                    &mut methods, functions, calls,
+                );
+            }
+        }
+    }
+
+    classes.push(ExtractedClass {
+        name: name.to_string(),
+        qualified_name,
+        start_line: node.start_position().row + 1,
+        end_line: node.end_position().row + 1,
+        start_byte: node.start_byte(),
+        end_byte: node.end_byte(),
+        base_classes: vec![],
+        docstring: None,
+        decorators: vec![],
+        methods,
+        attributes: vec![],
+    });
+}
+
+/// Extract a single method from a C/C++ class body.
+fn extract_c_method_from_class(
+    body_child: &Node,
+    source: &str,
+    module_name: &str,
+    class_name: &str,
+    methods: &mut Vec<String>,
+    functions: &mut Vec<ExtractedFunction>,
+    calls: &mut Vec<ExtractedCall>,
+) {
+    let Some(declarator) = body_child.child_by_field_name("declarator") else { return };
+    let Some(method_name) = extract_c_declarator_name(&declarator, source) else { return };
+
+    let method_qn = format!("{}.{}.{}", module_name, class_name, method_name);
+    methods.push(method_name.clone());
+
+    let is_public = true;
+    let start_line = body_child.start_position().row + 1;
+    let end_line = body_child.end_position().row + 1;
+    let loc = end_line.saturating_sub(start_line) + 1;
+
+    functions.push(ExtractedFunction {
+        name: method_name,
+        qualified_name: method_qn.clone(),
+        start_line,
+        end_line,
+        start_byte: body_child.start_byte(),
+        end_byte: body_child.end_byte(),
+        parameters: vec![],
+        return_type: None,
+        docstring: None,
+        is_async: false,
+        is_method: true,
+        is_public,
+        parent_class: Some(class_name.to_string()),
+        decorators: vec![],
+        loc,
+    });
+
+    if let Some(method_body) = body_child.child_by_field_name("body") {
+        extract_c_calls(&method_body, source, &method_qn, calls);
     }
 }
 

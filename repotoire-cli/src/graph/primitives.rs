@@ -747,48 +747,9 @@ fn compute_articulation_points(
     }
 
     // Compute component sizes for each articulation point
-    // For each AP, removing it splits adjacent nodes into components.
-    // We compute the sizes of those components.
-    let mut component_sizes: HashMap<NodeIndex, Vec<usize>> = HashMap::new();
-    for &ap in &ap_set {
-        let ap_idx = node_to_idx[&ap];
-        let mut sizes: Vec<usize> = Vec::new();
-        let mut visited_local: HashSet<usize> = HashSet::new();
-        visited_local.insert(ap_idx);
-
-        if let Some(neighbors) = adj.get(&ap) {
-            for &nb in neighbors {
-                if let Some(&nb_idx) = node_to_idx.get(&nb) {
-                    if visited_local.contains(&nb_idx) {
-                        continue;
-                    }
-                    // BFS from this neighbor, excluding the AP
-                    let mut queue: VecDeque<usize> = VecDeque::new();
-                    queue.push_back(nb_idx);
-                    visited_local.insert(nb_idx);
-                    let mut comp_size = 0usize;
-                    while let Some(cur) = queue.pop_front() {
-                        comp_size += 1;
-                        let cur_node = sorted_nodes[cur];
-                        if let Some(cur_neighbors) = adj.get(&cur_node) {
-                            for &cn in cur_neighbors {
-                                if let Some(&cn_idx) = node_to_idx.get(&cn) {
-                                    if !visited_local.contains(&cn_idx) {
-                                        visited_local.insert(cn_idx);
-                                        queue.push_back(cn_idx);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    sizes.push(comp_size);
-                }
-            }
-        }
-
-        sizes.sort_unstable_by(|a, b| b.cmp(a));
-        component_sizes.insert(ap, sizes);
-    }
+    let component_sizes = compute_ap_component_sizes(
+        &ap_set, &adj, &node_to_idx, &sorted_nodes,
+    );
 
     // Sort articulation points by subtree size descending for determinism
     let mut ap_vec: Vec<NodeIndex> = ap_set.iter().copied().collect();
@@ -800,6 +761,71 @@ fn compute_articulation_points(
     });
 
     (ap_vec, ap_set, bridges, component_sizes)
+}
+
+/// For each articulation point, compute the sizes of connected components that
+/// would result from removing it (via BFS excluding the AP node).
+fn compute_ap_component_sizes(
+    ap_set: &HashSet<NodeIndex>,
+    adj: &HashMap<NodeIndex, Vec<NodeIndex>>,
+    node_to_idx: &HashMap<NodeIndex, usize>,
+    sorted_nodes: &[NodeIndex],
+) -> HashMap<NodeIndex, Vec<usize>> {
+    let mut component_sizes: HashMap<NodeIndex, Vec<usize>> = HashMap::new();
+    for &ap in ap_set {
+        let ap_idx = node_to_idx[&ap];
+        let mut sizes: Vec<usize> = Vec::new();
+        let mut visited_local: HashSet<usize> = HashSet::new();
+        visited_local.insert(ap_idx);
+
+        if let Some(neighbors) = adj.get(&ap) {
+            for &nb in neighbors {
+                if let Some(&nb_idx) = node_to_idx.get(&nb) {
+                    if visited_local.contains(&nb_idx) {
+                        continue;
+                    }
+                    let comp_size = bfs_component_size(
+                        nb_idx, &mut visited_local, adj, node_to_idx, sorted_nodes,
+                    );
+                    sizes.push(comp_size);
+                }
+            }
+        }
+
+        sizes.sort_unstable_by(|a, b| b.cmp(a));
+        component_sizes.insert(ap, sizes);
+    }
+    component_sizes
+}
+
+/// BFS from a start index, returning the number of reachable nodes.
+/// `visited` is shared across calls to avoid revisiting nodes.
+fn bfs_component_size(
+    start_idx: usize,
+    visited: &mut HashSet<usize>,
+    adj: &HashMap<NodeIndex, Vec<NodeIndex>>,
+    node_to_idx: &HashMap<NodeIndex, usize>,
+    sorted_nodes: &[NodeIndex],
+) -> usize {
+    let mut queue: VecDeque<usize> = VecDeque::new();
+    queue.push_back(start_idx);
+    visited.insert(start_idx);
+    let mut comp_size = 0usize;
+    while let Some(cur) = queue.pop_front() {
+        comp_size += 1;
+        let cur_node = sorted_nodes[cur];
+        if let Some(cur_neighbors) = adj.get(&cur_node) {
+            for &cn in cur_neighbors {
+                if let Some(&cn_idx) = node_to_idx.get(&cn) {
+                    if !visited.contains(&cn_idx) {
+                        visited.insert(cn_idx);
+                        queue.push_back(cn_idx);
+                    }
+                }
+            }
+        }
+    }
+    comp_size
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
