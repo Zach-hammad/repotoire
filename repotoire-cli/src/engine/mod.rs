@@ -7,7 +7,7 @@
 //! - **`AnalysisEngine`** owns the repository state (graph, calibration data,
 //!   cached findings) and exposes a single `analyze()` method that returns an
 //!   [`AnalysisResult`] containing findings, score, and stats.
-//! - **Consumers** (CLI `run_engine()`, MCP tools, future web dashboard) take
+//! - **Consumers** (CLI `run_engine()`, future web dashboard) take
 //!   the result and apply their own formatting, filtering, and pagination.
 //!
 //! # Pipeline stages
@@ -257,7 +257,7 @@ impl AnalysisEngine {
     /// Returns a shared `Arc<CodeGraph>` if analysis has been run.
     ///
     /// Use this when you need to share the graph across handler boundaries
-    /// (e.g., MCP state passing the graph to other tool handlers).
+    /// (e.g., state passing the graph to other tool handlers).
     pub fn graph_arc(&self) -> Option<Arc<CodeGraph>> {
         self.state.as_ref().map(|s| Arc::clone(&s.graph))
     }
@@ -277,7 +277,7 @@ impl AnalysisEngine {
     /// Returns a shared `Arc<GraphStore>` if analysis has been run.
     ///
     /// Deprecated: prefer `graph_arc()` which returns `Arc<CodeGraph>`.
-    /// This is kept for backward compatibility with MCP state and other consumers
+    /// This is kept for backward compatibility with other consumers
     /// that haven't migrated yet.
     pub fn graph_store_arc(&self) -> Option<Arc<crate::graph::GraphStore>> {
         self.state

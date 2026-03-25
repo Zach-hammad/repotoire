@@ -48,7 +48,7 @@ pub fn run_engine(
     let start_time = Instant::now();
     let quiet_mode = output.format == "json" || output.format == "sarif";
 
-    // Clear per-run caches (important for MCP long-running server)
+    // Clear per-run caches (important for long-running server modes)
     crate::parsers::clear_structural_fingerprint_cache();
 
     // Try to load a previously saved session for incremental analysis;

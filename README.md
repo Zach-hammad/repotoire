@@ -315,19 +315,9 @@ Source Files ──▶ Tree-sitter ──▶ Knowledge Graph ──▶ 106 Detec
 | Binary size | ~24MB | ~1GB | ~50MB |
 | Free | ✅ | Limited | Limited |
 
-## MCP Server
-
-Repotoire includes an [MCP](https://modelcontextprotocol.io/) server for AI assistant integration:
-
-```bash
-repotoire serve
-```
-
-Tools: `analyze`, `get_findings`, `get_finding_detail`, `fix_finding`, `list_detectors`, `search_graph`, and more.
-
 ## License
 
-MIT — see [LICENSE](LICENSE)
+Apache-2.0 — see [LICENSE](LICENSE)
 
 ---
 
