@@ -92,6 +92,34 @@ pub(crate) fn parse_root(content: &str, lang: Language) -> Option<tree_sitter::T
     })
 }
 
+/// Cache key for TSX grammar (must not collide with Language discriminants).
+/// Language enum values are 0..N; we pick 255 as a safe sentinel.
+const TSX_CACHE_KEY: u8 = 255;
+
+/// Like [`parse_root`] but picks the correct grammar based on file extension.
+///
+/// This handles the TSX case: `Language::TypeScript` normally selects the plain
+/// TypeScript grammar, but `.tsx` files need `LANGUAGE_TSX` to parse JSX syntax
+/// correctly. Without this, tree-sitter produces error nodes for JSX returns,
+/// causing false positives in detectors that walk AST siblings.
+pub(crate) fn parse_root_ext(content: &str, lang: Language, ext: &str) -> Option<tree_sitter::Tree> {
+    if ext == "tsx" {
+        return TS_PARSER_CACHE.with(|cache| {
+            let mut cache = cache.borrow_mut();
+            if let Some(parser) = cache.get_mut(&TSX_CACHE_KEY) {
+                return parser.parse(content, None);
+            }
+            let tsx_lang: tree_sitter::Language = tree_sitter_typescript::LANGUAGE_TSX.into();
+            let mut parser = Parser::new();
+            parser.set_language(&tsx_lang).ok()?;
+            let tree = parser.parse(content, None);
+            cache.insert(TSX_CACHE_KEY, parser);
+            tree
+        });
+    }
+    parse_root(content, lang)
+}
+
 /// Extract text from a tree-sitter node.
 fn node_text<'a>(node: Node<'a>, source: &'a str) -> &'a str {
     &source[node.start_byte()..node.end_byte()]

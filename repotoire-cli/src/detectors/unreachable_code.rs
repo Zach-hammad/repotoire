@@ -13,7 +13,7 @@
 
 use crate::detectors::analysis_context::AnalysisContext;
 use crate::graph::GraphQueryExt;
-use crate::detectors::ast_fingerprint::{get_ts_language, parse_root};
+use crate::detectors::ast_fingerprint::{get_ts_language, parse_root_ext};
 use crate::detectors::base::Detector;
 use crate::models::{Finding, Severity};
 use crate::parsers::lightweight::Language;
@@ -211,12 +211,12 @@ impl UnreachableCodeDetector {
                 .unwrap_or("");
             let lang = Language::from_extension(ext);
 
-            // Skip languages without tree-sitter support
-            if get_ts_language(lang).is_none() {
+            // Skip languages without tree-sitter support (TSX is handled by parse_root_ext)
+            if ext != "tsx" && get_ts_language(lang).is_none() {
                 continue;
             }
 
-            let tree = match parse_root(&entry.content, lang) {
+            let tree = match parse_root_ext(&entry.content, lang, ext) {
                 Some(t) => t,
                 None => continue,
             };
@@ -1315,6 +1315,87 @@ if __name__ == "__main__":
         assert!(
             !UnreachableCodeDetector::is_in_conditional_block("app.js", 1, content),
             "JS files should not match any conditional block pattern"
+        );
+    }
+
+    // ── TSX/JSX multiline return tests ──────────────────────────────────
+
+    #[test]
+    fn test_no_fp_tsx_multiline_jsx_return() {
+        // React component returning multiline JSX — should not flag the next
+        // export/function as unreachable. This was a false positive because
+        // tree-sitter was parsing .tsx files with the plain TypeScript grammar
+        // (which doesn't understand JSX), producing error nodes.
+        let code = r#"
+export default function Page() {
+  return (
+    <div>
+      <h1>Hello</h1>
+    </div>
+  )
+}
+
+export function Other() {
+  return <span>World</span>
+}
+"#;
+        let detector = UnreachableCodeDetector::new(".");
+        let ctx = make_test_ctx_with_file("page.tsx", code);
+        let findings = detector.find_code_after_return(&ctx);
+        assert!(
+            findings.is_empty(),
+            "TSX multiline JSX return should not flag next function as unreachable, got: {:?}",
+            findings
+                .iter()
+                .map(|f| &f.description)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_fp_tsx_component_with_hooks() {
+        // Typical React component with hooks and JSX return.
+        let code = r#"
+import React, { useState } from 'react';
+
+export function Counter() {
+  const [count, setCount] = useState(0);
+  return (
+    <button onClick={() => setCount(count + 1)}>
+      Count: {count}
+    </button>
+  )
+}
+"#;
+        let detector = UnreachableCodeDetector::new(".");
+        let ctx = make_test_ctx_with_file("Counter.tsx", code);
+        let findings = detector.find_code_after_return(&ctx);
+        assert!(
+            findings.is_empty(),
+            "TSX component with hooks should not produce false positives, got: {:?}",
+            findings
+                .iter()
+                .map(|f| &f.description)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_true_positive_tsx_code_after_return() {
+        // Genuine unreachable code in a TSX file should still be flagged.
+        let code = r#"
+export function Broken() {
+  return <div>Hello</div>;
+  const x = 42;
+}
+"#;
+        let detector = UnreachableCodeDetector::new(".");
+        let ctx = make_test_ctx_with_file("Broken.tsx", code);
+        let findings = detector.find_code_after_return(&ctx);
+        assert_eq!(
+            findings.len(),
+            1,
+            "genuine unreachable code in TSX should still be flagged"
         );
     }
 

@@ -17,14 +17,16 @@ export function ServiceWorkerRegistration() {
 
     if ('serviceWorker' in navigator) {
       // Register service worker
-      navigator.serviceWorker // repotoire:ignore[UnhandledPromiseDetector]
+      navigator.serviceWorker
         .register('/sw.js')
         .then((registration) => {
           console.log('Service Worker registered:', registration.scope);
 
           // Check for updates periodically
           setInterval(() => {
-            registration.update();
+            registration.update().catch((err) => {
+              console.warn('Service Worker update check failed:', err);
+            });
           }, 60 * 60 * 1000); // Check every hour
 
           // Handle updates
