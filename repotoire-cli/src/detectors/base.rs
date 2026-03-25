@@ -252,6 +252,9 @@ pub fn is_test_file(path: &std::path::Path) -> bool {
     path_str.contains("/tests/") ||
     path_str.contains("/test/") ||
     path_str.contains("/__tests__/") ||
+    path_str.contains("/e2e/") ||
+    path_str.starts_with("tests/") ||
+    path_str.starts_with("test/") ||
     // Ruby/JS spec files
     path_str.contains("/spec/") ||
     path_str.ends_with("_spec.rb") ||
