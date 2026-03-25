@@ -121,6 +121,38 @@ impl Detector for MutualRecursionDetector {
                 continue;
             }
 
+            // Skip recursive descent / visitor patterns: cycles where functions
+            // in the same file mutually recurse through a dispatcher. This is the
+            // standard pattern for AST visitors, recursive parsers, and tree walkers.
+            let cycle_files: HashSet<&str> = cycle.iter()
+                .filter_map(|&idx| graph.node_idx(idx).map(|n| n.path(gi)))
+                .collect();
+            if cycle_files.len() == 1 {
+                // All functions in same file — check for visitor/dispatcher names
+                let has_visitor_name = cycle.iter()
+                    .filter_map(|&idx| graph.node_idx(idx))
+                    .any(|n| {
+                        let name = n.qn(gi).to_lowercase();
+                        let short = name.rsplit("::").next().unwrap_or(&name);
+                        short.starts_with("visit")
+                            || short.starts_with("convert")
+                            || short.starts_with("process")
+                            || short.starts_with("handle")
+                            || short.starts_with("dispatch")
+                            || short.starts_with("parse")
+                            || short.starts_with("walk")
+                            || short.starts_with("transform")
+                            || short.starts_with("traverse")
+                            || short.starts_with("analyze")
+                            || short.starts_with("infer")
+                            || short.starts_with("extract")
+                            || short.contains("_to_")
+                    });
+                if has_visitor_name {
+                    continue;
+                }
+            }
+
             // Severity based on cycle size and aggregate complexity.
             let severity = if cycle_size > 5 || total_complexity > 30 {
                 Severity::High
