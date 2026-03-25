@@ -362,41 +362,42 @@ async function handleSearchCode(
     args.entity_types
   );
 
-  let output = `**Found ${result.total} results** for: "${result.query}"\n\n`;
+  const parts: string[] = [`**Found ${result.total} results** for: "${result.query}"\n`];
 
   for (let i = 0; i < result.results.length; i++) {
     const entity = result.results[i];
-    output += `### ${i + 1}. ${entity.qualified_name}\n`;
-    output += `**Type:** ${entity.entity_type}\n`;
+    const entityParts: string[] = [];
+    entityParts.push(`### ${i + 1}. ${entity.qualified_name}`);
+    entityParts.push(`**Type:** ${entity.entity_type}`);
 
     const filePath = entity.file_path || "unknown";
     if (entity.line_start) {
-      output += `**Location:** \`${filePath}:${entity.line_start}\`\n`;
+      entityParts.push(`**Location:** \`${filePath}:${entity.line_start}\``);
     } else {
-      output += `**Location:** \`${filePath}\`\n`;
+      entityParts.push(`**Location:** \`${filePath}\``);
     }
 
     const score = entity.similarity_score || 0;
-    output += `**Relevance:** ${Math.round(score * 100)}%\n`;
+    entityParts.push(`**Relevance:** ${Math.round(score * 100)}%`);
 
     if (entity.docstring) {
       const doc = entity.docstring.length > 200
         ? entity.docstring.slice(0, 200) + "..."
         : entity.docstring;
-      output += `\n> ${doc}\n`;
+      entityParts.push(`\n> ${doc}`);
     }
 
     if (entity.code) {
       const code = entity.code.length > 500
         ? entity.code.slice(0, 500) + "\n# ... (truncated)"
         : entity.code;
-      output += `\n\`\`\`python\n${code}\n\`\`\`\n`;
+      entityParts.push(`\n\`\`\`python\n${code}\n\`\`\``);
     }
 
-    output += "\n";
+    parts.push(entityParts.join("\n"));
   }
 
-  return output;
+  return parts.join("\n\n");
 }
 
 async function handleAskQuestion(
@@ -440,32 +441,31 @@ async function handleGetPromptContext(
       args.include_types
     );
 
-    let output = `**Context for task:** ${args.task}\n\n`;
+    const parts: string[] = [`**Context for task:** ${args.task}\n`];
 
     for (let i = 0; i < result.context.length; i++) {
       const item = result.context[i];
-      output += `### ${i + 1}. ${item.qualified_name}\n`;
-      output += `**Type:** ${item.entity_type}\n`;
+      const itemParts: string[] = [];
+      itemParts.push(`### ${i + 1}. ${item.qualified_name}`);
+      itemParts.push(`**Type:** ${item.entity_type}`);
       if (item.file_path) {
-        output += `**File:** \`${item.file_path}\`\n`;
+        itemParts.push(`**File:** \`${item.file_path}\``);
       }
       if (item.code) {
         const code = item.code.length > 800
           ? item.code.slice(0, 800) + "\n# ... (truncated)"
           : item.code;
-        output += `\n\`\`\`python\n${code}\n\`\`\`\n`;
+        itemParts.push(`\n\`\`\`python\n${code}\n\`\`\``);
       }
-      output += "\n";
+      parts.push(itemParts.join("\n"));
     }
 
     if (result.patterns && result.patterns.length > 0) {
-      output += "**Detected patterns:**\n";
-      for (const pattern of result.patterns.slice(0, 5)) {
-        output += `- ${pattern}\n`;
-      }
+      const patternLines = result.patterns.slice(0, 5).map((pattern: string) => `- ${pattern}`);
+      parts.push("**Detected patterns:**\n" + patternLines.join("\n"));
     }
 
-    return output;
+    return parts.join("\n\n");
   } catch (error) {
     // Fallback to search if endpoint not available
     if (error instanceof Error && (error.message.includes("404") || error.message.includes("not found"))) {
@@ -475,26 +475,29 @@ async function handleGetPromptContext(
         args.include_types
       );
 
-      let output = `**Context for task:** ${args.task}\n\n`;
-      output += `*Note: Using semantic search for context*\n\n`;
+      const parts: string[] = [
+        `**Context for task:** ${args.task}\n`,
+        `*Note: Using semantic search for context*\n`,
+      ];
 
       for (let i = 0; i < searchResult.results.length; i++) {
         const entity = searchResult.results[i];
-        output += `### ${i + 1}. ${entity.qualified_name}\n`;
-        output += `**Type:** ${entity.entity_type}\n`;
+        const entityParts: string[] = [];
+        entityParts.push(`### ${i + 1}. ${entity.qualified_name}`);
+        entityParts.push(`**Type:** ${entity.entity_type}`);
         if (entity.file_path) {
-          output += `**File:** \`${entity.file_path}\`\n`;
+          entityParts.push(`**File:** \`${entity.file_path}\``);
         }
         if (entity.code) {
           const code = entity.code.length > 800
             ? entity.code.slice(0, 800) + "\n# ... (truncated)"
             : entity.code;
-          output += `\n\`\`\`python\n${code}\n\`\`\`\n`;
+          entityParts.push(`\n\`\`\`python\n${code}\n\`\`\``);
         }
-        output += "\n";
+        parts.push(entityParts.join("\n"));
       }
 
-      return output;
+      return parts.join("\n\n");
     }
     throw error;
   }
@@ -587,16 +590,20 @@ async function handleGetArchitecture(
     if (error instanceof Error && (error.message.includes("404") || error.message.includes("not found"))) {
       const searchResult = await client.searchCode("main entry point module", 10, ["File"]);
 
-      let output = "**Codebase Architecture** (via search)\n\n";
-      output += "*Note: Using semantic search to explore structure*\n\n";
-      output += "**Key Files:**\n";
+      const parts: string[] = [
+        "**Codebase Architecture** (via search)\n",
+        "*Note: Using semantic search to explore structure*\n",
+        "**Key Files:**",
+      ];
 
-      for (const entity of searchResult.results.slice(0, 10)) {
-        output += `- \`${entity.file_path || entity.qualified_name}\`\n`;
-      }
+      const fileLines = searchResult.results.slice(0, 10).map(
+        (entity: { file_path?: string; qualified_name: string }) =>
+          `- \`${entity.file_path || entity.qualified_name}\``
+      );
+      parts.push(fileLines.join("\n"));
 
-      output += "\n*Use `search_code` with specific queries to explore further.*";
-      return output;
+      parts.push("*Use `search_code` with specific queries to explore further.*");
+      return parts.join("\n");
     }
     throw error;
   }

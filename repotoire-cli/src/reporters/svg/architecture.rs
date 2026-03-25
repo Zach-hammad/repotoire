@@ -90,7 +90,7 @@ pub fn render_architecture_map(
         svg,
         r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width:.0} {height:.0}" width="{width:.0}" height="{height:.0}" style="font-family: sans-serif;">"#,
     )
-    .unwrap();
+    .expect("write! to String is infallible");
 
     // Defs: arrowhead marker
     svg.push_str(
@@ -135,7 +135,7 @@ pub fn render_architecture_map(
                     svg,
                     r##"<line x1="{ax1:.1}" y1="{ay1:.1}" x2="{ax2:.1}" y2="{ay2:.1}" stroke="{stroke}" stroke-width="1.5" marker-end="url(#arrow)"{dash}/>"##,
                 )
-                .unwrap();
+                .expect("write! to String is infallible");
             }
         }
     }
@@ -149,7 +149,7 @@ pub fn render_architecture_map(
             svg,
             r#"<circle cx="{cx:.1}" cy="{cy:.1}" r="{r:.1}" fill="{color}" stroke="white" stroke-width="2"/>"#,
         )
-        .unwrap();
+        .expect("write! to String is infallible");
     }
 
     // Labels
@@ -163,7 +163,7 @@ pub fn render_architecture_map(
             svg,
             r##"<text x="{cx:.1}" y="{ty:.1}" font-size="10" text-anchor="middle" fill="#475569">{escaped}</text>"##,
         )
-        .unwrap();
+        .expect("write! to String is infallible");
     }
 
     svg.push_str("</svg>");
@@ -348,7 +348,7 @@ fn render_community_backgrounds(
                 svg,
                 r#"<rect x="{x:.1}" y="{y:.1}" width="{w:.1}" height="{h:.1}" fill="{color}" rx="8"/>"#,
             )
-            .unwrap();
+            .expect("write! to String is infallible");
         }
     }
 }

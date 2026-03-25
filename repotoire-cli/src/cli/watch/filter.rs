@@ -50,7 +50,7 @@ impl WatchFilter {
         let matcher = builder.build().unwrap_or_else(|_| {
             ignore::gitignore::GitignoreBuilder::new(&repo_path)
                 .build()
-                .unwrap()
+                .expect("fallback gitignore builder with no patterns should never fail")
         });
 
         Self {

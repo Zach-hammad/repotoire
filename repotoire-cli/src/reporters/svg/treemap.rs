@@ -18,7 +18,7 @@ pub fn render_treemap(items: &[TreemapItem], width: f64, height: f64) -> String 
         svg,
         r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" width="{width}" height="{height}">"#,
     )
-    .unwrap();
+    .expect("write! to String is infallible");
 
     if !items.is_empty() {
         // Sort by size descending and normalize
@@ -41,7 +41,7 @@ pub fn render_treemap(items: &[TreemapItem], width: f64, height: f64) -> String 
                     svg,
                     r#"<rect x="{x:.1}" y="{y:.1}" width="{w:.1}" height="{h:.1}" fill="{color}" stroke="white" stroke-width="1" rx="2"/>"#,
                 )
-                .unwrap();
+                .expect("write! to String is infallible");
                 if *w > 60.0 && *h > 20.0 {
                     let tx = x + w / 2.0;
                     let ty = y + h / 2.0 + 4.0;
@@ -49,7 +49,7 @@ pub fn render_treemap(items: &[TreemapItem], width: f64, height: f64) -> String 
                         svg,
                         r#"<text x="{tx:.1}" y="{ty:.1}" font-size="11" fill="white" font-family="sans-serif" text-anchor="middle">{label}</text>"#,
                     )
-                    .unwrap();
+                    .expect("write! to String is infallible");
                 }
             }
         }

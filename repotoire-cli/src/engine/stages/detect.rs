@@ -240,7 +240,7 @@ fn detect_stage_incremental(
     let precomputed = if !input.topology_changed && input.cached_gd_precomputed.is_some() {
         // Fast path: reuse cached PrecomputedAnalysis
         // Re-run TAINT because changed files may have new sinks/sources
-        let cached = input.cached_gd_precomputed.unwrap();
+        let cached = input.cached_gd_precomputed.expect("cached_gd_precomputed must be Some when topology_changed is false");
         let mut reused = cached.clone(); // cheap: all Arc bumps
         reused.git_churn = Arc::clone(&input.file_churn);
         reused.co_change_matrix = input.co_change_matrix.as_ref().map(Arc::clone);
