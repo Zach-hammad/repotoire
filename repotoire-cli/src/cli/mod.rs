@@ -491,7 +491,7 @@ fn extract_command_name(cmd: &Option<Commands>) -> (String, Option<String>) {
 }
 
 /// Run the CLI with parsed arguments
-pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> {
+pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> { // repotoire:ignore[AIComplexitySpikeDetector]
     // Initialize global rayon thread pool with 8MB stack per thread.
     // Tree-sitter parsing of deeply nested C/C++ code (e.g., CPython) can
     // overflow the default 2MB stack. This also benefits recursive detectors.

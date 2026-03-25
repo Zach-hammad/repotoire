@@ -17,7 +17,7 @@ use std::sync::LazyLock;
 use tracing::info;
 
 static INFINITE_WHILE: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"(?i)(while\s*\(\s*true\s*\)|while\s+True\s*:|while\s*\(\s*1\s*\)|for\s*\(\s*;\s*;\s*\)|loop\s*\{)").expect("valid regex")
+        Regex::new(r"(?i)(while\s*\(\s*true\s*\)|while\s+True\s*:|while\s*\(\s*1\s*\)|for\s*\(\s*;\s*;\s*\)|\bloop\s*\{)").expect("valid regex")
     });
 static BREAK_RETURN: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"\b(break|return|raise|throw|exit|panic!|std::process::exit)\b")

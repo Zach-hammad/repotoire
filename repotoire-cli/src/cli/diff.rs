@@ -269,6 +269,137 @@ pub fn format_sarif(result: &DiffResult) -> anyhow::Result<String> {
     crate::reporters::report(&report, "sarif")
 }
 
+/// Load baseline and head findings from cache, returning them along with scores
+/// and the number of files changed.
+fn load_baseline_and_head(
+    repotoire_dir: &Path,
+    repo_path: &Path,
+    base_ref: Option<&str>,
+) -> Result<(Vec<Finding>, Vec<Finding>, Option<f64>, Option<f64>, usize)> {
+    // Load baseline findings from snapshot (saved by a previous `analyze`)
+    let baseline_path = repotoire_dir.join("baseline_findings.json");
+    let baseline = if baseline_path.exists() {
+        super::analyze::output::load_cached_findings_from(&baseline_path)
+    } else {
+        // Fall back to last_findings.json if no snapshot exists yet
+        super::analyze::output::load_cached_findings(repotoire_dir)
+    }
+    .context(
+        "No baseline found. Run 'repotoire analyze' to establish a baseline, then run it again after making changes.",
+    )?;
+
+    let score_before = load_score_from(
+        &if baseline_path.exists() {
+            repotoire_dir.join("baseline_health.json")
+        } else {
+            repotoire_dir.join("last_health.json")
+        },
+    );
+
+    // Load current findings from cache (from the most recent `analyze` run)
+    let head = super::analyze::output::load_cached_findings(repotoire_dir).context(
+        "No current analysis found. Run 'repotoire analyze' to generate findings.",
+    )?;
+    let score_after = load_cached_score(repotoire_dir);
+
+    // Determine changed files count
+    let effective_base = base_ref.unwrap_or("HEAD~1");
+    let files_changed = count_changed_files(repo_path, effective_base);
+
+    Ok((baseline, head, score_before, score_after, files_changed))
+}
+
+/// Send telemetry event for the diff run.
+fn send_diff_telemetry(
+    telemetry: &crate::telemetry::Telemetry,
+    repo_path: &Path,
+    result: &DiffResult,
+) {
+    if let crate::telemetry::Telemetry::Active(ref state) = *telemetry {
+        if let Some(distinct_id) = &state.distinct_id {
+            let repo_id = crate::telemetry::config::compute_repo_id(repo_path);
+            let event = crate::telemetry::events::DiffRun {
+                repo_id,
+                score_before: result.score_before.unwrap_or(0.0),
+                score_after: result.score_after.unwrap_or(0.0),
+                score_delta: result.score_delta().unwrap_or(0.0),
+                findings_added: result.new_findings.len() as u64,
+                findings_removed: result.fixed_findings.len() as u64,
+                version: env!("CARGO_PKG_VERSION").to_string(),
+                ..Default::default()
+            };
+            let props = serde_json::to_value(&event).unwrap_or_default();
+            crate::telemetry::posthog::capture_queued("diff_run", distinct_id, props);
+        }
+    }
+}
+
+/// Format the diff result and write it to the output destination.
+fn emit_output(
+    result: &DiffResult,
+    format: &str,
+    no_emoji: bool,
+    output: Option<&Path>,
+    start: Instant,
+) -> Result<()> {
+    let output_str = match format {
+        "json" => format_json(result),
+        "sarif" => format_sarif(result)?,
+        _ => format_text(result, no_emoji),
+    };
+
+    if let Some(out_path) = output {
+        std::fs::write(out_path, &output_str)?;
+        eprintln!("Report written to: {}", out_path.display());
+    } else {
+        println!("{}", output_str);
+    }
+
+    // Summary (text mode only)
+    if format != "json" && format != "sarif" {
+        let elapsed = start.elapsed();
+        let prefix = if no_emoji { "" } else { "✨ " };
+        eprintln!(
+            "{}Diff complete in {:.2}s ({} new, {} fixed)",
+            prefix,
+            elapsed.as_secs_f64(),
+            result.new_findings.len(),
+            result.fixed_findings.len()
+        );
+    }
+
+    Ok(())
+}
+
+/// Check whether new findings exceed the fail-on severity threshold.
+fn check_fail_threshold(fail_on: Option<&str>, new_findings: &[Finding]) -> Result<()> {
+    if let Some(threshold) = fail_on {
+        let new_summary = FindingsSummary::from_findings(new_findings);
+        let should_fail = match threshold.to_lowercase().as_str() {
+            "critical" => new_summary.critical > 0,
+            "high" => new_summary.critical > 0 || new_summary.high > 0,
+            "medium" => {
+                new_summary.critical > 0 || new_summary.high > 0 || new_summary.medium > 0
+            }
+            "low" => {
+                new_summary.critical > 0
+                    || new_summary.high > 0
+                    || new_summary.medium > 0
+                    || new_summary.low > 0
+            }
+            _ => false,
+        };
+        if should_fail {
+            anyhow::bail!(
+                "Failing due to --fail-on={}: {} new finding(s) at this severity or above",
+                threshold,
+                new_findings.len()
+            );
+        }
+    }
+    Ok(())
+}
+
 /// Run the diff command.
 pub fn run(
     repo_path: &Path,
@@ -295,35 +426,9 @@ pub fn run(
     let repotoire_dir = crate::cache::ensure_cache_dir(&repo_path)
         .context("Failed to create cache directory")?;
 
-    // 1. Load baseline findings from snapshot (saved by a previous `analyze`)
-    let baseline_path = repotoire_dir.join("baseline_findings.json");
-    let baseline = if baseline_path.exists() {
-        super::analyze::output::load_cached_findings_from(&baseline_path)
-    } else {
-        // Fall back to last_findings.json if no snapshot exists yet
-        super::analyze::output::load_cached_findings(&repotoire_dir)
-    }
-    .context(
-        "No baseline found. Run 'repotoire analyze' to establish a baseline, then run it again after making changes.",
-    )?;
-
-    let score_before = load_score_from(
-        &if baseline_path.exists() {
-            repotoire_dir.join("baseline_health.json")
-        } else {
-            repotoire_dir.join("last_health.json")
-        },
-    );
-
-    // 2. Load current findings from cache (from the most recent `analyze` run)
-    let head = super::analyze::output::load_cached_findings(&repotoire_dir).context(
-        "No current analysis found. Run 'repotoire analyze' to generate findings.",
-    )?;
-    let score_after = load_cached_score(&repotoire_dir);
-
-    // 3. Determine changed files count
-    let effective_base = base_ref.as_deref().unwrap_or("HEAD~1");
-    let files_changed = count_changed_files(&repo_path, effective_base);
+    // 1-3. Load baseline, head, scores, and changed file count
+    let (baseline, head, score_before, score_after, files_changed) =
+        load_baseline_and_head(&repotoire_dir, &repo_path, base_ref.as_deref())?;
 
     // 4. Diff
     let base_label = base_ref.as_deref().unwrap_or("cached");
@@ -337,77 +442,14 @@ pub fn run(
         score_after,
     );
 
-    // 4b. Send telemetry
-    if let crate::telemetry::Telemetry::Active(ref state) = *telemetry {
-        if let Some(distinct_id) = &state.distinct_id {
-            let repo_id = crate::telemetry::config::compute_repo_id(&repo_path);
-            let event = crate::telemetry::events::DiffRun {
-                repo_id,
-                score_before: result.score_before.unwrap_or(0.0),
-                score_after: result.score_after.unwrap_or(0.0),
-                score_delta: result.score_delta().unwrap_or(0.0),
-                findings_added: result.new_findings.len() as u64,
-                findings_removed: result.fixed_findings.len() as u64,
-                version: env!("CARGO_PKG_VERSION").to_string(),
-                ..Default::default()
-            };
-            let props = serde_json::to_value(&event).unwrap_or_default();
-            crate::telemetry::posthog::capture_queued("diff_run", distinct_id, props);
-        }
-    }
+    // 5. Send telemetry
+    send_diff_telemetry(telemetry, &repo_path, &result);
 
-    // 5. Output
-    let output_str = match format {
-        "json" => format_json(&result),
-        "sarif" => format_sarif(&result)?,
-        _ => format_text(&result, no_emoji),
-    };
+    // 6. Format and output
+    emit_output(&result, format, no_emoji, output, start)?;
 
-    if let Some(out_path) = output {
-        std::fs::write(out_path, &output_str)?;
-        eprintln!("Report written to: {}", out_path.display());
-    } else {
-        println!("{}", output_str);
-    }
-
-    // 6. Summary (text mode only)
-    if format != "json" && format != "sarif" {
-        let elapsed = start.elapsed();
-        let prefix = if no_emoji { "" } else { "✨ " };
-        eprintln!(
-            "{}Diff complete in {:.2}s ({} new, {} fixed)",
-            prefix,
-            elapsed.as_secs_f64(),
-            result.new_findings.len(),
-            result.fixed_findings.len()
-        );
-    }
-
-    // 7. Fail-on threshold (new findings only)
-    if let Some(ref threshold) = fail_on {
-        let new_summary = FindingsSummary::from_findings(&result.new_findings);
-        let should_fail = match threshold.to_lowercase().as_str() {
-            "critical" => new_summary.critical > 0,
-            "high" => new_summary.critical > 0 || new_summary.high > 0,
-            "medium" => {
-                new_summary.critical > 0 || new_summary.high > 0 || new_summary.medium > 0
-            }
-            "low" => {
-                new_summary.critical > 0
-                    || new_summary.high > 0
-                    || new_summary.medium > 0
-                    || new_summary.low > 0
-            }
-            _ => false,
-        };
-        if should_fail {
-            anyhow::bail!(
-                "Failing due to --fail-on={}: {} new finding(s) at this severity or above",
-                threshold,
-                result.new_findings.len()
-            );
-        }
-    }
+    // 7. Fail-on threshold
+    check_fail_threshold(fail_on.as_deref(), &result.new_findings)?;
 
     Ok(())
 }

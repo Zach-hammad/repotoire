@@ -513,6 +513,77 @@ fn extract_python_callee(node: &Node, source: &str) -> (String, bool, Option<Str
     }
 }
 
+/// Collect decorators from a decorated_definition parent node.
+fn collect_python_decorators(node: &Node, source: &str) -> Vec<String> {
+    let parent = match node.parent() {
+        Some(p) if p.kind() == "decorated_definition" => p,
+        _ => return Vec::new(),
+    };
+
+    let mut decorators = Vec::new();
+    for i in 0..parent.child_count() {
+        let child = match parent.child(i) {
+            Some(c) if c.kind() == "decorator" => c,
+            _ => continue,
+        };
+        if let Ok(dec_text) = child.utf8_text(source.as_bytes()) {
+            decorators.push(dec_text.trim_start_matches('@').to_string());
+        }
+    }
+    decorators
+}
+
+/// Extract `self.x` attribute names from an expression statement containing assignments.
+fn collect_self_attributes(statement: &Node, source: &str, attributes: &mut Vec<String>) {
+    for j in 0..statement.child_count() {
+        let expr_child = match statement.child(j) {
+            Some(c) if c.kind() == "assignment" => c,
+            _ => continue,
+        };
+        let left = match expr_child.child_by_field_name("left") {
+            Some(l) if l.kind() == "attribute" => l,
+            _ => continue,
+        };
+        if let Ok(attr) = left.utf8_text(source.as_bytes()) {
+            if attr.starts_with("self.") {
+                attributes.push(attr[5..].to_string());
+            }
+        }
+    }
+}
+
+/// Process a class body node, collecting methods into `functions`/`methods` and
+/// self-attribute assignments into `attributes`.
+fn collect_python_class_body_members(
+    body: &Node,
+    source: &str,
+    module_name: &str,
+    class_name: &str,
+    functions: &mut Vec<ExtractedFunction>,
+    calls: &mut Vec<ExtractedCall>,
+    methods: &mut Vec<String>,
+    attributes: &mut Vec<String>,
+) {
+    for i in 0..body.child_count() {
+        let child = match body.child(i) {
+            Some(c) => c,
+            None => continue,
+        };
+        match child.kind() {
+            "function_definition" | "async_function_definition" => {
+                if let Some(func) = extract_python_function(&child, source, module_name, Some(class_name), calls) {
+                    methods.push(func.name.clone());
+                    functions.push(func);
+                }
+            }
+            "expression_statement" => {
+                collect_self_attributes(&child, source, attributes);
+            }
+            _ => {}
+        }
+    }
+}
+
 fn extract_python_class(
     node: &Node,
     source: &str,
@@ -547,58 +618,17 @@ fn extract_python_class(
         .and_then(|n| n.utf8_text(source.as_bytes()).ok())
         .map(|s| s.trim_matches(|c| c == '"' || c == '\'').to_string());
 
-    // Extract decorators
-    let mut decorators = Vec::new();
-    if let Some(parent) = node.parent() {
-        if parent.kind() == "decorated_definition" {
-            for i in 0..parent.child_count() {
-                if let Some(child) = parent.child(i) {
-                    if child.kind() == "decorator" {
-                        if let Ok(dec_text) = child.utf8_text(source.as_bytes()) {
-                            decorators.push(dec_text.trim_start_matches('@').to_string());
-                        }
-                    }
-                }
-            }
-        }
-    }
+    let decorators = collect_python_decorators(node, source);
 
-    // Extract methods from class body
+    // Extract methods and attributes from class body
     let mut methods = Vec::new();
     let mut attributes = Vec::new();
 
     if let Some(body) = node.child_by_field_name("body") {
-        for i in 0..body.child_count() {
-            if let Some(child) = body.child(i) {
-                match child.kind() {
-                    "function_definition" | "async_function_definition" => {
-                        if let Some(func) = extract_python_function(&child, source, module_name, Some(&name), calls) {
-                            methods.push(func.name.clone());
-                            functions.push(func);
-                        }
-                    }
-                    "expression_statement" => {
-                        // Check for attribute assignment (self.x = ...)
-                        for j in 0..child.child_count() {
-                            if let Some(expr_child) = child.child(j) {
-                                if expr_child.kind() == "assignment" {
-                                    if let Some(left) = expr_child.child_by_field_name("left") {
-                                        if left.kind() == "attribute" {
-                                            if let Ok(attr) = left.utf8_text(source.as_bytes()) {
-                                                if attr.starts_with("self.") {
-                                                    attributes.push(attr[5..].to_string());
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        }
+        collect_python_class_body_members(
+            &body, source, module_name, &name,
+            functions, calls, &mut methods, &mut attributes,
+        );
     }
 
     Some(ExtractedClass {

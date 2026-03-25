@@ -2490,7 +2490,7 @@ pub fn analyze_interprocedural(source: &str) -> InterproceduralAnalysis {
         let (has_infinite_loop, infinite_loops, initial_status) = if let Some(analysis) = intra_map.get(name) {
             let loops = analysis.infinite_loop_types.clone();
             let has_loop = !loops.is_empty();
-            let status = if has_loop { // repotoire:ignore[infinite-loop]
+            let status = if has_loop {
                 TerminationStatus::MayDiverge
             } else {
                 TerminationStatus::Always  // Tentatively always, may change based on callees
@@ -2519,7 +2519,7 @@ pub fn analyze_interprocedural(source: &str) -> InterproceduralAnalysis {
     let mut iterations = 0;
     const MAX_ITERATIONS: usize = 100;  // Prevent infinite loops in analysis
 
-    while changed && iterations < MAX_ITERATIONS { // repotoire:ignore[infinite-loop]
+    while changed && iterations < MAX_ITERATIONS {
         changed = false;
         iterations += 1;
 
@@ -2684,7 +2684,7 @@ pub fn analyze_cross_file(
                 format!("{}.{}", module_ns, analysis.function_name)
             };
 
-            let terminates = if analysis.has_infinite_loop { // repotoire:ignore[infinite-loop]
+            let terminates = if analysis.has_infinite_loop {
                 TerminationStatus::MayDiverge
             } else {
                 TerminationStatus::Always
@@ -2706,7 +2706,7 @@ pub fn analyze_cross_file(
     let mut iterations = 0;
     const MAX_ITERATIONS: usize = 100;
 
-    while changed && iterations < MAX_ITERATIONS { // repotoire:ignore[infinite-loop]
+    while changed && iterations < MAX_ITERATIONS {
         changed = false;
         iterations += 1;
 
