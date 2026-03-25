@@ -449,9 +449,13 @@ export function createDebouncedValidator<T>(
 
     return new Promise((resolve) => {
       timeoutId = setTimeout(async () => {
-        lastPromise = validator(value);
-        const result = await lastPromise;
-        resolve(result);
+        try {
+          lastPromise = validator(value);
+          const result = await lastPromise;
+          resolve(result);
+        } catch {
+          resolve(null);
+        }
       }, debounceMs);
     });
   };

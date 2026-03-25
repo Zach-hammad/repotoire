@@ -22,7 +22,7 @@ function getVisualSettings(): VisualSettings {
   try {
     const stored = localStorage.getItem(VISUAL_SETTINGS_KEY);
     return stored ? { ...defaultVisualSettings, ...JSON.parse(stored) } : defaultVisualSettings;
-  } catch {
+  } catch { // repotoire:ignore[BroadExceptionDetector] — intentional fallback for corrupt localStorage
     return defaultVisualSettings;
   }
 }

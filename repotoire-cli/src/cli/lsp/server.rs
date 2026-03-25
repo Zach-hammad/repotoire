@@ -83,7 +83,7 @@ impl Backend {
                 // Read one event from the worker in a blocking thread.
                 let reader_clone = reader.clone();
                 let event = tokio::task::spawn_blocking(move || {
-                    let mut r = reader_clone.lock().unwrap();
+                    let mut r = reader_clone.lock().expect("reader lock not poisoned");
                     WorkerClient::read_event_from(&mut r)
                 })
                 .await;
@@ -138,7 +138,7 @@ impl Backend {
                             match spawn_result {
                                 Ok(Ok(Some(new_reader))) => {
                                     tracing::info!("repotoire worker restarted successfully");
-                                    *reader.lock().unwrap() = new_reader;
+                                    *reader.lock().expect("reader lock not poisoned") = new_reader;
                                     // Reset progress token so it gets re-created on next progress event
                                     progress_token_created = false;
                                     continue; // Resume the reader loop

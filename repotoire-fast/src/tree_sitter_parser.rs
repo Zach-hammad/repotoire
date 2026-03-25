@@ -2118,6 +2118,7 @@ fn extract_c_entities(
     (functions, classes, imports, calls)
 }
 
+// repotoire:ignore[DeepNestingDetector] — tree-sitter AST extraction requires nested node matching
 fn extract_c_node(
     node: &Node,
     source: &str,

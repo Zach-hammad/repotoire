@@ -3075,7 +3075,7 @@ fn extract_buggy_functions_parallel(
             let commit_results = process_commit(&thread_repo, &commit, &keywords);
 
             if !commit_results.is_empty() {
-                let mut results = all_results.lock().unwrap();
+                let mut results = all_results.lock().expect("results lock not poisoned");
                 results.extend(commit_results);
             }
         });

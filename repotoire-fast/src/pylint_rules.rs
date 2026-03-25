@@ -460,6 +460,7 @@ fn is_dataclass(class: &StmtClassDef) -> bool {
 }
 
 // W0201: attribute-defined-outside-init
+// repotoire:ignore[DeepNestingDetector] — AST traversal requires nested matching
 pub fn check_attribute_defined_outside_init(ast: &Suite, source: &str) -> Vec<Finding> {
     let mut findings = Vec::new();
     let line_positions = LinePositions::from(source);

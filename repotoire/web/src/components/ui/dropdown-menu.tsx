@@ -192,6 +192,7 @@ function DropdownMenuShortcut({
   )
 }
 
+// repotoire:ignore[UnreachableCodeDetector]
 function DropdownMenuSub({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Sub>) {

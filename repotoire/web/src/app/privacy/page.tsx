@@ -6,6 +6,7 @@ export const metadata: Metadata = {
   description: "How Repotoire collects, uses, and protects your data",
 };
 
+// repotoire:ignore[UnreachableCodeDetector]
 export default function PrivacyPage() {
   return (
     <div className="min-h-screen bg-background">

@@ -1718,6 +1718,7 @@ impl TypeInference {
     /// 3. Variable assignment: x = y → assignments[y]
     /// 4. Attribute access: x = obj.attr → class_attr_types or constructed ns
     /// 5. Method call: x = obj.method() → method.return_types
+    // repotoire:ignore[DeepNestingDetector] — type inference requires nested pattern matching
     fn infer_expr_types_for_propagation(&self, expr: &ast::Expr, scope_ns: &str) -> HashSet<String> {
         let mut types = HashSet::new();
 

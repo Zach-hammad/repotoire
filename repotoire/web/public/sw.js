@@ -102,7 +102,7 @@ async function cacheFirst(request) {
       cache.put(request, response.clone());
     }
     return response;
-  } catch (error) {
+  } catch (error) { // repotoire:ignore[BroadExceptionDetector] — intentional network fallback
     // Return cached version if network fails
     const cached = await caches.match(request);
     if (cached) {
@@ -121,7 +121,7 @@ async function networkFirst(request) {
       cache.put(request, response.clone());
     }
     return response;
-  } catch (error) {
+  } catch (error) { // repotoire:ignore[BroadExceptionDetector] — intentional network fallback
     // Return cached version if network fails
     const cached = await caches.match(request);
     if (cached) {
@@ -150,7 +150,7 @@ async function networkFirstWithOfflineFallback(request) {
       cache.put(request, response.clone());
     }
     return response;
-  } catch (error) {
+  } catch (error) { // repotoire:ignore[BroadExceptionDetector] — intentional network fallback
     // Return cached version if available
     const cached = await caches.match(request);
     if (cached) {

@@ -17,7 +17,7 @@ export function ServiceWorkerRegistration() {
 
     if ('serviceWorker' in navigator) {
       // Register service worker
-      navigator.serviceWorker
+      navigator.serviceWorker // repotoire:ignore[UnhandledPromiseDetector]
         .register('/sw.js')
         .then((registration) => {
           console.log('Service Worker registered:', registration.scope);

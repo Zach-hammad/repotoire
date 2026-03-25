@@ -138,7 +138,7 @@ class RepotoireAPIClient {
         }
 
         return (await response.json()) as T;
-      } catch (error) {
+      } catch (error: unknown) {
         if (error instanceof Error) {
           // Handle timeout errors
           if (error.name === "TimeoutError" || error.message.includes("aborted")) {

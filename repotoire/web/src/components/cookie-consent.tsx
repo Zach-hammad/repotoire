@@ -33,7 +33,7 @@ function getStoredConsent(): CookiePreferences | null {
       return parsed;
     }
     return null;
-  } catch {
+  } catch { // repotoire:ignore[BroadExceptionDetector] — intentional fallback for corrupt localStorage
     return null;
   }
 }

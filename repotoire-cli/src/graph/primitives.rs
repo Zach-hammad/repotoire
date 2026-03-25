@@ -601,6 +601,7 @@ fn compute_dominators(
 
 /// Compute articulation points and bridges on undirected projection of Calls+Imports.
 /// Uses iterative DFS (not recursive) to handle 50k+ node graphs without stack overflow.
+#[allow(clippy::cognitive_complexity)] // repotoire:ignore[DeepNestingDetector] — iterative DFS requires deep nesting
 fn compute_articulation_points(
     functions: &[NodeIndex],
     all_call_edges: &[(NodeIndex, NodeIndex)],

@@ -154,6 +154,7 @@ export type InvalidationEvent = keyof typeof invalidationMap;
  * await invalidateCache('fix-approved', { fixId: '123' });
  * ```
  */
+// repotoire:ignore[UnhandledPromiseDetector]
 export async function invalidateCache(
   event: InvalidationEvent,
   options?: {

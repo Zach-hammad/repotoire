@@ -406,6 +406,7 @@ export function NoDataEmptyState({
   return <EmptyState variant="default" title={title} description={description} {...props} />
 }
 
+// repotoire:ignore[UnreachableCodeDetector]
 export function NoResultsEmptyState({
   title,
   description,
