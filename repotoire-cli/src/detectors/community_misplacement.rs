@@ -98,7 +98,7 @@ impl Detector for CommunityMisplacementDetector {
         let mut communities: HashMap<usize, Vec<petgraph::graph::NodeIndex>> = HashMap::new();
 
         for &idx in graph.functions_idx() {
-            if let Some(community_id) = graph.community_idx(idx) {
+            if let Some(community_id) = graph.primitives().community.get(&idx).copied() {
                 communities.entry(community_id).or_default().push(idx);
             }
         }

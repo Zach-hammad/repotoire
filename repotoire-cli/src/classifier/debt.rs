@@ -224,6 +224,11 @@ mod tests {
     }
 
     impl GraphQuery for MockGraph {
+        fn primitives(&self) -> &crate::graph::primitives::GraphPrimitives {
+            static EMPTY: std::sync::LazyLock<crate::graph::primitives::GraphPrimitives> = std::sync::LazyLock::new(crate::graph::primitives::GraphPrimitives::default);
+            &EMPTY
+        }
+
         fn interner(&self) -> &crate::graph::interner::StringInterner {
             crate::graph::interner::global_interner()
         }

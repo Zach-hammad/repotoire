@@ -4,6 +4,11 @@ use super::store_models::{CodeNode, ExtraProps};
 use std::collections::{BTreeMap, HashMap};
 
 impl super::traits::GraphQuery for std::sync::Arc<GraphStore> {
+    fn primitives(&self) -> &crate::graph::primitives::GraphPrimitives {
+        static EMPTY: std::sync::LazyLock<crate::graph::primitives::GraphPrimitives> = std::sync::LazyLock::new(crate::graph::primitives::GraphPrimitives::default);
+        &EMPTY
+    }
+
     fn interner(&self) -> &StringInterner {
         (**self).interner()
     }
@@ -104,6 +109,11 @@ impl super::traits::GraphQuery for std::sync::Arc<GraphStore> {
 }
 
 impl super::traits::GraphQuery for GraphStore {
+    fn primitives(&self) -> &crate::graph::primitives::GraphPrimitives {
+        static EMPTY: std::sync::LazyLock<crate::graph::primitives::GraphPrimitives> = std::sync::LazyLock::new(crate::graph::primitives::GraphPrimitives::default);
+        &EMPTY
+    }
+
     fn interner(&self) -> &StringInterner {
         self.interner()
     }

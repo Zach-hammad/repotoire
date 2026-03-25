@@ -308,6 +308,11 @@ impl CodeGraph {
 
     // ==================== Graph Primitives (O(1)) ====================
 
+    /// Access the pre-computed graph primitives struct directly.
+    pub fn primitives(&self) -> &super::primitives::GraphPrimitives {
+        &self.indexes.primitives
+    }
+
     pub fn immediate_dominator(&self, idx: NodeIndex) -> Option<NodeIndex> {
         self.indexes.primitives.idom.get(&idx).copied()
     }

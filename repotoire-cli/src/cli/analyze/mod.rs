@@ -86,101 +86,41 @@ pub fn run_engine(
         }
     };
 
-    let mut findings = result.findings;
-
-    // Consumer-side filtering: min_confidence (engine postprocess skips this)
-    postprocess::filter_by_min_confidence(
-        &mut findings,
-        output.min_confidence,
-        output.show_all,
-    );
-
-    // Consumer-side ranking (engine postprocess skips this)
-    if output.rank {
-        if let Some(graph) = engine.graph() {
-            postprocess::rank_findings(&mut findings, graph);
-        }
-    }
-
-    // Export training data (if requested) — needs graph access
-    if let Some(ref export_path) = output.export_training {
-        if let Some(graph) = engine.graph() {
-            let repo_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-            match export::export_training_data(&findings, graph, &repo_path, export_path) {
-                Ok(count) => {
-                    if !quiet_mode {
-                        let icon = if output.no_emoji { "" } else { "📊 " };
-                        println!("{}Exported {} training samples to {}", icon, count, export_path.display());
-                    }
-                }
-                Err(e) => {
-                    eprintln!("Warning: failed to export training data: {}", e);
-                }
-            }
-        }
-    }
-
-    // Apply severity filter and top-N limit
-    output::filter_findings(&mut findings, &output.severity_filter, output.top);
-    let all_findings = findings.clone();
-
-    // Paginate — structured formats (JSON, SARIF) default to all findings
-    let effective_per_page = match output.format.as_str() {
-        "json" | "sarif" if output.per_page == 20 => 0, // override default pagination
-        _ => output.per_page,
-    };
-    let (paginated_findings, pagination_info) =
-        output::paginate_findings(findings, output.page, effective_per_page);
-
-    // Build HealthReport from engine results
-    let findings_summary = crate::models::FindingsSummary::from_findings(&paginated_findings);
-    let report = crate::models::HealthReport {
-        overall_score: result.score.overall,
-        grade: result.score.grade.clone(),
-        structure_score: result.score.breakdown.structure.final_score,
-        quality_score: result.score.breakdown.quality.final_score,
-        architecture_score: Some(result.score.breakdown.architecture.final_score),
-        findings: paginated_findings.clone(),
-        findings_summary,
-        total_files: result.stats.files_analyzed,
-        total_functions: result.stats.total_functions,
-        total_classes: result.stats.total_classes,
-        total_loc: result.stats.total_loc,
-    };
-
-    // Ensure cache dir exists (needed for health save and output caching)
-    let canon_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-    let repotoire_dir = crate::cache::ensure_cache_dir(&canon_path)
-        .unwrap_or_else(|_| path.join(".repotoire"));
-
-    // Build rich report context (graph + git + snippets)
-    // Must happen BEFORE saving health report so load_previous_health reads the OLD data
-    let format_enum = crate::reporters::OutputFormat::from_str(&output.format)?;
-    let report_ctx = engine.build_report_context(report.clone(), format_enum)?;
+    let prepared = prepare_report(&mut engine, &result, result.findings.clone(), path, &output, quiet_mode)?;
+    let PreparedReport {
+        report,
+        all_findings,
+        paginated_findings,
+        pagination_info,
+        repotoire_dir,
+        format_enum,
+        report_ctx,
+        canon_path,
+    } = &prepared;
 
     // Save health report for score delta on NEXT run (after loading previous)
-    if let Ok(json) = serde_json::to_string(&report) {
-        let health_path = crate::cache::paths::health_cache_path(&canon_path);
+    if let Ok(json) = serde_json::to_string(report) {
+        let health_path = crate::cache::paths::health_cache_path(canon_path);
         let _ = std::fs::write(&health_path, &json);
     }
 
     // Format and output — text/HTML use report_with_context for themed output;
     // JSON/SARIF/Markdown use the old path (they handle pagination differently).
     format_and_display_report(
-        format_enum,
-        &report_ctx,
-        &report,
-        &all_findings,
+        *format_enum,
+        report_ctx,
+        report,
+        all_findings,
         &output,
-        &repotoire_dir,
-        pagination_info,
+        repotoire_dir,
+        *pagination_info,
         paginated_findings.len(),
     )?;
 
     // Compute language stats from findings (reused by display + telemetry)
     let lang_loc_precomputed = {
         let mut lang_loc: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
-        for f in &all_findings {
+        for f in all_findings {
             if let Some(file) = f.affected_files.first() {
                 let ext = std::path::Path::new(file)
                     .extension()
@@ -302,6 +242,111 @@ pub fn run_engine(
 // ============================================================================
 // Internal helpers
 // ============================================================================
+
+/// Intermediate result from `prepare_report()`, carrying all the data the
+/// caller needs for display, caching, and telemetry.
+struct PreparedReport {
+    report: crate::models::HealthReport,
+    all_findings: Vec<crate::models::Finding>,
+    paginated_findings: Vec<crate::models::Finding>,
+    pagination_info: Option<(usize, usize, usize, usize)>,
+    repotoire_dir: PathBuf,
+    format_enum: crate::reporters::OutputFormat,
+    report_ctx: crate::reporters::report_context::ReportContext,
+    canon_path: PathBuf,
+}
+
+/// Filter, rank, paginate, and build the report + context from raw engine findings.
+///
+/// Extracted from `run_engine` to keep that function focused on orchestration.
+fn prepare_report(
+    engine: &mut crate::engine::AnalysisEngine,
+    result: &crate::engine::AnalysisResult,
+    mut findings: Vec<crate::models::Finding>,
+    path: &Path,
+    output: &crate::engine::OutputOptions,
+    quiet_mode: bool,
+) -> Result<PreparedReport> {
+    // Consumer-side filtering: min_confidence (engine postprocess skips this)
+    postprocess::filter_by_min_confidence(
+        &mut findings,
+        output.min_confidence,
+        output.show_all,
+    );
+
+    // Consumer-side ranking (engine postprocess skips this)
+    if output.rank {
+        if let Some(graph) = engine.graph() {
+            postprocess::rank_findings(&mut findings, graph);
+        }
+    }
+
+    // Export training data (if requested) — needs graph access
+    if let Some(ref export_path) = output.export_training {
+        if let Some(graph) = engine.graph() {
+            let repo_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+            match export::export_training_data(&findings, graph, &repo_path, export_path) {
+                Ok(count) => {
+                    if !quiet_mode {
+                        let icon = if output.no_emoji { "" } else { "\u{1f4ca} " };
+                        println!("{}Exported {} training samples to {}", icon, count, export_path.display());
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Warning: failed to export training data: {}", e);
+                }
+            }
+        }
+    }
+
+    // Apply severity filter and top-N limit
+    output::filter_findings(&mut findings, &output.severity_filter, output.top);
+    let all_findings = findings.clone();
+
+    // Paginate — structured formats (JSON, SARIF) default to all findings
+    let effective_per_page = match output.format.as_str() {
+        "json" | "sarif" if output.per_page == 20 => 0,
+        _ => output.per_page,
+    };
+    let (paginated_findings, pagination_info) =
+        output::paginate_findings(findings, output.page, effective_per_page);
+
+    // Build HealthReport from engine results
+    let findings_summary = crate::models::FindingsSummary::from_findings(&paginated_findings);
+    let report = crate::models::HealthReport {
+        overall_score: result.score.overall,
+        grade: result.score.grade.clone(),
+        structure_score: result.score.breakdown.structure.final_score,
+        quality_score: result.score.breakdown.quality.final_score,
+        architecture_score: Some(result.score.breakdown.architecture.final_score),
+        findings: paginated_findings.clone(),
+        findings_summary,
+        total_files: result.stats.files_analyzed,
+        total_functions: result.stats.total_functions,
+        total_classes: result.stats.total_classes,
+        total_loc: result.stats.total_loc,
+    };
+
+    // Ensure cache dir exists
+    let canon_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let repotoire_dir = crate::cache::ensure_cache_dir(&canon_path)
+        .unwrap_or_else(|_| path.join(".repotoire"));
+
+    // Build rich report context (graph + git + snippets)
+    let format_enum = crate::reporters::OutputFormat::from_str(&output.format)?;
+    let report_ctx = engine.build_report_context(report.clone(), format_enum)?;
+
+    Ok(PreparedReport {
+        report,
+        all_findings,
+        paginated_findings,
+        pagination_info,
+        repotoire_dir,
+        format_enum,
+        report_ctx,
+        canon_path,
+    })
+}
 
 /// Format the report and write to output (file or stdout).
 ///

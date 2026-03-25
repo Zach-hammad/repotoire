@@ -25,38 +25,38 @@ use crate::git::co_change::CoChangeMatrix;
 #[derive(Default)]
 pub struct GraphPrimitives {
     // ── Dominator analysis (directed call graph) ──
-    pub(crate) idom: HashMap<NodeIndex, NodeIndex>,
-    pub(crate) dominated: HashMap<NodeIndex, Vec<NodeIndex>>,
-    pub(crate) frontier: HashMap<NodeIndex, Vec<NodeIndex>>,
-    pub(crate) dom_depth: HashMap<NodeIndex, usize>,
+    pub idom: HashMap<NodeIndex, NodeIndex>,
+    pub dominated: HashMap<NodeIndex, Vec<NodeIndex>>,
+    pub frontier: HashMap<NodeIndex, Vec<NodeIndex>>,
+    pub dom_depth: HashMap<NodeIndex, usize>,
 
     // ── Structural connectivity (undirected call+import graph) ──
-    pub(crate) articulation_points: Vec<NodeIndex>,
-    pub(crate) articulation_point_set: HashSet<NodeIndex>,
-    pub(crate) bridges: Vec<(NodeIndex, NodeIndex)>,
-    pub(crate) component_sizes: HashMap<NodeIndex, Vec<usize>>,
+    pub articulation_points: Vec<NodeIndex>,
+    pub articulation_point_set: HashSet<NodeIndex>,
+    pub bridges: Vec<(NodeIndex, NodeIndex)>,
+    pub component_sizes: HashMap<NodeIndex, Vec<usize>>,
 
     // ── Call-graph cycles ──
-    pub(crate) call_cycles: Vec<Vec<NodeIndex>>,
+    pub call_cycles: Vec<Vec<NodeIndex>>,
 
     // ── Centrality metrics ──
-    pub(crate) page_rank: HashMap<NodeIndex, f64>,
-    pub(crate) betweenness: HashMap<NodeIndex, f64>,
+    pub page_rank: HashMap<NodeIndex, f64>,
+    pub betweenness: HashMap<NodeIndex, f64>,
 
     // ── BFS call depth ──
-    pub(crate) call_depth: HashMap<NodeIndex, usize>,
+    pub call_depth: HashMap<NodeIndex, usize>,
 
     // ── Weighted centrality metrics (Phase B) ──
-    pub(crate) weighted_page_rank: HashMap<NodeIndex, f64>,
-    pub(crate) weighted_betweenness: HashMap<NodeIndex, f64>,
+    pub weighted_page_rank: HashMap<NodeIndex, f64>,
+    pub weighted_betweenness: HashMap<NodeIndex, f64>,
 
     // ── Community structure (Phase B) ──
-    pub(crate) community: HashMap<NodeIndex, usize>,
-    pub(crate) modularity: f64,
+    pub community: HashMap<NodeIndex, usize>,
+    pub modularity: f64,
 
     // ── Hidden coupling: co-change without structural edge (Phase B) ──
     // NodeIndex values are File-level node indices. Tuple: (file_a, file_b, weight, lift).
-    pub(crate) hidden_coupling: Vec<(NodeIndex, NodeIndex, f32, f32, f32)>,
+    pub hidden_coupling: Vec<(NodeIndex, NodeIndex, f32, f32, f32)>,
 }
 
 impl GraphPrimitives {

@@ -102,8 +102,8 @@ impl Detector for PageRankDriftDetector {
         let entries: Vec<(petgraph::graph::NodeIndex, f64, f64)> = functions
             .iter()
             .map(|&idx| {
-                let static_pr = graph.page_rank_idx(idx);
-                let weighted_pr = graph.weighted_page_rank_idx(idx);
+                let static_pr = graph.primitives().page_rank.get(&idx).copied().unwrap_or(0.0);
+                let weighted_pr = graph.primitives().weighted_page_rank.get(&idx).copied().unwrap_or(0.0);
                 (idx, static_pr, weighted_pr)
             })
             .collect();

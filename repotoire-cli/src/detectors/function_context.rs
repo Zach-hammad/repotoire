@@ -182,7 +182,7 @@ impl<'a> FunctionContextBuilder<'a> {
             .map(|f| {
                 self.graph
                     .node_by_name_idx(f.qn(i))
-                    .map(|(idx, _)| self.graph.betweenness_idx(idx))
+                    .map(|(idx, _)| self.graph.primitives().betweenness.get(&idx).copied().unwrap_or(0.0))
                     .unwrap_or(0.0)
             })
             .collect();
@@ -214,7 +214,7 @@ impl<'a> FunctionContextBuilder<'a> {
                     .unwrap_or(0.0);
                 let call_depth = self.graph
                     .node_by_name_idx(qn)
-                    .map(|(ni, _)| self.graph.call_depth_idx(ni))
+                    .map(|(ni, _)| self.graph.primitives().call_depth.get(&ni).copied().unwrap_or(0))
                     .unwrap_or(0);
                 let is_test = self.is_test_path(func.path(i))
                     || self.has_test_decorator(func.qualified_name, i);
@@ -298,7 +298,7 @@ impl<'a> FunctionContextBuilder<'a> {
         // Read raw betweenness from graph primitives (O(1) per node) and normalize to [0, 1].
         let raw_betweenness: Vec<f64> = func_node_idxs
             .iter()
-            .map(|&ni| self.graph.betweenness_idx(ni))
+            .map(|&ni| self.graph.primitives().betweenness.get(&ni).copied().unwrap_or(0.0))
             .collect();
         let max_betweenness = raw_betweenness.iter().cloned().fold(0.0_f64, f64::max);
         let normalized_betweenness: Vec<f64> = if max_betweenness > 0.0 {
@@ -335,7 +335,7 @@ impl<'a> FunctionContextBuilder<'a> {
                     .copied()
                     .unwrap_or(0.0);
 
-                let call_depth = self.graph.call_depth_idx(ni);
+                let call_depth = self.graph.primitives().call_depth.get(&ni).copied().unwrap_or(0);
 
                 let is_test = self.is_test_path(func.path(i))
                     || self.has_test_decorator(func.qualified_name, i);

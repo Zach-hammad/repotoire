@@ -83,7 +83,7 @@ impl Detector for StructuralBridgeRiskDetector {
         let graph = ctx.graph;
         let gi = graph.interner();
 
-        let aps = graph.articulation_points_idx();
+        let aps = &graph.primitives().articulation_points;
 
         if aps.is_empty() {
             return Ok(vec![]);
@@ -97,7 +97,7 @@ impl Detector for StructuralBridgeRiskDetector {
         let mut findings = Vec::new();
 
         for &ap_idx in aps {
-            let sizes = match graph.separation_sizes_idx(ap_idx) {
+            let sizes = match graph.primitives().component_sizes.get(&ap_idx).map(|v| v.as_slice()) {
                 Some(s) => s,
                 None => continue,
             };

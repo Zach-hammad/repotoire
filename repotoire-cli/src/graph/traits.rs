@@ -27,6 +27,9 @@ use std::sync::Arc;
 /// compatibility and test ergonomics.
 #[allow(dead_code)] // Trait defines public API surface; not all methods called in binary
 pub trait GraphQuery: Send + Sync {
+    /// Access the pre-computed graph primitives (dominator trees, PageRank, etc.).
+    fn primitives(&self) -> &crate::graph::primitives::GraphPrimitives;
+
     /// Access the string interner for resolving StrKey -> &str.
     fn interner(&self) -> &StringInterner;
 
@@ -351,24 +354,4 @@ pub trait GraphQuery: Send + Sync {
         None
     }
 
-    // ── Graph primitives (pre-computed during freeze) ──
-
-    fn dominated_by_idx(&self, _idx: NodeIndex) -> &[NodeIndex] { &[] }
-    fn domination_frontier_idx(&self, _idx: NodeIndex) -> &[NodeIndex] { &[] }
-    fn dominator_depth_idx(&self, _idx: NodeIndex) -> usize { 0 }
-    fn is_articulation_point_idx(&self, _idx: NodeIndex) -> bool { false }
-    fn articulation_points_idx(&self) -> &[NodeIndex] { &[] }
-    fn separation_sizes_idx(&self, _idx: NodeIndex) -> Option<&[usize]> { None }
-    fn bridge_edges_idx(&self) -> &[(NodeIndex, NodeIndex)] { &[] }
-    fn call_cycles_idx(&self) -> &[Vec<NodeIndex>] { &[] }
-    fn page_rank_idx(&self, _idx: NodeIndex) -> f64 { 0.0 }
-    fn betweenness_idx(&self, _idx: NodeIndex) -> f64 { 0.0 }
-    fn call_depth_idx(&self, _idx: NodeIndex) -> usize { 0 }
-
-    // ── Phase B: Weighted graph primitives ──
-    fn weighted_page_rank_idx(&self, _idx: NodeIndex) -> f64 { 0.0 }
-    fn weighted_betweenness_idx(&self, _idx: NodeIndex) -> f64 { 0.0 }
-    fn community_idx(&self, _idx: NodeIndex) -> Option<usize> { None }
-    fn modularity(&self) -> f64 { 0.0 }
-    fn hidden_coupling_pairs(&self) -> &[(NodeIndex, NodeIndex, f32, f32, f32)] { &[] }
 }

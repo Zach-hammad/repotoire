@@ -98,7 +98,7 @@ impl Detector for TemporalBottleneckDetector {
         let entries: Vec<(petgraph::graph::NodeIndex, f64)> = functions
             .iter()
             .map(|&idx| {
-                let wbw = graph.weighted_betweenness_idx(idx);
+                let wbw = graph.primitives().weighted_betweenness.get(&idx).copied().unwrap_or(0.0);
                 (idx, wbw)
             })
             .collect();
@@ -128,7 +128,7 @@ impl Detector for TemporalBottleneckDetector {
         // Compute percentile ranks for unweighted (structural) betweenness.
         let unweighted_entries: Vec<f64> = entries
             .iter()
-            .map(|&(idx, _)| graph.betweenness_idx(idx))
+            .map(|&(idx, _)| graph.primitives().betweenness.get(&idx).copied().unwrap_or(0.0))
             .collect();
         let mut unweighted_order: Vec<usize> = (0..n).collect();
         unweighted_order.sort_by(|&a, &b| {

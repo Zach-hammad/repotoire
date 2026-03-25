@@ -960,7 +960,7 @@ impl AnalysisEngine {
             .iter()
             .filter_map(|&idx| {
                 let node = graph.node_idx(idx)?;
-                let score = graph.page_rank_idx(idx);
+                let score = graph.primitives().page_rank.get(&idx).copied().unwrap_or(0.0);
                 if score > 0.0 {
                     Some((interner.resolve(node.qualified_name).to_string(), score))
                 } else {
@@ -977,7 +977,7 @@ impl AnalysisEngine {
             .iter()
             .filter_map(|&idx| {
                 let node = graph.node_idx(idx)?;
-                let score = graph.betweenness_idx(idx);
+                let score = graph.primitives().betweenness.get(&idx).copied().unwrap_or(0.0);
                 if score > 0.0 {
                     Some((interner.resolve(node.qualified_name).to_string(), score))
                 } else {
@@ -990,7 +990,7 @@ impl AnalysisEngine {
 
         // Articulation points
         let art_points: Vec<String> = graph
-            .articulation_points_idx()
+            .primitives().articulation_points
             .iter()
             .filter_map(|&idx| {
                 let node = graph.node_idx(idx)?;
@@ -1000,7 +1000,7 @@ impl AnalysisEngine {
 
         // Call cycles
         let call_cycles: Vec<Vec<String>> = graph
-            .call_cycles_idx()
+            .primitives().call_cycles
             .iter()
             .map(|cycle| {
                 cycle
@@ -1039,7 +1039,7 @@ impl AnalysisEngine {
 
         // Hidden coupling from graph primitives
         let hidden_coupling: Vec<(String, String, f32)> = graph
-            .hidden_coupling_pairs()
+            .primitives().hidden_coupling
             .iter()
             .filter_map(|&(a, b, w, _lift, _confidence)| {
                 let na = graph.node_idx(a)?;
@@ -1195,7 +1195,7 @@ impl AnalysisEngine {
                     (sum + f.complexity as f64, cnt + 1)
                 });
 
-            let community = graph.community_idx(idx);
+            let community = graph.primitives().community.get(&idx).copied();
 
             modules.entry(parent).or_default().push(FileInfo {
                 loc: node.loc() as usize,
@@ -1313,7 +1313,7 @@ impl AnalysisEngine {
         use crate::reporters::report_context::Community;
         use std::collections::HashMap;
 
-        let modularity = graph.modularity();
+        let modularity = graph.primitives().modularity;
 
         let mut community_modules: HashMap<usize, Vec<String>> = HashMap::new();
         for m in modules {

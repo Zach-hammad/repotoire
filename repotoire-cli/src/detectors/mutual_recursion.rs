@@ -82,7 +82,7 @@ impl Detector for MutualRecursionDetector {
         let graph = ctx.graph;
         let gi = graph.interner();
 
-        let cycles = graph.call_cycles_idx();
+        let cycles = &graph.primitives().call_cycles;
 
         if cycles.is_empty() {
             return Ok(vec![]);

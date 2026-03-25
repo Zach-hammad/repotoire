@@ -14,6 +14,10 @@ use super::store_models::{CodeNode, ExtraProps};
 // ==================== GraphQuery for CodeGraph ====================
 
 impl super::traits::GraphQuery for CodeGraph {
+    fn primitives(&self) -> &crate::graph::primitives::GraphPrimitives {
+        CodeGraph::primitives(self)
+    }
+
     fn interner(&self) -> &super::interner::StringInterner {
         self.interner()
     }
@@ -465,27 +469,15 @@ impl super::traits::GraphQuery for CodeGraph {
         CodeGraph::extra_props(self, qn)
     }
 
-    fn dominated_by_idx(&self, idx: NodeIndex) -> &[NodeIndex] { self.dominated_by(idx) }
-    fn domination_frontier_idx(&self, idx: NodeIndex) -> &[NodeIndex] { self.domination_frontier(idx) }
-    fn dominator_depth_idx(&self, idx: NodeIndex) -> usize { self.dominator_depth(idx) }
-    fn is_articulation_point_idx(&self, idx: NodeIndex) -> bool { self.is_articulation_point(idx) }
-    fn articulation_points_idx(&self) -> &[NodeIndex] { self.articulation_points() }
-    fn separation_sizes_idx(&self, idx: NodeIndex) -> Option<&[usize]> { self.separation_sizes(idx) }
-    fn bridge_edges_idx(&self) -> &[(NodeIndex, NodeIndex)] { self.bridges() }
-    fn call_cycles_idx(&self) -> &[Vec<NodeIndex>] { self.call_cycles() }
-    fn page_rank_idx(&self, idx: NodeIndex) -> f64 { self.page_rank(idx) }
-    fn betweenness_idx(&self, idx: NodeIndex) -> f64 { self.betweenness(idx) }
-    fn call_depth_idx(&self, idx: NodeIndex) -> usize { self.call_depth(idx) }
-    fn weighted_page_rank_idx(&self, idx: NodeIndex) -> f64 { self.weighted_page_rank(idx) }
-    fn weighted_betweenness_idx(&self, idx: NodeIndex) -> f64 { self.weighted_betweenness(idx) }
-    fn community_idx(&self, idx: NodeIndex) -> Option<usize> { self.community(idx) }
-    fn modularity(&self) -> f64 { self.graph_modularity() }
-    fn hidden_coupling_pairs(&self) -> &[(NodeIndex, NodeIndex, f32, f32, f32)] { self.hidden_coupling() }
 }
 
 // ==================== GraphQuery for Arc<CodeGraph> ====================
 
 impl super::traits::GraphQuery for std::sync::Arc<CodeGraph> {
+    fn primitives(&self) -> &crate::graph::primitives::GraphPrimitives {
+        <CodeGraph as super::traits::GraphQuery>::primitives(self)
+    }
+
     fn interner(&self) -> &super::interner::StringInterner {
         (**self).interner()
     }
@@ -728,22 +720,6 @@ impl super::traits::GraphQuery for std::sync::Arc<CodeGraph> {
         <CodeGraph as super::traits::GraphQuery>::extra_props_ref(self, qn)
     }
 
-    fn dominated_by_idx(&self, idx: NodeIndex) -> &[NodeIndex] { <CodeGraph as super::traits::GraphQuery>::dominated_by_idx(self, idx) }
-    fn domination_frontier_idx(&self, idx: NodeIndex) -> &[NodeIndex] { <CodeGraph as super::traits::GraphQuery>::domination_frontier_idx(self, idx) }
-    fn dominator_depth_idx(&self, idx: NodeIndex) -> usize { <CodeGraph as super::traits::GraphQuery>::dominator_depth_idx(self, idx) }
-    fn is_articulation_point_idx(&self, idx: NodeIndex) -> bool { <CodeGraph as super::traits::GraphQuery>::is_articulation_point_idx(self, idx) }
-    fn articulation_points_idx(&self) -> &[NodeIndex] { <CodeGraph as super::traits::GraphQuery>::articulation_points_idx(self) }
-    fn separation_sizes_idx(&self, idx: NodeIndex) -> Option<&[usize]> { <CodeGraph as super::traits::GraphQuery>::separation_sizes_idx(self, idx) }
-    fn bridge_edges_idx(&self) -> &[(NodeIndex, NodeIndex)] { <CodeGraph as super::traits::GraphQuery>::bridge_edges_idx(self) }
-    fn call_cycles_idx(&self) -> &[Vec<NodeIndex>] { <CodeGraph as super::traits::GraphQuery>::call_cycles_idx(self) }
-    fn page_rank_idx(&self, idx: NodeIndex) -> f64 { <CodeGraph as super::traits::GraphQuery>::page_rank_idx(self, idx) }
-    fn betweenness_idx(&self, idx: NodeIndex) -> f64 { <CodeGraph as super::traits::GraphQuery>::betweenness_idx(self, idx) }
-    fn call_depth_idx(&self, idx: NodeIndex) -> usize { <CodeGraph as super::traits::GraphQuery>::call_depth_idx(self, idx) }
-    fn weighted_page_rank_idx(&self, idx: NodeIndex) -> f64 { <CodeGraph as super::traits::GraphQuery>::weighted_page_rank_idx(self, idx) }
-    fn weighted_betweenness_idx(&self, idx: NodeIndex) -> f64 { <CodeGraph as super::traits::GraphQuery>::weighted_betweenness_idx(self, idx) }
-    fn community_idx(&self, idx: NodeIndex) -> Option<usize> { <CodeGraph as super::traits::GraphQuery>::community_idx(self, idx) }
-    fn modularity(&self) -> f64 { <CodeGraph as super::traits::GraphQuery>::modularity(self) }
-    fn hidden_coupling_pairs(&self) -> &[(NodeIndex, NodeIndex, f32, f32, f32)] { <CodeGraph as super::traits::GraphQuery>::hidden_coupling_pairs(self) }
 }
 
 #[cfg(test)]

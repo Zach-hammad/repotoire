@@ -77,7 +77,7 @@ impl Detector for HiddenCouplingDetector {
     ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let gi = graph.interner();
-        let pairs = graph.hidden_coupling_pairs();
+        let pairs = &graph.primitives().hidden_coupling;
 
         if pairs.is_empty() {
             return Ok(vec![]);

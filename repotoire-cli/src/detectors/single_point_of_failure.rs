@@ -94,7 +94,7 @@ impl Detector for SinglePointOfFailureDetector {
         // Collect all PageRank values for percentile computation.
         let mut all_ranks: Vec<f64> = functions
             .iter()
-            .map(|&idx| graph.page_rank_idx(idx))
+            .map(|&idx| graph.primitives().page_rank.get(&idx).copied().unwrap_or(0.0))
             .collect();
         all_ranks.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
@@ -104,7 +104,7 @@ impl Detector for SinglePointOfFailureDetector {
         const ENTRY_POINT_NAMES: &[&str] = &["main", "run", "start", "init"];
 
         for &func_idx in functions {
-            let dominated = graph.dominated_by_idx(func_idx);
+            let dominated = graph.primitives().dominated.get(&func_idx).map(|v| v.as_slice()).unwrap_or(&[]);
             let dom_count = dominated.len();
 
             if dom_count < self.min_dominated {
@@ -132,8 +132,8 @@ impl Detector for SinglePointOfFailureDetector {
                 continue;
             }
 
-            let page_rank = graph.page_rank_idx(func_idx);
-            let frontier = graph.domination_frontier_idx(func_idx);
+            let page_rank = graph.primitives().page_rank.get(&func_idx).copied().unwrap_or(0.0);
+            let frontier = graph.primitives().frontier.get(&func_idx).map(|v| v.as_slice()).unwrap_or(&[]);
 
             // Compute PageRank percentile.
             let rank_pos = all_ranks

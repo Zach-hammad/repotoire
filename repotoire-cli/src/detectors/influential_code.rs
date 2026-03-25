@@ -224,7 +224,7 @@ impl Detector for InfluentialCodeDetector {
         // Collect PageRank values for percentile computation
         let mut pagerank_values: Vec<f64> = func_idxs
             .iter()
-            .map(|&idx| graph.page_rank_idx(idx))
+            .map(|&idx| graph.primitives().page_rank.get(&idx).copied().unwrap_or(0.0))
             .collect();
         pagerank_values.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
@@ -254,7 +254,7 @@ impl Detector for InfluentialCodeDetector {
                 }
             }
 
-            let page_rank = graph.page_rank_idx(func_idx);
+            let page_rank = graph.primitives().page_rank.get(&func_idx).copied().unwrap_or(0.0);
             let pagerank_pct = percentile_of(page_rank);
 
             // Skip functions below the PageRank percentile threshold
@@ -274,7 +274,7 @@ impl Detector for InfluentialCodeDetector {
                 let fan_in = graph.call_fan_in_idx(func_idx);
                 let complexity = func.complexity_opt().unwrap_or(1) as usize;
                 let loc = func.loc() as usize;
-                let raw_b = graph.betweenness_idx(func_idx);
+                let raw_b = graph.primitives().betweenness.get(&func_idx).copied().unwrap_or(0.0);
                 let betweenness = if raw_b > 0.0 { Some(raw_b) } else { None };
                 (fan_in, complexity, loc, FunctionRole::Unknown, betweenness)
             };
