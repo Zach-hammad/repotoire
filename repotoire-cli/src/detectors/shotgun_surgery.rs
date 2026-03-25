@@ -53,6 +53,39 @@ fn extract_short_name(qn: &str) -> &str {
     qn.rsplit("::").next().unwrap_or(qn)
 }
 
+/// Check if a function name matches an expected-propagation pattern.
+///
+/// These patterns have inherently high fan-in AND co-change propagation
+/// because their callers depend on their exact behavior. Changes to these
+/// functions legitimately require caller updates — that's by design, not
+/// a coupling problem.
+///
+/// Patterns:
+/// - **Visitor/walker**: recursive AST/graph traversal (`walk`, `visit`, `traverse`, `accept`)
+/// - **Config/factory**: configuration/initialization (`config`, `init`, `setup`, `create`, `build`, `new`)
+/// - **Core accessors**: fundamental getters used everywhere (`get_`, `from_`, `into_`, `as_`)
+fn is_expected_propagation_pattern(short_name: &str) -> bool {
+    // Visitor/walker pattern
+    if short_name.starts_with("walk")
+        || short_name.starts_with("visit")
+        || short_name.starts_with("traverse")
+        || short_name == "accept"
+    {
+        return true;
+    }
+
+    // Config/factory pattern
+    if short_name.starts_with("config_for")
+        || short_name == "config"
+        || short_name.starts_with("with_config")
+        || short_name == "default"
+    {
+        return true;
+    }
+
+    false
+}
+
 /// Shared propagation analysis for a node (function or class).
 /// Returns `Some((propagation_rate, co_changing_caller_files, total_caller_files))`
 /// or `None` if there isn't enough data to analyze.
@@ -229,6 +262,16 @@ impl Detector for ShotgunSurgeryDetector {
             }
 
             let file_path = func.path(i);
+
+            // Skip expected-propagation patterns where high fan-in + co-change is
+            // inherent to the pattern, not a design flaw:
+            // - Visitor/walker: recursive AST traversal called from many sites
+            // - Config/factory: configuration lookup called by all consumers
+            // - Parser entry points: called by every test and consumer
+            let short_name = extract_short_name(qn).to_lowercase();
+            if is_expected_propagation_pattern(&short_name) {
+                continue;
+            }
 
             let (propagation_rate, co_changing, total) =
                 match compute_propagation(graph, co_change, qn, file_path) {

@@ -148,33 +148,57 @@ pub fn run_engine(
         result.stats.total_loc,
     );
 
-    // Write JSON sidecar if requested (single analysis run, two output files)
+    // Optional outputs, telemetry, caching, and session persistence
+    emit_optional_output(&output, &all_findings, report, &result, &engine, quiet_mode, start_time, mode_label)?;
+    send_telemetry(
+        telemetry, path, &result.score, &result.stats, &all_findings,
+        &lang_loc_precomputed, &precomputed_primary_language, &engine, mode_label, start_time,
+    );
+    {
+        let repotoire_dir = repotoire_dir.clone();
+        let health_report = report.clone();
+        let all_findings_clone = all_findings.clone();
+        std::thread::spawn(move || { let _ = cache_results(&repotoire_dir, &health_report, &all_findings_clone); });
+    }
+    let _ = engine.save(&session_dir);
+    check_fail_threshold(&output.fail_on, report)?;
+
+    Ok(())
+}
+
+/// Emit optional outputs: JSON sidecar, score explanation, timing breakdown, summary.
+fn emit_optional_output(
+    output: &crate::engine::OutputOptions,
+    all_findings: &[crate::models::Finding],
+    report: &crate::models::HealthReport,
+    result: &crate::engine::AnalysisResult,
+    engine: &crate::engine::AnalysisEngine,
+    quiet_mode: bool,
+    start_time: Instant,
+    mode_label: &str,
+) -> Result<()> {
+    // JSON sidecar
     if let Some(ref sidecar_path) = output.json_sidecar {
         let mut sidecar_report = report.clone();
-        sidecar_report.findings = all_findings.clone();
+        sidecar_report.findings = all_findings.to_vec();
         sidecar_report.findings_summary =
-            crate::models::FindingsSummary::from_findings(&all_findings);
+            crate::models::FindingsSummary::from_findings(all_findings);
         let json_output = crate::reporters::report(&sidecar_report, "json")?;
         std::fs::write(sidecar_path, &json_output)?;
         eprintln!("JSON sidecar written to: {}", sidecar_path.display());
     }
 
-    // Explain score (if requested)
+    // Score explanation
     if output.explain_score {
         if let Some(graph) = engine.graph() {
             let scorer = crate::scoring::GraphScorer::new(
-                graph,
-                engine.project_config(),
-                engine.repo_path(),
+                graph, engine.project_config(), engine.repo_path(),
             );
             let explanation = scorer.explain(&result.score.breakdown);
             match output.format.as_str() {
                 "json" => {
                     let explain_json = build_explain_json(&explanation, &result.score.breakdown);
-                    eprintln!(
-                        "{}",
-                        serde_json::to_string_pretty(&explain_json).unwrap_or_default()
-                    );
+                    eprintln!("{}", serde_json::to_string_pretty(&explain_json).unwrap_or_default());
                 }
                 _ => {
                     println!("\n{}", style("─".repeat(60)).dim());
@@ -184,7 +208,7 @@ pub fn run_engine(
         }
     }
 
-    // Print timing breakdown (if requested)
+    // Timing breakdown
     if output.timings {
         let total = start_time.elapsed();
         println!("\nPhase timings ({}):", mode_label);
@@ -195,46 +219,12 @@ pub fn run_engine(
         println!("  {:<16} {:.3}s", "TOTAL", total.as_secs_f64());
     }
 
-    // Final summary
+    // Summary
     if !quiet_mode {
         let elapsed = start_time.elapsed();
         let icon_done = if output.no_emoji { "" } else { "✨ " };
-        eprintln!(
-            "\n{}Analysis complete in {:.2}s",
-            style(icon_done).bold(),
-            elapsed.as_secs_f64()
-        );
+        eprintln!("\n{}Analysis complete in {:.2}s", style(icon_done).bold(), elapsed.as_secs_f64());
     }
-
-    // Send telemetry event (fire-and-forget)
-    send_telemetry(
-        telemetry,
-        path,
-        &result.score,
-        &result.stats,
-        &all_findings,
-        &lang_loc_precomputed,
-        &precomputed_primary_language,
-        &engine,
-        mode_label,
-        start_time,
-    );
-
-    // Cache results (fire-and-forget background)
-    {
-        let repotoire_dir = repotoire_dir.clone();
-        let health_report = report.clone();
-        let all_findings_clone = all_findings.clone();
-        std::thread::spawn(move || {
-            let _ = cache_results(&repotoire_dir, &health_report, &all_findings_clone);
-        });
-    }
-
-    // Persist engine session for cross-process incremental analysis
-    let _ = engine.save(&session_dir);
-
-    // CI/CD threshold check
-    check_fail_threshold(&output.fail_on, &report)?;
 
     Ok(())
 }
