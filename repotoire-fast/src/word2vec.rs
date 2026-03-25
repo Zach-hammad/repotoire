@@ -517,7 +517,10 @@ pub fn train_skipgram_parallel(walks: &[Vec<u32>], config: &Word2VecConfig) -> W
                             - (config.learning_rate - config.min_learning_rate) * progress;
                         let lr = lr.max(config.min_learning_rate);
 
-                        // Train on positive sample (Hogwild! unsafe access)
+                        // Hogwild! concurrent SGD: threads access disjoint/rarely-overlapping
+                        // rows by vocab index; commutative gradient updates mean rare races cause
+                        // only benign staleness. Allocations outlive all iterations; indices checked.
+                        // SAFETY: raw pointers into embedding matrices without synchronization.
                         unsafe {
                             train_pair_unsafe(
                                 center_idx,
@@ -536,6 +539,9 @@ pub fn train_skipgram_parallel(walks: &[Vec<u32>], config: &Word2VecConfig) -> W
                         for _ in 0..config.negative_samples {
                             let neg_idx = noise_dist.sample(&mut rng);
                             if neg_idx != context_idx {
+                                // SAFETY: Same Hogwild! justification as the positive-sample
+                                // unsafe block above — concurrent raw-pointer access to shared
+                                // embedding matrices with benign data races on gradient updates.
                                 unsafe {
                                     train_pair_unsafe(
                                         center_idx,

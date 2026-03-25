@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
@@ -62,13 +62,13 @@ download(url)
     console.log('Extracting...');
     
     if (info.ext === 'tar.gz') {
-      execSync(`tar xzf "${tmpFile}" -C "${binDir}"`, { stdio: 'inherit' });
+      execFileSync('tar', ['xzf', tmpFile, '-C', binDir], { stdio: 'inherit' });
     } else if (info.ext === 'zip') {
       // Windows: use PowerShell to extract
       if (process.platform === 'win32') {
-        execSync(`powershell -command "Expand-Archive -Force '${tmpFile}' '${binDir}'"`, { stdio: 'inherit' });
+        execFileSync('powershell', ['-command', `Expand-Archive -Force '${tmpFile}' '${binDir}'`], { stdio: 'inherit' });
       } else {
-        execSync(`unzip -o "${tmpFile}" -d "${binDir}"`, { stdio: 'inherit' });
+        execFileSync('unzip', ['-o', tmpFile, '-d', binDir], { stdio: 'inherit' });
       }
     }
     

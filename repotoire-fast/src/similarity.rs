@@ -43,6 +43,9 @@ fn dot_product_simd(a: &[f32], b: &[f32]) -> f32 {
     // Handle remainder
     let base = chunks * SIMD_LANES;
     for i in 0..remainder {
+        // SAFETY: `base + i` is always in bounds because `base = chunks * SIMD_LANES`
+        // and `i < remainder` where `remainder = len % SIMD_LANES`, so `base + i < len`.
+        // `len` is the minimum of `a.len()` and `b.len()`, ensuring valid indices for both slices.
         unsafe {
             sum0 += a.get_unchecked(base + i) * b.get_unchecked(base + i);
         }

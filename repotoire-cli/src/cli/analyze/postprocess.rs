@@ -175,6 +175,11 @@ pub fn postprocess_findings(
     // Step 2.6: File-level suppression — filter findings from files with repotoire:ignore-file
     filter_file_level_suppressed(findings);
 
+    // Step 2.65: Inline suppression — filter findings where the affected line has
+    // a repotoire:ignore comment. This catches suppressions for GraphWide detectors
+    // (mutual-recursion, infinite-loop, etc.) that don't read file content themselves.
+    filter_inline_suppressed(findings);
+
     // Step 2.7: Auto-suppress detector test fixtures (e.g. SQL injection detector's own test files)
     filter_detector_test_fixtures(findings);
 
@@ -608,6 +613,62 @@ fn filter_file_level_suppressed(findings: &mut Vec<Finding>) {
     if removed > 0 {
         tracing::debug!(
             "File-level suppression filtered {} findings",
+            removed
+        );
+    }
+}
+
+/// Filter findings where the affected line has an inline `repotoire:ignore` comment.
+///
+/// This is the postprocessor-level suppression check that catches comments for
+/// GraphWide detectors (mutual-recursion, infinite-loop, etc.) which don't read
+/// file content themselves. Checks both the finding's line and the previous line
+/// for suppression comments, with optional targeted detector matching.
+fn filter_inline_suppressed(findings: &mut Vec<Finding>) {
+    use std::collections::HashMap;
+
+    // Cache file contents to avoid re-reading
+    let mut file_cache: HashMap<PathBuf, Vec<String>> = HashMap::new();
+
+    let before = findings.len();
+    findings.retain(|f| {
+        let line_start = match f.line_start {
+            Some(l) if l > 0 => l as usize,
+            _ => return true, // No line info — keep
+        };
+
+        for path in &f.affected_files {
+            let lines = file_cache
+                .entry(path.clone())
+                .or_insert_with(|| {
+                    std::fs::read_to_string(path)
+                        .map(|c| c.lines().map(String::from).collect())
+                        .unwrap_or_default()
+                });
+
+            if lines.is_empty() {
+                continue;
+            }
+
+            let line_idx = line_start.saturating_sub(1); // 0-indexed
+            let line = lines.get(line_idx).map(|s| s.as_str()).unwrap_or("");
+            let prev_line = if line_idx > 0 {
+                lines.get(line_idx - 1).map(|s| s.as_str())
+            } else {
+                None
+            };
+
+            if crate::detectors::is_line_suppressed_for(line, prev_line, &f.detector) {
+                return false; // Suppressed
+            }
+        }
+        true
+    });
+
+    let removed = before - findings.len();
+    if removed > 0 {
+        tracing::debug!(
+            "Inline suppression filtered {} findings",
             removed
         );
     }

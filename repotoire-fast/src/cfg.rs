@@ -100,7 +100,7 @@ fn is_always_true(expr: &Expr) -> bool {
 }
 
 /// Check if an expression is always false (constant folding for loop detection).
-fn is_always_false(expr: &Expr) -> bool {
+fn is_always_false(expr: &Expr) -> bool { // repotoire:ignore[mutual-recursion]
     match expr {
         Expr::Constant(c) => {
             match &c.value {
@@ -810,7 +810,7 @@ fn analyze_binop_direction(op: &Operator, left: &Expr, right: &Expr, var_name: &
 
 /// Analyze how a variable is modified in a list of statements.
 /// Returns the abstract direction of modification.
-fn analyze_variable_modification(var_name: &str, stmts: &[Stmt]) -> AbstractDirection {
+fn analyze_variable_modification(var_name: &str, stmts: &[Stmt]) -> AbstractDirection { // repotoire:ignore[mutual-recursion]
     let mut current_direction = AbstractDirection::Unchanged;
 
     for stmt in stmts {
@@ -2490,7 +2490,7 @@ pub fn analyze_interprocedural(source: &str) -> InterproceduralAnalysis {
         let (has_infinite_loop, infinite_loops, initial_status) = if let Some(analysis) = intra_map.get(name) {
             let loops = analysis.infinite_loop_types.clone();
             let has_loop = !loops.is_empty();
-            let status = if has_loop {
+            let status = if has_loop { // repotoire:ignore[infinite-loop]
                 TerminationStatus::MayDiverge
             } else {
                 TerminationStatus::Always  // Tentatively always, may change based on callees
@@ -2519,7 +2519,7 @@ pub fn analyze_interprocedural(source: &str) -> InterproceduralAnalysis {
     let mut iterations = 0;
     const MAX_ITERATIONS: usize = 100;  // Prevent infinite loops in analysis
 
-    while changed && iterations < MAX_ITERATIONS {
+    while changed && iterations < MAX_ITERATIONS { // repotoire:ignore[infinite-loop]
         changed = false;
         iterations += 1;
 
@@ -2684,7 +2684,7 @@ pub fn analyze_cross_file(
                 format!("{}.{}", module_ns, analysis.function_name)
             };
 
-            let terminates = if analysis.has_infinite_loop {
+            let terminates = if analysis.has_infinite_loop { // repotoire:ignore[infinite-loop]
                 TerminationStatus::MayDiverge
             } else {
                 TerminationStatus::Always
@@ -2706,7 +2706,7 @@ pub fn analyze_cross_file(
     let mut iterations = 0;
     const MAX_ITERATIONS: usize = 100;
 
-    while changed && iterations < MAX_ITERATIONS {
+    while changed && iterations < MAX_ITERATIONS { // repotoire:ignore[infinite-loop]
         changed = false;
         iterations += 1;
 

@@ -723,7 +723,7 @@ impl TypeInference {
     }
 
     /// Process an async function definition
-    fn process_async_function(&mut self, func: &ast::StmtAsyncFunctionDef, scope_ns: &str, file_path: &str) {
+    fn process_async_function(&mut self, func: &ast::StmtAsyncFunctionDef, scope_ns: &str, file_path: &str) { // repotoire:ignore[mutual-recursion]
         let func_ns = format!("{}.{}", scope_ns, func.name);
         let is_method = self.classes.contains_key(scope_ns);
 

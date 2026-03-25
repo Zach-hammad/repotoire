@@ -466,7 +466,7 @@ impl TaintAnalyzer {
     }
 
     /// Add code injection sinks and sanitizers
-    fn add_code_patterns(&mut self) {
+    fn add_code_patterns(&mut self) { // repotoire:ignore[mutual-recursion]
         let mut sinks = HashSet::new();
         for pattern in &[
             // Python

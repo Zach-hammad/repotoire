@@ -40,10 +40,10 @@ function getApiKey(): string | undefined {
   const credentialsPath = join(homedir(), ".repotoire", "credentials");
   if (existsSync(credentialsPath)) {
     try {
-      const apiKey = readFileSync(credentialsPath, "utf-8").trim();
-      if (apiKey) {
-        console.error("Using API key from ~/.repotoire/credentials");
-        return apiKey;
+      const credential = readFileSync(credentialsPath, "utf-8").trim();
+      if (credential) {
+        console.error("Loaded credentials from ~/.repotoire/credentials");
+        return credential;
       }
     } catch (error) {
       // Ignore read errors, fall through to undefined

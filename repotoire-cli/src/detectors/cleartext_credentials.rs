@@ -35,6 +35,66 @@ fn is_false_positive(line: &str) -> bool {
         || lower.contains("without_password")
         || lower.contains("hide_password")
         || lower.contains("mask_password")
+        || credential_only_in_string_literal(line)
+}
+
+/// Check if ALL credential keywords on this line appear only inside string literals.
+///
+/// If the credential word (password, api_key, credentials, etc.) is inside quotes,
+/// it's a static message like `console.error("Using credentials from ~/.config")` —
+/// not an actual credential being logged. Only flag when a credential VARIABLE is
+/// being interpolated or concatenated into the log.
+fn credential_only_in_string_literal(line: &str) -> bool {
+    static CRED_KEYWORDS: &[&str] = &[
+        "password", "passwd", "secret", "api_key", "apikey",
+        "auth_token", "access_token", "private_key", "credential",
+    ];
+
+    let lower = line.to_lowercase();
+
+    // Find all credential keyword positions
+    let mut cred_positions: Vec<(usize, usize)> = Vec::new();
+    for keyword in CRED_KEYWORDS {
+        let mut start = 0;
+        while let Some(pos) = lower[start..].find(keyword) {
+            let abs_pos = start + pos;
+            cred_positions.push((abs_pos, abs_pos + keyword.len()));
+            start = abs_pos + keyword.len();
+        }
+    }
+
+    if cred_positions.is_empty() {
+        return false;
+    }
+
+    // Build a map of which character positions are inside string literals
+    let bytes = line.as_bytes();
+    let mut in_string = vec![false; bytes.len()];
+    let mut i = 0;
+    while i < bytes.len() {
+        let ch = bytes[i];
+        if ch == b'"' || ch == b'\'' || ch == b'`' {
+            let quote = ch;
+            i += 1;
+            while i < bytes.len() {
+                if bytes[i] == b'\\' {
+                    i += 2; // skip escaped char
+                    continue;
+                }
+                if bytes[i] == quote {
+                    break;
+                }
+                in_string[i] = true;
+                i += 1;
+            }
+        }
+        i += 1;
+    }
+
+    // Check if ALL credential keyword occurrences are inside strings
+    cred_positions.iter().all(|&(start, end)| {
+        (start..end).all(|pos| pos < in_string.len() && in_string[pos])
+    })
 }
 
 /// Categorize the type of credential being logged

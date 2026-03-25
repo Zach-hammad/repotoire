@@ -196,11 +196,12 @@ impl Detector for TemporalBottleneckDetector {
                 continue;
             }
 
-            // Severity based on gap magnitude (how surprising is this?)
-            let severity = if pct_gap >= 50 {
-                Severity::High   // Massively more temporal than structural
-            } else if pct_gap >= 30 {
-                Severity::Medium // Notably more temporal than structural
+            // Severity based on gap magnitude (how surprising is this?).
+            // Capped at Medium: temporal bottlenecks are architectural observations
+            // about change propagation patterns, not bugs. They inform refactoring
+            // decisions but shouldn't block commits.
+            let severity = if pct_gap >= 40 {
+                Severity::Medium // Significantly more temporal than structural
             } else {
                 Severity::Low    // Somewhat surprising
             };
