@@ -48,6 +48,63 @@ pub(crate) struct QuerySnapshot {
 }
 
 /// Pure Rust graph store - replaces Kuzu
+/// Apply a single metric or flag property to a node (store variant).
+fn apply_store_node_metric(node: &mut CodeNode, key: &str, value: &serde_json::Value) {
+    match key {
+        "complexity" => node.complexity = value.as_i64().unwrap_or(0) as u16,
+        "paramCount" => node.param_count = value.as_i64().unwrap_or(0) as u8,
+        "methodCount" => node.method_count = value.as_i64().unwrap_or(0) as u16,
+        "maxNesting" | "nesting_depth" => node.max_nesting = value.as_i64().unwrap_or(0) as u8,
+        "returnCount" => node.return_count = value.as_i64().unwrap_or(0) as u8,
+        "commit_count" => node.commit_count = value.as_i64().unwrap_or(0) as u16,
+        "is_async" => apply_store_flag_if_true(node, value, super::store_models::FLAG_IS_ASYNC),
+        "is_exported" => {
+            apply_store_flag_if_true(node, value, super::store_models::FLAG_IS_EXPORTED)
+        }
+        "is_public" => apply_store_flag_if_true(node, value, super::store_models::FLAG_IS_PUBLIC),
+        "is_method" => apply_store_flag_if_true(node, value, super::store_models::FLAG_IS_METHOD),
+        "address_taken" => {
+            apply_store_flag_if_true(node, value, super::store_models::FLAG_ADDRESS_TAKEN)
+        }
+        "has_decorators" => {
+            apply_store_flag_if_true(node, value, super::store_models::FLAG_HAS_DECORATORS)
+        }
+        _ => {}
+    }
+}
+
+/// Set a flag on a node if the JSON value is truthy (store variant).
+fn apply_store_flag_if_true(node: &mut CodeNode, value: &serde_json::Value, flag: u8) {
+    if value.as_bool().unwrap_or(false) {
+        node.set_flag(flag);
+    }
+}
+
+/// Apply extra string properties (author, last_modified) via DashMap (store variant).
+fn apply_store_extra_prop(
+    extra_props: &DashMap<StrKey, ExtraProps>,
+    si: &super::interner::StringInterner,
+    intern_qn: StrKey,
+    key: &str,
+    value: &serde_json::Value,
+) {
+    match key {
+        "author" => {
+            if let Some(s) = value.as_str() {
+                let mut ep = extra_props.entry(intern_qn).or_default();
+                ep.author = Some(si.intern(s));
+            }
+        }
+        "last_modified" => {
+            if let Some(s) = value.as_str() {
+                let mut ep = extra_props.entry(intern_qn).or_default();
+                ep.last_modified = Some(si.intern(s));
+            }
+        }
+        _ => {}
+    }
+}
+
 pub struct GraphStore {
     /// In-memory graph
     graph: RwLock<StableGraph<CodeNode, CodeEdge>>,
@@ -626,7 +683,6 @@ impl GraphStore {
         value: impl Into<serde_json::Value>,
     ) -> bool {
         let intern_qn = self.interner().intern(qn);
-        // Read DashMap index first, then acquire graph write lock
         let idx = match self.node_index.get(&intern_qn).map(|r| *r) {
             Some(idx) => idx,
             None => return false,
@@ -634,29 +690,8 @@ impl GraphStore {
         let val: serde_json::Value = value.into();
         let mut graph = self.write_graph();
         if let Some(node) = graph.node_weight_mut(idx) {
-            match key {
-                "complexity" => node.complexity = val.as_i64().unwrap_or(0) as u16,
-                "paramCount" => node.param_count = val.as_i64().unwrap_or(0) as u8,
-                "methodCount" => node.method_count = val.as_i64().unwrap_or(0) as u16,
-                "maxNesting" | "nesting_depth" => node.max_nesting = val.as_i64().unwrap_or(0) as u8,
-                "returnCount" => node.return_count = val.as_i64().unwrap_or(0) as u8,
-                "commit_count" => node.commit_count = val.as_i64().unwrap_or(0) as u16,
-                "is_async" => if val.as_bool().unwrap_or(false) { node.set_flag(super::store_models::FLAG_IS_ASYNC); },
-                "is_exported" => if val.as_bool().unwrap_or(false) { node.set_flag(super::store_models::FLAG_IS_EXPORTED); },
-                "is_public" => if val.as_bool().unwrap_or(false) { node.set_flag(super::store_models::FLAG_IS_PUBLIC); },
-                "is_method" => if val.as_bool().unwrap_or(false) { node.set_flag(super::store_models::FLAG_IS_METHOD); },
-                "address_taken" => if val.as_bool().unwrap_or(false) { node.set_flag(super::store_models::FLAG_ADDRESS_TAKEN); },
-                "has_decorators" => if val.as_bool().unwrap_or(false) { node.set_flag(super::store_models::FLAG_HAS_DECORATORS); },
-                "author" => if let Some(s) = val.as_str() {
-                    let mut ep = self.extra_props.entry(intern_qn).or_default();
-                    ep.author = Some(self.interner().intern(s));
-                },
-                "last_modified" => if let Some(s) = val.as_str() {
-                    let mut ep = self.extra_props.entry(intern_qn).or_default();
-                    ep.last_modified = Some(self.interner().intern(s));
-                },
-                _ => {}
-            }
+            apply_store_node_metric(node, key, &val);
+            apply_store_extra_prop(&self.extra_props, self.interner(), intern_qn, key, &val);
             return true;
         }
         false
@@ -665,39 +700,31 @@ impl GraphStore {
     /// Update multiple properties on a node
     pub fn update_node_properties(&self, qn: &str, props: &[(&str, serde_json::Value)]) -> bool {
         let intern_qn = self.interner().intern(qn);
-        // Read DashMap index first, then acquire graph write lock
         let idx = match self.node_index.get(&intern_qn).map(|r| *r) {
             Some(idx) => idx,
             None => return false,
         };
+        let si = self.interner();
+        // Pre-intern extra props before taking graph write lock
+        let mut extras = ExtraProps::default();
+        let mut has_extras = false;
+        for (key, value) in props.iter() {
+            match *key {
+                "author" => if let Some(s) = value.as_str() {
+                    extras.author = Some(si.intern(s));
+                    has_extras = true;
+                },
+                "last_modified" => if let Some(s) = value.as_str() {
+                    extras.last_modified = Some(si.intern(s));
+                    has_extras = true;
+                },
+                _ => {}
+            }
+        }
         let mut graph = self.write_graph();
         if let Some(node) = graph.node_weight_mut(idx) {
-            let mut extras = ExtraProps::default();
-            let mut has_extras = false;
             for (key, value) in props {
-                match *key {
-                    "complexity" => node.complexity = value.as_i64().unwrap_or(0) as u16,
-                    "paramCount" => node.param_count = value.as_i64().unwrap_or(0) as u8,
-                    "methodCount" => node.method_count = value.as_i64().unwrap_or(0) as u16,
-                    "maxNesting" | "nesting_depth" => node.max_nesting = value.as_i64().unwrap_or(0) as u8,
-                    "returnCount" => node.return_count = value.as_i64().unwrap_or(0) as u8,
-                    "commit_count" => node.commit_count = value.as_i64().unwrap_or(0) as u16,
-                    "is_async" => if value.as_bool().unwrap_or(false) { node.set_flag(super::store_models::FLAG_IS_ASYNC); },
-                    "is_exported" => if value.as_bool().unwrap_or(false) { node.set_flag(super::store_models::FLAG_IS_EXPORTED); },
-                    "is_public" => if value.as_bool().unwrap_or(false) { node.set_flag(super::store_models::FLAG_IS_PUBLIC); },
-                    "is_method" => if value.as_bool().unwrap_or(false) { node.set_flag(super::store_models::FLAG_IS_METHOD); },
-                    "address_taken" => if value.as_bool().unwrap_or(false) { node.set_flag(super::store_models::FLAG_ADDRESS_TAKEN); },
-                    "has_decorators" => if value.as_bool().unwrap_or(false) { node.set_flag(super::store_models::FLAG_HAS_DECORATORS); },
-                    "author" => if let Some(s) = value.as_str() {
-                        extras.author = Some(self.interner().intern(s));
-                        has_extras = true;
-                    },
-                    "last_modified" => if let Some(s) = value.as_str() {
-                        extras.last_modified = Some(self.interner().intern(s));
-                        has_extras = true;
-                    },
-                    _ => {}
-                }
+                apply_store_node_metric(node, key, value);
             }
             if has_extras {
                 drop(graph);

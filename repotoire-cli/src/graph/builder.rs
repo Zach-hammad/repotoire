@@ -50,6 +50,30 @@ fn apply_flag_if_true(node: &mut CodeNode, value: &serde_json::Value, flag: u8) 
     }
 }
 
+/// Apply extra string properties (author, last_modified) to the extra props map.
+fn apply_extra_prop(
+    extra_props: &mut HashMap<StrKey, ExtraProps>,
+    intern_qn: StrKey,
+    key: &str,
+    value: &serde_json::Value,
+) {
+    match key {
+        "author" => {
+            if let Some(s) = value.as_str() {
+                let ep = extra_props.entry(intern_qn).or_default();
+                ep.author = Some(global_interner().intern(s));
+            }
+        }
+        "last_modified" => {
+            if let Some(s) = value.as_str() {
+                let ep = extra_props.entry(intern_qn).or_default();
+                ep.last_modified = Some(global_interner().intern(s));
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Mutable graph builder. Used during parse, graph build, and git enrichment.
 /// No locks — all methods take `&mut self` or `&self`.
 pub struct GraphBuilder {
@@ -206,61 +230,13 @@ impl GraphBuilder {
         };
         let val: serde_json::Value = value.into();
         if let Some(node) = self.graph.node_weight_mut(idx) {
-            match key {
-                "complexity" => node.complexity = val.as_i64().unwrap_or(0) as u16,
-                "paramCount" => node.param_count = val.as_i64().unwrap_or(0) as u8,
-                "methodCount" => node.method_count = val.as_i64().unwrap_or(0) as u16,
-                "maxNesting" | "nesting_depth" => {
-                    node.max_nesting = val.as_i64().unwrap_or(0) as u8
-                }
-                "returnCount" => node.return_count = val.as_i64().unwrap_or(0) as u8,
-                "commit_count" => node.commit_count = val.as_i64().unwrap_or(0) as u16,
-                "is_async" => {
-                    if val.as_bool().unwrap_or(false) {
-                        node.set_flag(super::store_models::FLAG_IS_ASYNC);
-                    }
-                }
-                "is_exported" => {
-                    if val.as_bool().unwrap_or(false) {
-                        node.set_flag(super::store_models::FLAG_IS_EXPORTED);
-                    }
-                }
-                "is_public" => {
-                    if val.as_bool().unwrap_or(false) {
-                        node.set_flag(super::store_models::FLAG_IS_PUBLIC);
-                    }
-                }
-                "is_method" => {
-                    if val.as_bool().unwrap_or(false) {
-                        node.set_flag(super::store_models::FLAG_IS_METHOD);
-                    }
-                }
-                "address_taken" => {
-                    if val.as_bool().unwrap_or(false) {
-                        node.set_flag(super::store_models::FLAG_ADDRESS_TAKEN);
-                    }
-                }
-                "has_decorators" => {
-                    if val.as_bool().unwrap_or(false) {
-                        node.set_flag(super::store_models::FLAG_HAS_DECORATORS);
-                    }
-                }
-                "author" => {
-                    if let Some(s) = val.as_str() {
-                        let interned = global_interner().intern(s);
-                        let ep = self.extra_props.entry(intern_qn).or_default();
-                        ep.author = Some(interned);
-                    }
-                }
-                "last_modified" => {
-                    if let Some(s) = val.as_str() {
-                        let interned = global_interner().intern(s);
-                        let ep = self.extra_props.entry(intern_qn).or_default();
-                        ep.last_modified = Some(interned);
-                    }
-                }
-                _ => {}
-            }
+            apply_node_metric(node, key, &val);
+            apply_extra_prop(
+                &mut self.extra_props,
+                intern_qn,
+                key,
+                &val,
+            );
             return true;
         }
         false

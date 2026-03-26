@@ -1013,65 +1013,62 @@ fn run_config_action(action: ConfigAction) -> anyhow::Result<()> {
         }
         ConfigAction::Show => show_config(),
         ConfigAction::Set { key, value } => set_config_value(&key, &value),
-        ConfigAction::Telemetry { action } => {
-            match action.as_str() {
-                "on" => {
-                    // Write [telemetry] enabled = true to config
-                    let config_path = crate::config::UserConfig::user_config_path()
-                        .ok_or_else(|| anyhow::anyhow!("Could not determine config directory"))?;
-                    if let Some(parent) = config_path.parent() {
-                        std::fs::create_dir_all(parent)?;
-                    }
-                    // Read existing config or create new
-                    let mut content = std::fs::read_to_string(&config_path).unwrap_or_default();
-                    if content.contains("[telemetry]") {
-                        content = content.replace("enabled = false", "enabled = true");
-                    } else {
-                        content.push_str("\n[telemetry]\nenabled = true\n");
-                    }
-                    std::fs::write(&config_path, &content)?;
-                    // Ensure distinct_id exists
-                    let _ = crate::telemetry::config::TelemetryState::load();
-                    println!("Telemetry enabled. Thank you for helping improve repotoire!");
-                    println!("See what's collected: https://repotoire.com/telemetry");
-                    Ok(())
-                }
-                "off" => {
-                    let config_path = crate::config::UserConfig::user_config_path()
-                        .ok_or_else(|| anyhow::anyhow!("Could not determine config directory"))?;
-                    if let Some(parent) = config_path.parent() {
-                        std::fs::create_dir_all(parent)?;
-                    }
-                    let mut content = std::fs::read_to_string(&config_path).unwrap_or_default();
-                    if content.contains("[telemetry]") {
-                        content = content.replace("enabled = true", "enabled = false");
-                    } else {
-                        content.push_str("\n[telemetry]\nenabled = false\n");
-                    }
-                    std::fs::write(&config_path, &content)?;
-                    println!("Telemetry disabled.");
-                    Ok(())
-                }
-                "status" => {
-                    let state = crate::telemetry::config::TelemetryState::load()?;
-                    if state.is_enabled() {
-                        println!("Telemetry: enabled");
-                        if let Some(id) = &state.distinct_id {
-                            println!("Anonymous ID: {}", &id[..8]);
-                        }
-                    } else {
-                        println!("Telemetry: disabled");
-                    }
-                    println!("\nManage: repotoire config telemetry on|off");
-                    println!("Details: https://repotoire.com/telemetry");
-                    Ok(())
-                }
-                other => {
-                    anyhow::bail!("Unknown telemetry action: '{}'. Use on, off, or status.", other);
-                }
-            }
+        ConfigAction::Telemetry { action } => run_telemetry_action(&action),
+    }
+}
+
+fn run_telemetry_action(action: &str) -> anyhow::Result<()> {
+    match action {
+        "on" => set_telemetry_enabled(true),
+        "off" => set_telemetry_enabled(false),
+        "status" => show_telemetry_status(),
+        other => {
+            anyhow::bail!("Unknown telemetry action: '{}'. Use on, off, or status.", other);
         }
     }
+}
+
+fn set_telemetry_enabled(enabled: bool) -> anyhow::Result<()> {
+    let config_path = crate::config::UserConfig::user_config_path()
+        .ok_or_else(|| anyhow::anyhow!("Could not determine config directory"))?;
+    if let Some(parent) = config_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut content = std::fs::read_to_string(&config_path).unwrap_or_default();
+    let (old, new) = if enabled {
+        ("enabled = false", "enabled = true")
+    } else {
+        ("enabled = true", "enabled = false")
+    };
+    if content.contains("[telemetry]") {
+        content = content.replace(old, new);
+    } else {
+        content.push_str(&format!("\n[telemetry]\n{}\n", new));
+    }
+    std::fs::write(&config_path, &content)?;
+    if enabled {
+        let _ = crate::telemetry::config::TelemetryState::load();
+        println!("Telemetry enabled. Thank you for helping improve repotoire!");
+        println!("See what's collected: https://repotoire.com/telemetry");
+    } else {
+        println!("Telemetry disabled.");
+    }
+    Ok(())
+}
+
+fn show_telemetry_status() -> anyhow::Result<()> {
+    let state = crate::telemetry::config::TelemetryState::load()?;
+    if state.is_enabled() {
+        println!("Telemetry: enabled");
+        if let Some(id) = &state.distinct_id {
+            println!("Anonymous ID: {}", &id[..8]);
+        }
+    } else {
+        println!("Telemetry: disabled");
+    }
+    println!("\nManage: repotoire config telemetry on|off");
+    println!("Details: https://repotoire.com/telemetry");
+    Ok(())
 }
 
 fn show_config() -> anyhow::Result<()> {
