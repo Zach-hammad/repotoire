@@ -66,48 +66,12 @@ impl ArchitecturalBottleneckDetector {
         }
     }
 
-    /// Calculate severity based on metrics and function role
-    fn calculate_severity(&self, fan_in: usize, complexity: usize, role: FunctionRole) -> Severity {
-        // Base severity from raw metrics
-        let base_severity = if fan_in >= 30 && complexity >= 25 {
-            Severity::Critical
-        } else if fan_in >= 20 && complexity >= 20 {
-            Severity::High
-        } else {
-            Severity::Medium
-        };
-
-        // Adjust based on function role
-        match role {
-            FunctionRole::Utility => {
-                // Utilities are expected to be called a lot - cap at Medium
-                base_severity.min(Severity::Medium)
-            }
-            FunctionRole::Leaf => {
-                // Leaf functions are low impact - cap at Medium
-                base_severity.min(Severity::Medium)
-            }
-            FunctionRole::Test => {
-                // Should have been filtered, but just in case
-                Severity::Low
-            }
-            FunctionRole::Hub => {
-                // Hubs are genuinely critical - keep severity
-                base_severity
-            }
-            FunctionRole::Orchestrator => {
-                // Orchestrators coordinate work - keep severity
-                base_severity
-            }
-            FunctionRole::EntryPoint => {
-                // Entry points are important - keep severity
-                base_severity
-            }
-            FunctionRole::Unknown => {
-                // Unknown - use base metrics
-                base_severity
-            }
-        }
+    /// Calculate severity based on metrics and function role.
+    ///
+    /// Architectural bottlenecks are structural observations, not code quality
+    /// issues — all severities are capped at Low.
+    fn calculate_severity(&self, _fan_in: usize, _complexity: usize, _role: FunctionRole) -> Severity {
+        Severity::Low
     }
 
     /// Legacy name-based skip check (fallback when no context available)
@@ -383,22 +347,20 @@ mod tests {
     fn test_severity_calculation() {
         let detector = ArchitecturalBottleneckDetector::new();
 
-        // High metrics + Hub = Critical
+        // All architectural bottleneck severities are capped at Low
         assert_eq!(
             detector.calculate_severity(35, 30, FunctionRole::Hub),
-            Severity::Critical
+            Severity::Low
         );
 
-        // High metrics + Utility = Medium (capped)
         assert_eq!(
             detector.calculate_severity(35, 30, FunctionRole::Utility),
-            Severity::Medium
+            Severity::Low
         );
 
-        // Moderate metrics + Unknown = Medium
         assert_eq!(
             detector.calculate_severity(18, 18, FunctionRole::Unknown),
-            Severity::Medium
+            Severity::Low
         );
     }
 
@@ -425,12 +387,11 @@ mod tests {
     fn test_role_based_severity_cap() {
         let detector = ArchitecturalBottleneckDetector::new();
 
-        // Utility role should cap severity at Medium
+        // All roles capped at Low (informational detector)
         let utility_severity = detector.calculate_severity(50, 50, FunctionRole::Utility);
-        assert!(utility_severity <= Severity::Medium);
+        assert_eq!(utility_severity, Severity::Low);
 
-        // Hub role should not cap severity
         let hub_severity = detector.calculate_severity(50, 50, FunctionRole::Hub);
-        assert_eq!(hub_severity, Severity::Critical);
+        assert_eq!(hub_severity, Severity::Low);
     }
 }

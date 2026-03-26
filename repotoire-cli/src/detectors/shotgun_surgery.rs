@@ -199,12 +199,10 @@ impl Detector for ShotgunSurgeryDetector {
                 continue; // high instability = expected to change
             }
 
-            let severity = if propagation_rate > 0.4 && fan_in >= 30 {
-                Severity::Critical
-            } else if propagation_rate > 0.3 && fan_in >= 15 {
-                Severity::High
-            } else {
+            let severity = if propagation_rate > 0.5 {
                 Severity::Medium
+            } else {
+                Severity::Low
             };
 
             findings.push(Finding {
@@ -295,12 +293,10 @@ impl Detector for ShotgunSurgeryDetector {
                 continue;
             }
 
-            let severity = if propagation_rate > 0.4 && fan_in >= 30 {
-                Severity::Critical
-            } else if propagation_rate > 0.3 && fan_in >= 15 {
-                Severity::High
-            } else {
+            let severity = if propagation_rate > 0.5 {
                 Severity::Medium
+            } else {
+                Severity::Low
             };
 
             findings.push(Finding {

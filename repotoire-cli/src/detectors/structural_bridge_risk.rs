@@ -120,14 +120,8 @@ impl Detector for StructuralBridgeRiskDetector {
             let func_name = node.qn(gi);
             let file_path = node.path(gi);
 
-            // Severity based on component sizes.
-            let severity = if sizes.iter().all(|&s| s > 100) {
-                Severity::Critical
-            } else if sizes.iter().all(|&s| s > 30) {
-                Severity::High
-            } else {
-                Severity::Medium
-            };
+            // Structural observations about graph connectivity — cap at Low.
+            let severity = Severity::Low;
 
             let sizes_display: Vec<String> = sizes.iter().map(|s| s.to_string()).collect();
 

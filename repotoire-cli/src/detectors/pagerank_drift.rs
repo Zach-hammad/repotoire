@@ -171,7 +171,7 @@ impl Detector for PageRankDriftDetector {
                 findings.push(Finding {
                     id: String::new(),
                     detector: "pagerank-drift".to_string(),
-                    severity: Severity::Medium,
+                    severity: Severity::Low,
                     confidence: Some(0.80),
                     deterministic: true,
                     title: format!(
@@ -207,7 +207,7 @@ impl Detector for PageRankDriftDetector {
                 findings.push(Finding {
                     id: String::new(),
                     detector: "pagerank-drift".to_string(),
-                    severity: Severity::Medium,
+                    severity: Severity::Low,
                     confidence: Some(0.80),
                     deterministic: true,
                     title: format!(

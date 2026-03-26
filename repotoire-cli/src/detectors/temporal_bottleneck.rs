@@ -196,15 +196,9 @@ impl Detector for TemporalBottleneckDetector {
                 continue;
             }
 
-            // Severity based on gap magnitude (how surprising is this?).
-            // Capped at Medium: temporal bottlenecks are architectural observations
-            // about change propagation patterns, not bugs. They inform refactoring
-            // decisions but shouldn't block commits.
-            let severity = if pct_gap >= 40 {
-                Severity::Medium // Significantly more temporal than structural
-            } else {
-                Severity::Low    // Somewhat surprising
-            };
+            // Temporal bottlenecks are architectural observations about change
+            // propagation patterns, not code quality issues — cap at Low.
+            let severity = Severity::Low;
 
             let confidence_val = if pct_gap >= 50 { 0.90 } else if pct_gap >= 30 { 0.80 } else { 0.70 };
 
@@ -412,12 +406,12 @@ mod tests {
         // doesn't produce enough amplification in this small graph, that's OK —
         // verify at least the detector runs without error on a graph with
         // co-change data.
-        // The important invariant: no findings should have severity below LOW.
+        // All temporal bottleneck findings are capped at Low (informational).
         for f in &findings {
             assert_eq!(f.detector, "temporal-bottleneck");
-            assert!(
-                f.severity == Severity::Low || f.severity == Severity::Medium || f.severity == Severity::High,
-                "Temporal bottleneck findings should be Low, Medium, or High"
+            assert_eq!(
+                f.severity, Severity::Low,
+                "Temporal bottleneck findings should be Low"
             );
         }
     }
