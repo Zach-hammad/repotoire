@@ -16,7 +16,6 @@ use tracing::{debug, info};
 /// GitHub Actions injection detector
 pub struct GHActionsInjectionDetector {
     config: DetectorConfig,
-    repository_path: PathBuf,
     max_findings: usize,
 }
 
@@ -49,10 +48,9 @@ static RUN_BLOCK_PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*(?
 
 impl GHActionsInjectionDetector {
     /// Create a new GitHub Actions injection detector
-    pub fn new(repository_path: impl Into<PathBuf>) -> Self {
+    pub fn new(_repository_path: impl Into<PathBuf>) -> Self {
         Self {
             config: DetectorConfig::default(),
-            repository_path: repository_path.into(),
             max_findings: 50,
         }
     }

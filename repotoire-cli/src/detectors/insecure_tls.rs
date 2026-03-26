@@ -156,12 +156,13 @@ const RUST_PATTERNS: &[(&str, &str, Severity)] = &[
 ];
 
 pub struct InsecureTlsDetector {
-    repository_path: PathBuf,
     max_findings: usize,
 }
 
 impl InsecureTlsDetector {
-    crate::detectors::detector_new!(50);
+    pub fn new(_repository_path: impl Into<PathBuf>) -> Self {
+        Self { max_findings: 50 }
+    }
 
     fn get_patterns_for_ext(&self, ext: &str) -> Vec<(&'static str, &'static str, Severity)> {
         match ext {
