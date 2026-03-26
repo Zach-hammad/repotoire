@@ -56,6 +56,41 @@ fn top_level_dir(path: &str) -> &str {
     }
 }
 
+/// Extract the package scope from a file path.
+///
+/// Recognises monorepo package boundaries so that files in different
+/// packages/crates are never flagged as "misplaced" relative to each other.
+///
+/// Rules (checked in order):
+///   - `packages/<name>/...` → `"packages/<name>"`
+///   - `repotoire-cli/...`   → `"repotoire-cli"`
+///   - `repotoire/web/...`   → `"repotoire/web"`
+///   - anything else         → first path component (falls back to `top_level_dir`)
+fn package_scope(path: &str) -> &str {
+    // packages/<name>/...
+    if let Some(rest) = path.strip_prefix("packages/") {
+        if let Some(slash) = rest.find('/') {
+            // "packages/<name>"
+            return &path[..("packages/".len() + slash)];
+        }
+        // bare "packages/<name>" with no trailing slash — treat whole thing as scope
+        return path;
+    }
+
+    // repotoire-cli/...
+    if path.starts_with("repotoire-cli/") || path == "repotoire-cli" {
+        return "repotoire-cli";
+    }
+
+    // repotoire/web/...
+    if path.starts_with("repotoire/web/") || path == "repotoire/web" {
+        return "repotoire/web";
+    }
+
+    // fallback: first path component
+    top_level_dir(path)
+}
+
 impl Detector for CommunityMisplacementDetector {
     fn name(&self) -> &'static str {
         "CommunityMisplacementDetector"
@@ -140,9 +175,25 @@ impl Detector for CommunityMisplacementDetector {
                 None => continue,
             };
 
+            // Resolve the package scope for the dominant directory.
+            // We pick any member path in the dominant dir to derive it.
+            let dominant_pkg = member_paths
+                .iter()
+                .find(|&&(_, d)| d == dominant_dir)
+                .map(|&(p, _)| package_scope(p))
+                .unwrap_or(dominant_dir);
+
             // Step 3d: Find misplaced files
             for &(file_path, file_dir) in &member_paths {
                 if file_dir == dominant_dir {
+                    continue;
+                }
+
+                // Skip cross-package matches: files in a different package/crate
+                // cluster together via co-change during active development, but
+                // they are in separate modules by definition.
+                let file_pkg = package_scope(file_path);
+                if file_pkg != dominant_pkg {
                     continue;
                 }
 
@@ -289,6 +340,36 @@ mod tests {
         assert_eq!(top_level_dir("lib/utils.py"), "lib");
         assert_eq!(top_level_dir("utils.py"), "");
         assert_eq!(top_level_dir("a/b/c/d.rs"), "a");
+    }
+
+    #[test]
+    fn test_package_scope_extraction() {
+        // packages/<name>/... → packages/<name>
+        assert_eq!(
+            package_scope("packages/vscode-repotoire/src/extension.ts"),
+            "packages/vscode-repotoire"
+        );
+        assert_eq!(
+            package_scope("packages/web-app/index.html"),
+            "packages/web-app"
+        );
+
+        // repotoire-cli/... → repotoire-cli
+        assert_eq!(
+            package_scope("repotoire-cli/src/main.rs"),
+            "repotoire-cli"
+        );
+
+        // repotoire/web/... → repotoire/web
+        assert_eq!(
+            package_scope("repotoire/web/src/app.tsx"),
+            "repotoire/web"
+        );
+
+        // fallback: first path component
+        assert_eq!(package_scope("src/api/handlers.rs"), "src");
+        assert_eq!(package_scope("lib/utils.py"), "lib");
+        assert_eq!(package_scope("utils.py"), "");
     }
 
     #[test]
