@@ -9,14 +9,16 @@
 use crate::graph::store_models::{
     ExtraProps, FLAG_ADDRESS_TAKEN, FLAG_HAS_DECORATORS, FLAG_IS_ASYNC, FLAG_IS_EXPORTED,
 };
-use crate::graph::{CodeEdge, CodeNode, GraphStore, NodeKind};
+use crate::graph::builder::GraphBuilder;
+use crate::graph::interner::{StrKey, global_interner};
+use crate::graph::{CodeEdge, CodeNode, NodeKind};
 use crate::models::{Class, Function};
 use crate::parsers::bounded_pipeline::{run_bounded_pipeline, run_bounded_pipeline_from_channel, PipelineConfig};
 use crate::parsers::streaming::{
     FunctionIndex, ModuleIndex, ParsedFileInfo, StreamingGraphBuilder,
 };
 use crate::parsers::ParseResult;
-use anyhow::{Context, Result};
+use anyhow::Result;
 use console::style;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use rayon::prelude::*;
@@ -97,13 +99,12 @@ fn generate_module_patterns(relative_str: &str) -> Vec<String> {
 /// via `graph.update_node_properties()` after the node is inserted into the graph.
 #[allow(dead_code)]
 fn build_func_node(
-    graph: &GraphStore,
     func: &Function,
     relative_str: &str,
     complexity: u32,
     address_taken: bool,
 ) -> CodeNode {
-    let i = graph.interner();
+    let i = global_interner();
     let file_key = i.intern(relative_str);
     let lang_key = i.intern(detect_language_from_path_str(relative_str));
 
@@ -145,8 +146,8 @@ fn build_func_node(
 /// String properties (doc_comment) are written to the ExtraProps side table
 /// via `graph.update_node_properties()` after the node is inserted into the graph.
 #[allow(dead_code)]
-fn build_class_node(graph: &GraphStore, class: &Class, relative_str: &str) -> CodeNode {
-    let i = graph.interner();
+fn build_class_node(class: &Class, relative_str: &str) -> CodeNode {
+    let i = global_interner();
     let file_key = i.intern(relative_str);
     let lang_key = i.intern(detect_language_from_path_str(relative_str));
 
@@ -247,7 +248,7 @@ fn estimate_graph_capacity(parse_results: &[(PathBuf, Arc<ParseResult>)]) -> (us
 /// Returns a [`ValueStore`] containing all resolved symbolic values extracted
 /// during parsing, with cross-function propagation already applied.
 pub fn build_graph(
-    graph: &Arc<GraphStore>,
+    graph: &mut GraphBuilder,
     repo_path: &Path,
     parse_results: &[(PathBuf, Arc<ParseResult>)],
     multi: &MultiProgress,
@@ -269,14 +270,14 @@ pub fn build_graph(
     let module_lookup = ModuleLookup::build(parse_results, repo_path);
     let counter = AtomicUsize::new(0);
 
-    // Parallel collection of nodes and edges per file
+    // Parallel collection of nodes, edges, and extra_props per file
     let file_results: Vec<_> = parse_results
         .par_iter()
         .map(|(file_path, result)| {
             let relative_path = file_path.strip_prefix(repo_path).unwrap_or(file_path);
             let relative_str = relative_path.display().to_string();
 
-            let i = graph.interner();
+            let i = global_interner();
             let rel_key = i.intern(&relative_str);
             let lang_key = i.intern(detect_language_from_path_str(&relative_str));
 
@@ -284,6 +285,7 @@ pub fn build_graph(
             let mut func_nodes = Vec::with_capacity(result.functions.len());
             let mut class_nodes = Vec::with_capacity(result.classes.len());
             let mut edges: Vec<(String, String, CodeEdge)> = Vec::new();
+            let mut extra_props_batch: Vec<(StrKey, ExtraProps)> = Vec::new();
             // File node — compute LOC from max line_end of functions/classes
             let file_loc = result.functions.iter().map(|f| f.line_end)
                 .chain(result.classes.iter().map(|c| c.line_end))
@@ -344,7 +346,7 @@ pub fn build_graph(
                     flags,
                 };
 
-                // Store string properties in extra_props side table
+                // Collect string properties in extra_props for batch insertion
                 let params_str = func.parameters.join(",");
                 let has_params = !params_str.is_empty();
                 let has_doc = func.doc_comment.is_some();
@@ -364,7 +366,7 @@ pub fn build_graph(
                         },
                         ..Default::default()
                     };
-                    graph.set_extra_props(func_node.qualified_name, ep);
+                    extra_props_batch.push((func_node.qualified_name, ep));
                 }
 
                 func_nodes.push(func_node);
@@ -408,7 +410,7 @@ pub fn build_graph(
                     flags,
                 };
 
-                // Store string properties in extra_props side table
+                // Collect string properties in extra_props for batch insertion
                 let has_class_doc = class.doc_comment.is_some();
                 let has_class_decorators = !class.annotations.is_empty();
                 if has_class_doc || has_class_decorators {
@@ -421,7 +423,7 @@ pub fn build_graph(
                         },
                         ..Default::default()
                     };
-                    graph.set_extra_props(class_node.qualified_name, ep);
+                    extra_props_batch.push((class_node.qualified_name, ep));
                 }
 
                 class_nodes.push(class_node);
@@ -460,7 +462,7 @@ pub fn build_graph(
                 graph_bar.set_position(count as u64);
             }
 
-            (relative_str, file_nodes, func_nodes, class_nodes, edges)
+            (relative_str, file_nodes, func_nodes, class_nodes, edges, extra_props_batch)
         })
         .collect();
 
@@ -476,15 +478,17 @@ pub fn build_graph(
     // Estimate ~3 edges per function (calls + imports + contains)
     let estimated_edges = total_functions * 3 + parse_results.len();
     let mut all_edges = Vec::with_capacity(estimated_edges);
+    let mut all_extra_props: Vec<(StrKey, ExtraProps)> = Vec::new();
 
-    for (_file_path, file_nodes, func_nodes, class_nodes, edges) in file_results {
+    for (_file_path, file_nodes, func_nodes, class_nodes, edges, extra_props) in file_results {
         all_file_nodes.extend(file_nodes);
         all_func_nodes.extend(func_nodes);
         all_class_nodes.extend(class_nodes);
         all_edges.extend(edges);
+        all_extra_props.extend(extra_props);
     }
 
-    // Batch insert all nodes (single call to reduce lock acquisitions)
+    // Batch insert all nodes
     graph_bar.set_message("Inserting nodes...");
     let mut combined_nodes = Vec::with_capacity(
         all_file_nodes.len() + all_func_nodes.len() + all_class_nodes.len(),
@@ -494,16 +498,18 @@ pub fn build_graph(
     combined_nodes.extend(all_class_nodes);
     graph.add_nodes_batch(combined_nodes);
 
+    // Batch insert all extra props
+    for (qn_key, ep) in all_extra_props {
+        graph.set_extra_props(qn_key, ep);
+    }
+
     // Batch insert all edges
     graph_bar.set_message("Inserting edges...");
     graph.add_edges_batch(all_edges);
 
     graph_bar.finish_with_message(format!("{}Built code graph", style("✓ ").green()));
 
-    // Persist graph and stats
-    graph
-        .save()
-        .with_context(|| "Failed to save graph database")?;
+    // Save graph stats
     save_graph_stats(graph, repo_path)?;
 
     // Build ValueStore from parse results
@@ -518,7 +524,7 @@ pub fn build_graph(
 /// during parsing, with cross-function propagation already applied.
 #[allow(dead_code)]
 pub(super) fn build_graph_chunked(
-    graph: &Arc<GraphStore>,
+    graph: &mut GraphBuilder,
     repo_path: &Path,
     parse_results: &[(PathBuf, Arc<ParseResult>)],
     multi: &MultiProgress,
@@ -559,7 +565,7 @@ pub(super) fn build_graph_chunked(
                 let relative_path = file_path.strip_prefix(repo_path).unwrap_or(file_path);
                 let relative_str = relative_path.display().to_string();
 
-                let i = graph.interner();
+                let i = global_interner();
                 let rel_key = i.intern(&relative_str);
                 let lang_key = i.intern(detect_language_from_path_str(&relative_str));
 
@@ -567,6 +573,7 @@ pub(super) fn build_graph_chunked(
                 let mut func_nodes = Vec::with_capacity(result.functions.len());
                 let mut class_nodes = Vec::with_capacity(result.classes.len());
                 let mut edges: Vec<(String, String, CodeEdge)> = Vec::new();
+                let mut extra_props_batch: Vec<(StrKey, ExtraProps)> = Vec::new();
                 // File node — compute LOC from max line_end of functions/classes
                 let file_loc = result.functions.iter().map(|f| f.line_end)
                     .chain(result.classes.iter().map(|c| c.line_end))
@@ -595,9 +602,9 @@ pub(super) fn build_graph_chunked(
                     let complexity = func.complexity.unwrap_or(1);
                     let address_taken = result.address_taken.contains(&func.name);
 
-                    let func_node = build_func_node(graph, func, &relative_str, complexity, address_taken);
+                    let func_node = build_func_node(func, &relative_str, complexity, address_taken);
 
-                    // Store string properties in extra_props side table
+                    // Collect string properties in extra_props for batch insertion
                     let params_str = func.parameters.join(",");
                     let has_params = !params_str.is_empty();
                     let has_doc = func.doc_comment.is_some();
@@ -617,7 +624,7 @@ pub(super) fn build_graph_chunked(
                             },
                             ..Default::default()
                         };
-                        graph.set_extra_props(func_node.qualified_name, ep);
+                        extra_props_batch.push((func_node.qualified_name, ep));
                     }
 
                     func_nodes.push(func_node);
@@ -638,9 +645,9 @@ pub(super) fn build_graph_chunked(
 
                 // Class nodes
                 for class in &result.classes {
-                    let class_node = build_class_node(graph, class, &relative_str);
+                    let class_node = build_class_node(class, &relative_str);
 
-                    // Store string properties in extra_props side table
+                    // Collect string properties in extra_props for batch insertion
                     let has_class_doc = class.doc_comment.is_some();
                     let has_class_decorators = !class.annotations.is_empty();
                     if has_class_doc || has_class_decorators {
@@ -653,7 +660,7 @@ pub(super) fn build_graph_chunked(
                             },
                             ..Default::default()
                         };
-                        graph.set_extra_props(class_node.qualified_name, ep);
+                        extra_props_batch.push((class_node.qualified_name, ep));
                     }
 
                     class_nodes.push(class_node);
@@ -692,7 +699,7 @@ pub(super) fn build_graph_chunked(
                     graph_bar.set_position(count as u64);
                 }
 
-                (relative_str, file_nodes, func_nodes, class_nodes, edges)
+                (relative_str, file_nodes, func_nodes, class_nodes, edges, extra_props_batch)
             })
             .collect();
 
@@ -701,11 +708,14 @@ pub(super) fn build_graph_chunked(
         chunk_results.sort_by(|a, b| a.0.cmp(&b.0));
 
         // Insert this chunk's data immediately (don't accumulate all chunks)
-        for (_file_path, file_nodes, func_nodes, class_nodes, edges) in chunk_results {
+        for (_file_path, file_nodes, func_nodes, class_nodes, edges, extra_props) in chunk_results {
             let mut combined_nodes = file_nodes;
             combined_nodes.extend(func_nodes);
             combined_nodes.extend(class_nodes);
             graph.add_nodes_batch(combined_nodes);
+            for (qn_key, ep) in extra_props {
+                graph.set_extra_props(qn_key, ep);
+            }
             graph.add_edges_batch(edges);
         }
 
@@ -714,10 +724,7 @@ pub(super) fn build_graph_chunked(
 
     graph_bar.finish_with_message(format!("{}Built code graph (chunked)", style("✓ ").green()));
 
-    // Persist graph and stats
-    graph
-        .save()
-        .with_context(|| "Failed to save graph database")?;
+    // Save graph stats
     save_graph_stats(graph, repo_path)?;
 
     // Build ValueStore from parse results
@@ -1141,7 +1148,7 @@ pub(super) fn build_import_edges_fast(
 }
 
 /// Save graph statistics to JSON
-pub(super) fn save_graph_stats(graph: &GraphStore, repo_path: &Path) -> Result<()> {
+pub(super) fn save_graph_stats(graph: &GraphBuilder, repo_path: &Path) -> Result<()> {
     let graph_stats = serde_json::json!({
         "total_files": graph.get_files().len(),
         "total_functions": graph.get_functions().len(),
@@ -1164,7 +1171,7 @@ pub(super) fn save_graph_stats(graph: &GraphStore, repo_path: &Path) -> Result<(
 /// 3. Computes topological ordering of functions from the call graph
 /// 4. Runs cross-function value propagation using the topo order
 fn build_value_store(
-    graph: &Arc<GraphStore>,
+    graph: &mut GraphBuilder,
     parse_results: &[(PathBuf, Arc<ParseResult>)],
 ) -> crate::values::store::ValueStore {
     use crate::values::store::ValueStore;
@@ -1179,7 +1186,7 @@ fn build_value_store(
     }
 
     // 2. Insert Variable nodes for module-level constants into the graph
-    let i = graph.interner();
+    let i = global_interner();
     let empty = i.empty_key();
     let var_nodes: Vec<CodeNode> = value_store
         .constants
@@ -1244,8 +1251,8 @@ fn build_value_store(
 /// adds nodes to the graph. Edges are collected for batch insertion at the end.
 /// This prevents OOM on large repositories (75k+ files).
 #[allow(dead_code)] // Infrastructure for streaming graph building
-pub(super) struct StreamingGraphBuilderImpl {
-    graph: Arc<GraphStore>,
+pub(super) struct StreamingGraphBuilderImpl<'a> {
+    graph: &'a mut GraphBuilder,
     repo_path: PathBuf,
     function_index: FunctionIndex,
     module_index: ModuleIndex,
@@ -1259,9 +1266,9 @@ pub(super) struct StreamingGraphBuilderImpl {
 }
 
 #[allow(dead_code)]
-impl StreamingGraphBuilderImpl {
+impl<'a> StreamingGraphBuilderImpl<'a> {
     pub(super) fn new(
-        graph: Arc<GraphStore>,
+        graph: &'a mut GraphBuilder,
         repo_path: PathBuf,
         function_index: FunctionIndex,
         module_index: ModuleIndex,
@@ -1278,7 +1285,7 @@ impl StreamingGraphBuilderImpl {
     }
 }
 
-impl StreamingGraphBuilder for StreamingGraphBuilderImpl {
+impl<'a> StreamingGraphBuilder for StreamingGraphBuilderImpl<'a> {
     fn on_file(&mut self, info: ParsedFileInfo) -> Result<()> {
         let i = self.graph.interner();
         let rel_key = i.intern(&info.relative_path);
@@ -1443,9 +1450,6 @@ impl StreamingGraphBuilder for StreamingGraphBuilderImpl {
         // Batch insert all collected edges
         self.graph.add_edges_batch(std::mem::take(&mut self.edges));
 
-        // Persist graph
-        self.graph.save()?;
-
         Ok(())
     }
 }
@@ -1468,7 +1472,7 @@ impl StreamingGraphBuilder for StreamingGraphBuilderImpl {
 pub(super) fn parse_and_build_streaming(
     files: &[PathBuf],
     repo_path: &Path,
-    graph: Arc<GraphStore>,
+    graph: Arc<crate::graph::GraphStore>,
     multi: &MultiProgress,
     bar_style: &ProgressStyle,
 ) -> Result<(usize, usize)> {
@@ -1526,7 +1530,7 @@ pub(super) fn parse_and_build_streaming(
 pub(super) fn parse_and_build_streaming_overlapped(
     file_receiver: crossbeam_channel::Receiver<PathBuf>,
     repo_path: &Path,
-    graph: Arc<GraphStore>,
+    graph: Arc<crate::graph::GraphStore>,
     multi: &MultiProgress,
     bar_style: &ProgressStyle,
     config: PipelineConfig,
@@ -1571,7 +1575,7 @@ pub(super) fn parse_and_build_streaming_overlapped(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
     use crate::models::Function;
     use crate::parsers::ParseResult;
     use std::collections::HashSet as StdHashSet;
@@ -1675,12 +1679,12 @@ mod tests {
 
     #[test]
     fn test_decorated_function_has_callers_in_graph() {
-        let graph = Arc::new(GraphStore::in_memory());
+        let mut builder = GraphBuilder::new();
         let result = make_parse_result_with_decorators();
         let relative_str = "app/routes.py";
 
         // File node (the caller for decorated functions)
-        let i = graph.interner();
+        let i = global_interner();
         let rel_key = i.intern(relative_str);
         let empty = i.empty_key();
         let file_loc = result.functions.iter().map(|f| f.line_end)
@@ -1739,19 +1743,24 @@ mod tests {
         }
 
         // Insert into graph
-        graph.add_nodes_batch(func_nodes);
-        graph.add_edges_batch(edges);
+        builder.add_nodes_batch(func_nodes);
+        builder.add_edges_batch(edges);
+
+        // Freeze to query via GraphQuery
+        let graph = builder.freeze();
+        use crate::graph::traits::{GraphQuery, GraphQueryExt};
+        let gq: &dyn GraphQuery = &graph;
 
         // Decorated function "index" should have the file node as caller
-        let callers = graph.get_callers("app.routes.index:5");
+        let callers = gq.get_callers("app.routes.index:5");
         assert_eq!(callers.len(), 1);
         assert_eq!(i.resolve(callers[0].name), "app/routes.py"); // File node is the caller
-        assert_eq!(graph.call_fan_in("app.routes.index:5"), 1);
+        assert_eq!(gq.call_fan_in("app.routes.index:5"), 1);
 
         // Undecorated function "helper" should have 0 callers
-        let callers = graph.get_callers("app.routes.helper:10");
+        let callers = gq.get_callers("app.routes.helper:10");
         assert!(callers.is_empty());
-        assert_eq!(graph.call_fan_in("app.routes.helper:10"), 0);
+        assert_eq!(gq.call_fan_in("app.routes.helper:10"), 0);
     }
 
     #[test]

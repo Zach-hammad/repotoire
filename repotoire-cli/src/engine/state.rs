@@ -58,10 +58,10 @@ pub(crate) struct EngineState {
     /// The immutable code graph (shared via Arc for cheap cloning into stages).
     pub graph: Arc<CodeGraph>,
 
-    /// The mutable GraphStore kept alive for incremental patching.
+    /// The mutable GraphBuilder kept alive for incremental patching.
     /// On the incremental path, we need to mutate the graph (remove old entities,
     /// add new ones) before re-freezing. This is None after load() from disk.
-    pub mutable_graph: Option<Arc<crate::graph::GraphStore>>,
+    pub mutable_graph: Option<crate::graph::builder::GraphBuilder>,
 
     /// Hash of all cross-file edges for topology change detection.
     pub edge_fingerprint: u64,

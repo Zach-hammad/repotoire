@@ -408,6 +408,52 @@ impl GraphBuilder {
         self.graph.edge_count()
     }
 
+    // ==================== Edge Query Methods ====================
+
+    /// Get all edges of a specific kind as (source_qn, target_qn) pairs.
+    /// Sorted by qualified names for determinism.
+    pub fn get_edges_by_kind(&self, kind: EdgeKind) -> Vec<(StrKey, StrKey)> {
+        let si = self.interner();
+        let mut edges: Vec<(StrKey, StrKey)> = self
+            .graph
+            .edge_references()
+            .filter(|e| e.weight().kind == kind)
+            .filter_map(|e| {
+                let src = self.graph.node_weight(e.source())?;
+                let dst = self.graph.node_weight(e.target())?;
+                Some((src.qualified_name, dst.qualified_name))
+            })
+            .collect();
+        edges.sort_unstable_by(|a, b| {
+            si.resolve(a.0)
+                .cmp(si.resolve(b.0))
+                .then_with(|| si.resolve(a.1).cmp(si.resolve(b.1)))
+        });
+        edges
+    }
+
+    /// Get all call edges (function -> function).
+    pub fn get_calls(&self) -> Vec<(StrKey, StrKey)> {
+        self.get_edges_by_kind(EdgeKind::Calls)
+    }
+
+    /// Get all import edges (file -> file).
+    pub fn get_imports(&self) -> Vec<(StrKey, StrKey)> {
+        self.get_edges_by_kind(EdgeKind::Imports)
+    }
+
+    // ==================== Capacity ====================
+
+    /// Reserve capacity for nodes and edges (optimization hint).
+    ///
+    /// Pre-allocates internal storage to avoid reallocations during bulk insert.
+    pub fn reserve_capacity(&mut self, nodes: usize, edges: usize) {
+        self.node_index.reserve(nodes);
+        self.edge_set.reserve(edges);
+        // Note: petgraph's StableGraph doesn't have reserve_nodes/reserve_edges,
+        // but reserving the HashMap/HashSet avoids rehashing during bulk insert.
+    }
+
     // ==================== Delta Patching ====================
 
     /// Remove all nodes and edges belonging to a set of files.

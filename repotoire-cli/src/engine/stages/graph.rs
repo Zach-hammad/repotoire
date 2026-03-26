@@ -3,7 +3,6 @@
 use crate::git::co_change::CoChangeMatrix;
 use crate::graph::builder::GraphBuilder;
 use crate::graph::frozen::CodeGraph;
-use crate::graph::GraphStore;
 use crate::parsers::ParseResult;
 use crate::values::store::ValueStore;
 use anyhow::Result;
@@ -18,12 +17,12 @@ pub struct GraphInput<'a> {
 
 /// Output from graph construction (mutable phase — before git enrichment).
 ///
-/// The `mutable_graph` field holds the old `GraphStore` which supports mutation
-/// (needed by git enrichment). After all mutations complete, call `freeze()`
+/// The `mutable_graph` field holds the `GraphBuilder` which supports mutation
+/// (needed by git enrichment). After all mutations complete, call `freeze_graph()`
 /// to produce the immutable `FrozenGraphOutput`.
 pub struct GraphOutput {
     /// Mutable graph for git enrichment and other mutations.
-    pub mutable_graph: Arc<GraphStore>,
+    pub mutable_graph: GraphBuilder,
     pub value_store: Option<Arc<ValueStore>>,
 }
 
@@ -40,12 +39,12 @@ pub struct FrozenGraphOutput {
 }
 
 /// Input for incremental graph patching.
-pub struct GraphPatchInput<'a> {
-    pub mutable_graph: Arc<GraphStore>,
-    pub changed_files: &'a [PathBuf],
-    pub removed_files: &'a [PathBuf],
-    pub new_parse_results: &'a [(PathBuf, Arc<ParseResult>)],
-    pub repo_path: &'a Path,
+pub struct GraphPatchInput {
+    pub mutable_graph: GraphBuilder,
+    pub changed_files: Vec<PathBuf>,
+    pub removed_files: Vec<PathBuf>,
+    pub new_parse_results: Vec<(PathBuf, Arc<ParseResult>)>,
+    pub repo_path: PathBuf,
 }
 
 /// Build a graph from scratch (cold path).
@@ -53,7 +52,7 @@ pub struct GraphPatchInput<'a> {
 /// Returns a mutable `GraphOutput` suitable for git enrichment. After all
 /// mutations complete, call `freeze_graph()` to produce the immutable `FrozenGraphOutput`.
 pub fn graph_stage(input: &GraphInput) -> Result<GraphOutput> {
-    let graph = Arc::new(GraphStore::in_memory());
+    let mut graph = GraphBuilder::new();
 
     // Create hidden progress bars (no terminal output) to satisfy the existing API
     let multi = indicatif::MultiProgress::with_draw_target(
@@ -63,7 +62,7 @@ pub fn graph_stage(input: &GraphInput) -> Result<GraphOutput> {
 
     // Delegate to the existing build_graph function
     let value_store = crate::cli::analyze::graph::build_graph(
-        &graph,
+        &mut graph,
         input.repo_path,
         input.parse_results,
         &multi,
@@ -76,16 +75,20 @@ pub fn graph_stage(input: &GraphInput) -> Result<GraphOutput> {
     })
 }
 
-/// Freeze a mutable graph into an immutable `CodeGraph` with pre-built indexes.
+/// Freeze a mutable GraphBuilder into an immutable `CodeGraph` with pre-built indexes.
 ///
 /// Call this AFTER git enrichment and all other mutations are complete.
-/// Converts the `GraphStore` to a `CodeGraph` and computes the edge fingerprint.
+/// Converts the `GraphBuilder` to a `CodeGraph` and computes the edge fingerprint.
 pub fn freeze_graph(
-    mutable_graph: &GraphStore,
+    builder: GraphBuilder,
     value_store: Option<Arc<ValueStore>>,
     co_change: Option<&CoChangeMatrix>,
 ) -> FrozenGraphOutput {
-    let code_graph = mutable_graph.to_code_graph(co_change);
+    let code_graph = if let Some(cc) = co_change {
+        builder.freeze_with_co_change(cc)
+    } else {
+        builder.freeze()
+    };
     let edge_fingerprint = code_graph.edge_fingerprint();
 
     FrozenGraphOutput {
@@ -102,8 +105,8 @@ pub fn freeze_graph(
 /// 2. Re-insert new nodes/edges from the fresh parse results
 ///
 /// Returns a mutable GraphOutput for further enrichment.
-pub fn graph_patch_stage(input: &GraphPatchInput) -> Result<GraphOutput> {
-    let graph = input.mutable_graph.clone();
+pub fn graph_patch_stage(input: GraphPatchInput) -> Result<GraphOutput> {
+    let mut graph = input.mutable_graph;
 
     // Step 1: Remove old entities for changed + removed files.
     // remove_file_entities expects relative paths (matching how build_graph stores them).
@@ -112,7 +115,7 @@ pub fn graph_patch_stage(input: &GraphPatchInput) -> Result<GraphOutput> {
         .iter()
         .chain(input.removed_files.iter())
         .filter_map(|p| {
-            p.strip_prefix(input.repo_path)
+            p.strip_prefix(&input.repo_path)
                 .ok()
                 .map(|r| r.to_path_buf())
         })
@@ -129,9 +132,9 @@ pub fn graph_patch_stage(input: &GraphPatchInput) -> Result<GraphOutput> {
         let bar_style = indicatif::ProgressStyle::default_bar();
 
         let value_store = crate::cli::analyze::graph::build_graph(
-            &graph,
-            input.repo_path,
-            input.new_parse_results,
+            &mut graph,
+            &input.repo_path,
+            &input.new_parse_results,
             &multi,
             &bar_style,
         )?;
@@ -146,25 +149,5 @@ pub fn graph_patch_stage(input: &GraphPatchInput) -> Result<GraphOutput> {
             mutable_graph: graph,
             value_store: None,
         })
-    }
-}
-
-/// Freeze a GraphBuilder into an immutable CodeGraph with pre-built indexes.
-pub fn freeze_builder(
-    builder: GraphBuilder,
-    value_store: Option<Arc<ValueStore>>,
-    co_change: Option<&CoChangeMatrix>,
-) -> FrozenGraphOutput {
-    let code_graph = if let Some(cc) = co_change {
-        builder.freeze_with_co_change(cc)
-    } else {
-        builder.freeze()
-    };
-    let edge_fingerprint = code_graph.edge_fingerprint();
-
-    FrozenGraphOutput {
-        graph: Arc::new(code_graph),
-        value_store,
-        edge_fingerprint,
     }
 }

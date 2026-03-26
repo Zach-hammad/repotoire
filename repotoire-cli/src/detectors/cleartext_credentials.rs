@@ -68,24 +68,60 @@ fn credential_only_in_string_literal(line: &str) -> bool {
         return false;
     }
 
-    // Build a map of which character positions are inside string literals
+    // Build a map of which character positions are inside string literals.
+    // Positions inside f-string / template-literal interpolation braces are
+    // NOT counted as "inside a string" because they hold live variables.
     let bytes = line.as_bytes();
     let mut in_string = vec![false; bytes.len()];
     let mut i = 0;
     while i < bytes.len() {
         let ch = bytes[i];
         if ch == b'"' || ch == b'\'' || ch == b'`' {
+            // Detect Python f-string prefix (f/F/rf/fr/…)
+            let is_fstring = {
+                let prev1 = if i >= 1 { bytes[i - 1] } else { 0 };
+                let prev2 = if i >= 2 { bytes[i - 2] } else { 0 };
+                prev1 == b'f' || prev1 == b'F'
+                    || prev2 == b'f' || prev2 == b'F'
+            };
+            let is_template_literal = ch == b'`'; // JS/TS template literals
             let quote = ch;
             i += 1;
+            let mut brace_depth: u32 = 0;
             while i < bytes.len() {
                 if bytes[i] == b'\\' {
                     i += 2; // skip escaped char
                     continue;
                 }
-                if bytes[i] == quote {
+                if bytes[i] == quote && brace_depth == 0 {
                     break;
                 }
-                in_string[i] = true;
+                // Track interpolation braces in f-strings and template literals
+                if (is_fstring || is_template_literal) && bytes[i] == b'{' {
+                    // In JS/TS template literals, interpolation starts with `${`
+                    if is_template_literal {
+                        if i + 1 < bytes.len() && bytes[i] == b'$' && bytes[i + 1] == b'{' {
+                            brace_depth += 1;
+                            i += 2;
+                            continue;
+                        }
+                    }
+                    // Python f-strings use bare `{`
+                    if is_fstring {
+                        brace_depth += 1;
+                        i += 1;
+                        continue;
+                    }
+                }
+                if (is_fstring || is_template_literal) && bytes[i] == b'}' && brace_depth > 0 {
+                    brace_depth -= 1;
+                    i += 1;
+                    continue;
+                }
+                // Only mark as "in string" when outside interpolation
+                if brace_depth == 0 {
+                    in_string[i] = true;
+                }
                 i += 1;
             }
         }

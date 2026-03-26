@@ -13,8 +13,9 @@ use tracing::{debug, info};
 
 use super::blame::GitBlame;
 use super::history::GitHistory;
+use crate::graph::builder::GraphBuilder;
 use crate::graph::store_models::ExtraProps;
-use crate::graph::{CodeEdge, CodeNode, EdgeKind, GraphStore, NodeKind};
+use crate::graph::{CodeEdge, CodeNode, EdgeKind, NodeKind};
 
 /// Statistics from git enrichment.
 #[derive(Debug, Clone, Default)]
@@ -40,7 +41,7 @@ pub struct GitEnricher<'a> {
     blame: GitBlame,
     #[allow(dead_code)] // Stored for future commit history analysis
     history: &'a GitHistory,
-    graph: &'a GraphStore,
+    graph: &'a mut GraphBuilder,
     /// Track commits we've already created
     #[allow(dead_code)] // Used by create_commit_if_needed
     seen_commits: HashSet<String>,
@@ -48,7 +49,7 @@ pub struct GitEnricher<'a> {
 
 impl<'a> GitEnricher<'a> {
     /// Create a new git enricher.
-    pub fn new(history: &'a GitHistory, graph: &'a GraphStore) -> Result<Self> {
+    pub fn new(history: &'a GitHistory, graph: &'a mut GraphBuilder) -> Result<Self> {
         let repo_root = history.repo_root()?;
         let blame = GitBlame::open(repo_root)?;
         Ok(Self {
@@ -310,7 +311,7 @@ impl<'a> GitEnricher<'a> {
 
     /// Create a MODIFIED_IN edge from entity to commit.
     #[allow(dead_code)] // Infrastructure for git graph enrichment
-    fn create_modified_in_edge(&self, entity_qn: &str, commit_hash: &str) -> bool {
+    fn create_modified_in_edge(&mut self, entity_qn: &str, commit_hash: &str) -> bool {
         self.graph
             .add_edge_by_name(entity_qn, commit_hash, CodeEdge::new(EdgeKind::ModifiedIn))
     }
@@ -319,7 +320,7 @@ impl<'a> GitEnricher<'a> {
 /// Convenience function to enrich a graph with git data.
 pub fn enrich_graph_with_git(
     repo_path: &Path,
-    graph: &GraphStore,
+    graph: &mut GraphBuilder,
     _repo_id: Option<&str>,
 ) -> Result<EnrichmentStats> {
     let history = GitHistory::new(repo_path)?;

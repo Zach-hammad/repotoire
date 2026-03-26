@@ -2,7 +2,7 @@
 
 use crate::detectors::analysis_context::FileChurnInfo;
 use crate::git::co_change::{CoChangeConfig, CoChangeMatrix};
-use crate::graph::GraphStore;
+use crate::graph::builder::GraphBuilder;
 use anyhow::Result;
 use std::collections::HashMap;
 use std::path::Path;
@@ -10,7 +10,7 @@ use std::path::Path;
 /// Input for the git enrichment stage.
 pub struct GitEnrichInput<'a> {
     pub repo_path: &'a Path,
-    pub graph: &'a GraphStore,
+    pub graph: &'a mut GraphBuilder,
     pub co_change_config: CoChangeConfig,
 }
 
@@ -79,10 +79,10 @@ pub fn compute_file_churn(repo_path: &Path) -> HashMap<String, FileChurnInfo> {
 ///
 /// IMPURE: Mutates graph nodes in place (additive metadata only).
 /// Must complete before detect_stage reads the graph.
-pub fn git_enrich_stage(input: &GitEnrichInput) -> Result<GitEnrichOutput> {
+pub fn git_enrich_stage(input: &mut GitEnrichInput) -> Result<GitEnrichOutput> {
     let stats = crate::git::enrichment::enrich_graph_with_git(
         input.repo_path,
-        input.graph,
+        &mut *input.graph,
         None, // repo_id — not needed for local analysis
     )?;
 
