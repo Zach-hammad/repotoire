@@ -22,7 +22,6 @@ pub fn run(path: &Path, query: &str, format: &str) -> Result<()> {
     }
 
     let graph = GraphStore::new(&db_path).with_context(|| "Failed to open graph database")?;
-    let i = graph.interner();
 
     let json_output = format == "json";
 
@@ -30,104 +29,138 @@ pub fn run(path: &Path, query: &str, format: &str) -> Result<()> {
     let query_lower = query.to_lowercase();
 
     if query_lower.contains("function") {
-        let functions = graph.get_functions();
-        if json_output {
-            let json: Vec<_> = functions.iter().map(function_to_json).collect();
-            println!("{}", serde_json::to_string_pretty(&json)?);
-        } else {
-            println!("\n{} Functions ({})\n", style("📊").bold(), functions.len());
-            for func in functions.iter().take(50) {
-                println!(
-                    "  {} ({}:{})",
-                    style(func.qn(i)).cyan(),
-                    func.path(i),
-                    func.line_start
-                );
-            }
-            if functions.len() > 50 {
-                println!("  ... and {} more", functions.len() - 50);
-            }
-        }
+        query_functions(&graph, json_output)?;
     } else if query_lower.contains("class") {
-        let classes = graph.get_classes();
-        if json_output {
-            let json: Vec<_> = classes.iter().map(class_to_json).collect();
-            println!("{}", serde_json::to_string_pretty(&json)?);
-        } else {
-            println!("\n{} Classes ({})\n", style("📊").bold(), classes.len());
-            for class in classes.iter().take(50) {
-                println!(
-                    "  {} ({}:{})",
-                    style(class.qn(i)).cyan(),
-                    class.path(i),
-                    class.line_start
-                );
-            }
-            if classes.len() > 50 {
-                println!("  ... and {} more", classes.len() - 50);
-            }
-        }
+        query_classes(&graph, json_output)?;
     } else if query_lower.contains("file") {
-        let files = graph.get_files();
-        if json_output {
-            let json: Vec<_> = files.iter().map(|f| serde_json::json!({"path": f.path(i)})).collect();
-            println!("{}", serde_json::to_string_pretty(&json)?);
-        } else {
-            println!("\n{} Files ({})\n", style("📊").bold(), files.len());
-            for file in files.iter().take(50) {
-                println!("  {}", style(file.path(i)).cyan());
-            }
-            if files.len() > 50 {
-                println!("  ... and {} more", files.len() - 50);
-            }
-        }
+        query_files(&graph, json_output)?;
     } else if query_lower.contains("call") {
-        let calls = graph.get_calls();
-        if json_output {
-            let json: Vec<_> = calls.iter().map(|(from, to)| serde_json::json!({"from": i.resolve(*from), "to": i.resolve(*to)})).collect();
-            println!("{}", serde_json::to_string_pretty(&json)?);
-        } else {
-            println!("\n{} Call Edges ({})\n", style("📊").bold(), calls.len());
-            for (from, to) in calls.iter().take(50) {
-                println!("  {} -> {}", style(i.resolve(*from)).cyan(), style(i.resolve(*to)).green());
-            }
-            if calls.len() > 50 {
-                println!("  ... and {} more", calls.len() - 50);
-            }
-        }
+        query_calls(&graph, json_output)?;
     } else if query_lower.contains("import") {
-        let imports = graph.get_imports();
-        if json_output {
-            let json: Vec<_> = imports.iter().map(|(from, to)| serde_json::json!({"from": i.resolve(*from), "to": i.resolve(*to)})).collect();
-            println!("{}", serde_json::to_string_pretty(&json)?);
-        } else {
-            println!(
-                "\n{} Import Edges ({})\n",
-                style("📊").bold(),
-                imports.len()
-            );
-            for (from, to) in imports.iter().take(50) {
-                println!("  {} -> {}", style(i.resolve(*from)).cyan(), style(i.resolve(*to)).green());
-            }
-            if imports.len() > 50 {
-                println!("  ... and {} more", imports.len() - 50);
-            }
-        }
+        query_imports(&graph, json_output)?;
     } else if query_lower == "stats" {
         // Redirect to stats command
         return stats(path);
     } else {
-        println!("{}", style("Supported queries:").bold());
-        println!("  - functions: List all functions");
-        println!("  - classes: List all classes");
-        println!("  - files: List all files");
-        println!("  - calls: List call edges");
-        println!("  - imports: List import edges");
-        println!("  - stats: Show graph statistics");
-        println!("\nNote: Cypher queries are not supported. You can also run 'repotoire stats' directly.");
+        print_usage();
     }
 
     Ok(())
+}
+
+fn query_functions(graph: &GraphStore, json_output: bool) -> Result<()> {
+    let i = graph.interner();
+    let functions = graph.get_functions();
+    if json_output {
+        let json: Vec<_> = functions.iter().map(function_to_json).collect();
+        println!("{}", serde_json::to_string_pretty(&json)?);
+    } else {
+        println!("\n{} Functions ({})\n", style("📊").bold(), functions.len());
+        for func in functions.iter().take(50) {
+            println!(
+                "  {} ({}:{})",
+                style(func.qn(i)).cyan(),
+                func.path(i),
+                func.line_start
+            );
+        }
+        if functions.len() > 50 {
+            println!("  ... and {} more", functions.len() - 50);
+        }
+    }
+    Ok(())
+}
+
+fn query_classes(graph: &GraphStore, json_output: bool) -> Result<()> {
+    let i = graph.interner();
+    let classes = graph.get_classes();
+    if json_output {
+        let json: Vec<_> = classes.iter().map(class_to_json).collect();
+        println!("{}", serde_json::to_string_pretty(&json)?);
+    } else {
+        println!("\n{} Classes ({})\n", style("📊").bold(), classes.len());
+        for class in classes.iter().take(50) {
+            println!(
+                "  {} ({}:{})",
+                style(class.qn(i)).cyan(),
+                class.path(i),
+                class.line_start
+            );
+        }
+        if classes.len() > 50 {
+            println!("  ... and {} more", classes.len() - 50);
+        }
+    }
+    Ok(())
+}
+
+fn query_files(graph: &GraphStore, json_output: bool) -> Result<()> {
+    let i = graph.interner();
+    let files = graph.get_files();
+    if json_output {
+        let json: Vec<_> = files.iter().map(|f| serde_json::json!({"path": f.path(i)})).collect();
+        println!("{}", serde_json::to_string_pretty(&json)?);
+    } else {
+        println!("\n{} Files ({})\n", style("📊").bold(), files.len());
+        for file in files.iter().take(50) {
+            println!("  {}", style(file.path(i)).cyan());
+        }
+        if files.len() > 50 {
+            println!("  ... and {} more", files.len() - 50);
+        }
+    }
+    Ok(())
+}
+
+fn query_calls(graph: &GraphStore, json_output: bool) -> Result<()> {
+    let i = graph.interner();
+    let calls = graph.get_calls();
+    if json_output {
+        let json: Vec<_> = calls.iter().map(|(from, to)| serde_json::json!({"from": i.resolve(*from), "to": i.resolve(*to)})).collect();
+        println!("{}", serde_json::to_string_pretty(&json)?);
+    } else {
+        println!("\n{} Call Edges ({})\n", style("📊").bold(), calls.len());
+        for (from, to) in calls.iter().take(50) {
+            println!("  {} -> {}", style(i.resolve(*from)).cyan(), style(i.resolve(*to)).green());
+        }
+        if calls.len() > 50 {
+            println!("  ... and {} more", calls.len() - 50);
+        }
+    }
+    Ok(())
+}
+
+fn query_imports(graph: &GraphStore, json_output: bool) -> Result<()> {
+    let i = graph.interner();
+    let imports = graph.get_imports();
+    if json_output {
+        let json: Vec<_> = imports.iter().map(|(from, to)| serde_json::json!({"from": i.resolve(*from), "to": i.resolve(*to)})).collect();
+        println!("{}", serde_json::to_string_pretty(&json)?);
+    } else {
+        println!(
+            "\n{} Import Edges ({})\n",
+            style("📊").bold(),
+            imports.len()
+        );
+        for (from, to) in imports.iter().take(50) {
+            println!("  {} -> {}", style(i.resolve(*from)).cyan(), style(i.resolve(*to)).green());
+        }
+        if imports.len() > 50 {
+            println!("  ... and {} more", imports.len() - 50);
+        }
+    }
+    Ok(())
+}
+
+fn print_usage() {
+    println!("{}", style("Supported queries:").bold());
+    println!("  - functions: List all functions");
+    println!("  - classes: List all classes");
+    println!("  - files: List all files");
+    println!("  - calls: List call edges");
+    println!("  - imports: List import edges");
+    println!("  - stats: Show graph statistics");
+    println!("\nNote: Cypher queries are not supported. You can also run 'repotoire stats' directly.");
 }
 
 /// Show graph statistics
