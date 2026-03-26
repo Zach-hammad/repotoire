@@ -79,85 +79,68 @@ impl GraphIndexes {
         co_change: Option<&CoChangeMatrix>,
     ) -> Self {
         let mut indexes = Self::default();
+
+        // Steps 1-2: Populate kind/spatial indexes and adjacency maps
+        indexes.build_kind_indexes(graph);
+        indexes.build_adjacency_maps(graph);
+        indexes.build_spatial_indexes(graph);
+
+        // Steps 5-9: Expensive analyses
+        indexes.import_cycles = compute_import_cycles(graph);
+        indexes.edge_fingerprint = compute_edge_fingerprint(graph);
+        indexes.primitives = super::primitives::GraphPrimitives::compute(
+            graph,
+            &indexes.functions,
+            &indexes.files,
+            &indexes.all_call_edges,
+            &indexes.all_import_edges,
+            &indexes.call_callers,
+            &indexes.call_callees,
+            indexes.edge_fingerprint,
+            co_change,
+        );
+
+        indexes
+    }
+
+    /// Scan all nodes and categorize by kind, populating kind indexes and
+    /// per-file node lookups. Sorts kind vectors by qualified name for determinism.
+    fn build_kind_indexes(&mut self, graph: &StableGraph<CodeNode, CodeEdge>) {
         let si = global_interner();
 
-        // ── Step 1: Scan all nodes → kind indexes + spatial indexes ──
         for idx in graph.node_indices() {
             let node = &graph[idx];
             match node.kind {
                 NodeKind::Function => {
-                    indexes.functions.push(idx);
-                    indexes
-                        .functions_by_file
+                    self.functions.push(idx);
+                    self.functions_by_file
                         .entry(node.file_path)
                         .or_default()
                         .push(idx);
-                    indexes
-                        .function_spatial
+                    self.function_spatial
                         .entry(node.file_path)
                         .or_default()
                         .push((node.line_start, node.line_end, idx));
                 }
                 NodeKind::Class => {
-                    indexes.classes.push(idx);
-                    indexes
-                        .classes_by_file
+                    self.classes.push(idx);
+                    self.classes_by_file
                         .entry(node.file_path)
                         .or_default()
                         .push(idx);
                 }
                 NodeKind::File => {
-                    indexes.files.push(idx);
+                    self.files.push(idx);
                 }
                 _ => {}
             }
-            indexes
-                .all_nodes_by_file
+            self.all_nodes_by_file
                 .entry(node.file_path)
                 .or_default()
                 .push(idx);
         }
 
-        // ── Step 2: Scan all edges → adjacency indexes + bulk edge lists ──
-        for edge_ref in graph.edge_references() {
-            let src = edge_ref.source();
-            let tgt = edge_ref.target();
-            match edge_ref.weight().kind {
-                EdgeKind::Calls => {
-                    indexes.call_callees.entry(src).or_default().push(tgt);
-                    indexes.call_callers.entry(tgt).or_default().push(src);
-                    indexes.all_call_edges.push((src, tgt));
-                }
-                EdgeKind::Imports => {
-                    indexes.import_targets.entry(src).or_default().push(tgt);
-                    indexes.import_sources.entry(tgt).or_default().push(src);
-                    indexes.all_import_edges.push((src, tgt));
-                }
-                EdgeKind::Inherits => {
-                    indexes.inherit_parents.entry(src).or_default().push(tgt);
-                    indexes.inherit_children.entry(tgt).or_default().push(src);
-                    indexes.all_inheritance_edges.push((src, tgt));
-                }
-                EdgeKind::Contains => {
-                    indexes.contains_children.entry(src).or_default().push(tgt);
-                    indexes.contains_parent.entry(tgt).or_default().push(src);
-                }
-                EdgeKind::Uses => {
-                    indexes.uses_targets.entry(src).or_default().push(tgt);
-                    indexes.uses_sources.entry(tgt).or_default().push(src);
-                }
-                EdgeKind::ModifiedIn => {
-                    indexes.modified_in.entry(src).or_default().push(tgt);
-                }
-            }
-        }
-
-        // ── Step 3: Sort spatial indexes by line_start for binary search ──
-        for spans in indexes.function_spatial.values_mut() {
-            spans.sort_unstable_by_key(|(start, _, _)| *start);
-        }
-
-        // ── Step 4: Sort kind indexes and adjacency vectors by qualified name for determinism ──
+        // Sort kind vectors by qualified name for determinism
         let sort_by_qn = |nodes: &mut Vec<NodeIndex>| {
             nodes.sort_by(|a, b| {
                 let a_qn = graph
@@ -172,73 +155,114 @@ impl GraphIndexes {
             });
         };
 
-        sort_by_qn(&mut indexes.functions);
-        sort_by_qn(&mut indexes.classes);
-        sort_by_qn(&mut indexes.files);
+        sort_by_qn(&mut self.functions);
+        sort_by_qn(&mut self.classes);
+        sort_by_qn(&mut self.files);
 
-        // Sort adjacency vectors
-        for v in indexes.call_callers.values_mut() {
+        // Sort per-file indexes by QN
+        for v in self.functions_by_file.values_mut() {
             sort_by_qn(v);
         }
-        for v in indexes.call_callees.values_mut() {
+        for v in self.classes_by_file.values_mut() {
             sort_by_qn(v);
         }
-        for v in indexes.import_sources.values_mut() {
-            sort_by_qn(v);
-        }
-        for v in indexes.import_targets.values_mut() {
-            sort_by_qn(v);
-        }
-        for v in indexes.inherit_parents.values_mut() {
-            sort_by_qn(v);
-        }
-        for v in indexes.inherit_children.values_mut() {
-            sort_by_qn(v);
-        }
-        for v in indexes.contains_children.values_mut() {
-            sort_by_qn(v);
-        }
-        for v in indexes.contains_parent.values_mut() {
-            sort_by_qn(v);
-        }
-        for v in indexes.uses_targets.values_mut() {
-            sort_by_qn(v);
-        }
-        for v in indexes.uses_sources.values_mut() {
-            sort_by_qn(v);
-        }
-        for v in indexes.modified_in.values_mut() {
-            sort_by_qn(v);
+    }
+
+    /// Scan all edges to build caller/callee, importer/importee, and other
+    /// adjacency maps plus bulk edge lists. Sorts adjacency vectors by qualified
+    /// name for determinism.
+    fn build_adjacency_maps(&mut self, graph: &StableGraph<CodeNode, CodeEdge>) {
+        let si = global_interner();
+
+        for edge_ref in graph.edge_references() {
+            let src = edge_ref.source();
+            let tgt = edge_ref.target();
+            match edge_ref.weight().kind {
+                EdgeKind::Calls => {
+                    self.call_callees.entry(src).or_default().push(tgt);
+                    self.call_callers.entry(tgt).or_default().push(src);
+                    self.all_call_edges.push((src, tgt));
+                }
+                EdgeKind::Imports => {
+                    self.import_targets.entry(src).or_default().push(tgt);
+                    self.import_sources.entry(tgt).or_default().push(src);
+                    self.all_import_edges.push((src, tgt));
+                }
+                EdgeKind::Inherits => {
+                    self.inherit_parents.entry(src).or_default().push(tgt);
+                    self.inherit_children.entry(tgt).or_default().push(src);
+                    self.all_inheritance_edges.push((src, tgt));
+                }
+                EdgeKind::Contains => {
+                    self.contains_children.entry(src).or_default().push(tgt);
+                    self.contains_parent.entry(tgt).or_default().push(src);
+                }
+                EdgeKind::Uses => {
+                    self.uses_targets.entry(src).or_default().push(tgt);
+                    self.uses_sources.entry(tgt).or_default().push(src);
+                }
+                EdgeKind::ModifiedIn => {
+                    self.modified_in.entry(src).or_default().push(tgt);
+                }
+            }
         }
 
-        // Sort spatial file indexes by QN too
-        for v in indexes.functions_by_file.values_mut() {
+        // Sort all adjacency vectors by qualified name for determinism
+        let sort_by_qn = |nodes: &mut Vec<NodeIndex>| {
+            nodes.sort_by(|a, b| {
+                let a_qn = graph
+                    .node_weight(*a)
+                    .map(|n| si.resolve(n.qualified_name))
+                    .unwrap_or("");
+                let b_qn = graph
+                    .node_weight(*b)
+                    .map(|n| si.resolve(n.qualified_name))
+                    .unwrap_or("");
+                a_qn.cmp(b_qn)
+            });
+        };
+
+        for v in self.call_callers.values_mut() {
             sort_by_qn(v);
         }
-        for v in indexes.classes_by_file.values_mut() {
+        for v in self.call_callees.values_mut() {
             sort_by_qn(v);
         }
+        for v in self.import_sources.values_mut() {
+            sort_by_qn(v);
+        }
+        for v in self.import_targets.values_mut() {
+            sort_by_qn(v);
+        }
+        for v in self.inherit_parents.values_mut() {
+            sort_by_qn(v);
+        }
+        for v in self.inherit_children.values_mut() {
+            sort_by_qn(v);
+        }
+        for v in self.contains_children.values_mut() {
+            sort_by_qn(v);
+        }
+        for v in self.contains_parent.values_mut() {
+            sort_by_qn(v);
+        }
+        for v in self.uses_targets.values_mut() {
+            sort_by_qn(v);
+        }
+        for v in self.uses_sources.values_mut() {
+            sort_by_qn(v);
+        }
+        for v in self.modified_in.values_mut() {
+            sort_by_qn(v);
+        }
+    }
 
-        // ── Step 5: Compute import cycles via Tarjan SCC ──
-        indexes.import_cycles = compute_import_cycles(graph);
-
-        // ── Step 6: Compute edge fingerprint ──
-        indexes.edge_fingerprint = compute_edge_fingerprint(graph);
-
-        // ── Step 7-9: Compute graph primitives ──
-        indexes.primitives = super::primitives::GraphPrimitives::compute(
-            graph,
-            &indexes.functions,
-            &indexes.files,
-            &indexes.all_call_edges,
-            &indexes.all_import_edges,
-            &indexes.call_callers,
-            &indexes.call_callees,
-            indexes.edge_fingerprint,
-            co_change,
-        );
-
-        indexes
+    /// Sort spatial indexes (function_spatial) by line_start for binary search
+    /// in `function_at()`.
+    fn build_spatial_indexes(&mut self, _graph: &StableGraph<CodeNode, CodeEdge>) {
+        for spans in self.function_spatial.values_mut() {
+            spans.sort_unstable_by_key(|(start, _, _)| *start);
+        }
     }
 }
 

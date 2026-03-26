@@ -77,6 +77,17 @@ pub struct PredictiveCodingEngine {
     level_count: usize,
 }
 
+/// Holds all trained hierarchy level models, produced by the training phase
+/// and consumed by the scoring phase.
+struct TrainedModels {
+    token_scorer: token_level::TokenLevelScorer,
+    structural_scorer: structural::StructuralScorer,
+    func_features: Vec<(String, Vec<f64>)>,
+    chain_scorer: dependency_chain::DependencyChainScorer,
+    relational_scorer: relational::GraphRelationalScorer,
+    arch_scorer: architectural::ArchitecturalScorer,
+}
+
 impl PredictiveCodingEngine {
     pub fn new() -> Self {
         Self {
@@ -99,10 +110,28 @@ impl PredictiveCodingEngine {
         files: &dyn crate::detectors::file_provider::FileProvider,
         contexts: &FunctionContextMap,
     ) {
+        let all_functions = graph.get_functions_shared();
+        if all_functions.len() < 20 {
+            return; // Not enough data for meaningful statistics
+        }
+
+        let trained = self.train_models(graph, files, contexts, &all_functions);
+        self.score_functions(graph, files, &all_functions, contexts, &trained);
+    }
+
+    /// Train all 5 hierarchy level models from graph data and file contents.
+    fn train_models(
+        &self,
+        graph: &dyn crate::graph::GraphQuery,
+        files: &dyn crate::detectors::file_provider::FileProvider,
+        contexts: &FunctionContextMap,
+        functions: &[crate::graph::CodeNode],
+    ) -> TrainedModels {
         let i = graph.interner();
+        let repo_path = files.repo_path();
+
         // === L1: Train per-language token models ===
         let mut token_scorer = token_level::TokenLevelScorer::new();
-        let repo_path = files.repo_path();
         let extensions: &[&str] = &[
             "rs", "py", "ts", "tsx", "js", "jsx", "go", "java", "c", "cpp", "cc", "h", "hpp", "cs",
         ];
@@ -121,18 +150,6 @@ impl PredictiveCodingEngine {
                 *lang_tokens.entry(ext).or_insert(0) += content.split_whitespace().count();
             }
         }
-
-        // === Get all functions from graph ===
-        let all_functions = graph.get_functions_shared();
-        if all_functions.len() < 20 {
-            return; // Not enough data for meaningful statistics
-        }
-
-        // Cap scored functions for performance. 5k is enough for robust z-scores
-        // (CLT convergence). Use all functions for model training and covariance
-        // estimation, but only score a subset.
-        const MAX_SCORED: usize = 5_000;
-        let functions = &all_functions;
 
         // === L2: Compute structural features for all functions ===
         let mut feature_vecs: Vec<Vec<f64>> = Vec::with_capacity(functions.len());
@@ -253,15 +270,41 @@ impl PredictiveCodingEngine {
         }
         arch_scorer.finalize();
 
-        // === Score functions at all 5 levels ===
+        TrainedModels {
+            token_scorer,
+            structural_scorer,
+            func_features,
+            chain_scorer,
+            relational_scorer,
+            arch_scorer,
+        }
+    }
+
+    /// Score all functions against trained models, compute z-scores, and
+    /// populate `self.scores` with compound scores.
+    fn score_functions(
+        &mut self,
+        graph: &dyn crate::graph::GraphQuery,
+        files: &dyn crate::detectors::file_provider::FileProvider,
+        functions: &[crate::graph::CodeNode],
+        contexts: &FunctionContextMap,
+        models: &TrainedModels,
+    ) {
+        let i = graph.interner();
+        let repo_path = files.repo_path();
+
+        // Cap scored functions for performance. 5k is enough for robust z-scores
+        // (CLT convergence). Use all functions for model training and covariance
+        // estimation, but only score a subset.
+        const MAX_SCORED: usize = 5_000;
+
         // On large repos (>MAX_SCORED functions), pre-filter by L2 structural distance
         // to avoid scoring all functions (O(n) n-gram scoring is expensive at 72k+).
         let scored_indices: Vec<usize> = if functions.len() > MAX_SCORED {
-            // Pre-compute L2 distances for all functions, keep top MAX_SCORED
-            let mut indexed_dists: Vec<(usize, f64)> = func_features
+            let mut indexed_dists: Vec<(usize, f64)> = models.func_features
                 .iter()
                 .enumerate()
-                .map(|(i, (_, feat))| (i, structural_scorer.mahalanobis_distance(feat)))
+                .map(|(i, (_, feat))| (i, models.structural_scorer.mahalanobis_distance(feat)))
                 .collect();
             indexed_dists.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
             indexed_dists.truncate(MAX_SCORED);
@@ -292,7 +335,7 @@ impl PredictiveCodingEngine {
             let ext = func.path(i).rsplit('.').next().unwrap_or("rs");
 
             // L1: Token surprisal — skip if no confident model for this language
-            let has_model = token_scorer
+            let has_model = models.token_scorer
                 .models
                 .get(ext)
                 .map(|m| m.is_confident())
@@ -310,7 +353,7 @@ impl PredictiveCodingEngine {
                     let start = func.line_start.saturating_sub(1) as usize;
                     let end = (func.line_end as usize).min(lines.len());
                     if start < end && end - start >= 4 {
-                        token_scorer.score_function(&lines[start..end], ext)
+                        models.token_scorer.score_function(&lines[start..end], ext)
                     } else {
                         0.0
                     }
@@ -322,16 +365,16 @@ impl PredictiveCodingEngine {
             };
 
             // L2: Structural distance
-            let structural_score = func_features
+            let structural_score = models.func_features
                 .get(idx)
-                .map(|(_, feat)| structural_scorer.mahalanobis_distance(feat))
+                .map(|(_, feat)| models.structural_scorer.mahalanobis_distance(feat))
                 .unwrap_or(0.0);
 
             // L1.5: Dependency chain
-            let dep_score = chain_scorer.score(func.qn(i));
+            let dep_score = models.chain_scorer.score(func.qn(i));
 
             // L3: Relational graph feature distance
-            let relational_score = relational_scorer.distance(func.qn(i), contexts);
+            let relational_score = models.relational_scorer.distance(func.qn(i), contexts);
 
             // L4: Module distance
             let module = func
@@ -339,7 +382,7 @@ impl PredictiveCodingEngine {
                 .rsplit_once('/')
                 .map(|(dir, _)| dir)
                 .unwrap_or("root");
-            let arch_score = arch_scorer.module_distance(module);
+            let arch_score = models.arch_scorer.module_distance(module);
 
             raw_scores.push((
                 func.qn(i).to_string(),
