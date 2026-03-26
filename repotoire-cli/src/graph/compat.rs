@@ -230,6 +230,120 @@ impl super::traits::GraphQuery for std::sync::Arc<CodeGraph> {
     }
 }
 
+// ==================== GraphQuery for GraphBuilder ====================
+//
+// Enables using GraphBuilder directly as `&dyn GraphQuery` in test code.
+// Lazily builds a frozen CodeGraph snapshot on first trait method call.
+// NOT invalidated by subsequent mutations — intended for test code.
+
+use super::builder::GraphBuilder;
+
+impl super::traits::GraphQuery for GraphBuilder {
+    fn primitives(&self) -> &crate::graph::primitives::GraphPrimitives {
+        self.snapshot().primitives()
+    }
+
+    fn interner(&self) -> &super::interner::StringInterner {
+        super::interner::global_interner()
+    }
+
+    fn extra_props(&self, qn: StrKey) -> Option<ExtraProps> {
+        self.snapshot().extra_props(qn).cloned()
+    }
+
+    fn stats(&self) -> std::collections::BTreeMap<String, i64> {
+        self.snapshot().stats()
+    }
+
+    fn node_idx(&self, idx: petgraph::stable_graph::NodeIndex) -> Option<&CodeNode> {
+        self.snapshot().node(idx)
+    }
+
+    fn node_by_name_idx(&self, qn: &str) -> Option<(petgraph::stable_graph::NodeIndex, &CodeNode)> {
+        self.snapshot().node_by_name(qn)
+    }
+
+    fn functions_idx(&self) -> &[petgraph::stable_graph::NodeIndex] {
+        self.snapshot().functions()
+    }
+
+    fn classes_idx(&self) -> &[petgraph::stable_graph::NodeIndex] {
+        self.snapshot().classes()
+    }
+
+    fn files_idx(&self) -> &[petgraph::stable_graph::NodeIndex] {
+        self.snapshot().files()
+    }
+
+    fn callers_idx(&self, idx: petgraph::stable_graph::NodeIndex) -> &[petgraph::stable_graph::NodeIndex] {
+        self.snapshot().callers(idx)
+    }
+
+    fn callees_idx(&self, idx: petgraph::stable_graph::NodeIndex) -> &[petgraph::stable_graph::NodeIndex] {
+        self.snapshot().callees(idx)
+    }
+
+    fn importers_idx(&self, idx: petgraph::stable_graph::NodeIndex) -> &[petgraph::stable_graph::NodeIndex] {
+        self.snapshot().importers(idx)
+    }
+
+    fn importees_idx(&self, idx: petgraph::stable_graph::NodeIndex) -> &[petgraph::stable_graph::NodeIndex] {
+        self.snapshot().importees(idx)
+    }
+
+    fn parent_classes_idx(&self, idx: petgraph::stable_graph::NodeIndex) -> &[petgraph::stable_graph::NodeIndex] {
+        self.snapshot().parent_classes(idx)
+    }
+
+    fn child_classes_idx(&self, idx: petgraph::stable_graph::NodeIndex) -> &[petgraph::stable_graph::NodeIndex] {
+        self.snapshot().child_classes(idx)
+    }
+
+    fn call_fan_in_idx(&self, idx: petgraph::stable_graph::NodeIndex) -> usize {
+        CodeGraph::call_fan_in(self.snapshot(), idx)
+    }
+
+    fn call_fan_out_idx(&self, idx: petgraph::stable_graph::NodeIndex) -> usize {
+        CodeGraph::call_fan_out(self.snapshot(), idx)
+    }
+
+    fn functions_in_file_idx(&self, file_path: &str) -> &[petgraph::stable_graph::NodeIndex] {
+        self.snapshot().functions_in_file(file_path)
+    }
+
+    fn classes_in_file_idx(&self, file_path: &str) -> &[petgraph::stable_graph::NodeIndex] {
+        self.snapshot().classes_in_file(file_path)
+    }
+
+    fn function_at_idx(&self, file_path: &str, line: u32) -> Option<petgraph::stable_graph::NodeIndex> {
+        self.snapshot().function_at(file_path, line)
+    }
+
+    fn all_call_edges(&self) -> &[(petgraph::stable_graph::NodeIndex, petgraph::stable_graph::NodeIndex)] {
+        CodeGraph::all_call_edges(self.snapshot())
+    }
+
+    fn all_import_edges(&self) -> &[(petgraph::stable_graph::NodeIndex, petgraph::stable_graph::NodeIndex)] {
+        CodeGraph::all_import_edges(self.snapshot())
+    }
+
+    fn all_inheritance_edges(&self) -> &[(petgraph::stable_graph::NodeIndex, petgraph::stable_graph::NodeIndex)] {
+        CodeGraph::all_inheritance_edges(self.snapshot())
+    }
+
+    fn import_cycles_idx(&self) -> &[Vec<petgraph::stable_graph::NodeIndex>] {
+        self.snapshot().import_cycles()
+    }
+
+    fn edge_fingerprint_idx(&self) -> u64 {
+        self.snapshot().edge_fingerprint()
+    }
+
+    fn extra_props_ref(&self, qn: StrKey) -> Option<&ExtraProps> {
+        CodeGraph::extra_props(self.snapshot(), qn)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

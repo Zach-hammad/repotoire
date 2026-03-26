@@ -8,7 +8,6 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::graph::GraphQueryExt;
-use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -260,13 +259,13 @@ impl super::RegisteredDetector for HardcodedIpsDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_detects_hardcoded_ip_in_connection() {
         // Use .rb extension: masking has no tree-sitter grammar for Ruby,
         // so the content is returned unchanged and the IP stays visible.
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = HardcodedIpsDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("database.rb", "require 'pg'\n\ndef connect\n  conn = PG.connect(host: \"192.168.1.100\", dbname: \"mydb\")\n  conn\nend\n"),
@@ -285,7 +284,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_clean_code() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = HardcodedIpsDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("database.py", "import os\nimport psycopg2\n\ndef connect():\n    host = os.environ.get(\"DB_HOST\")\n    conn = psycopg2.connect(host=host, database=\"mydb\")\n    return conn\n"),
@@ -300,7 +299,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_ip_in_docstring() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = HardcodedIpsDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("network.py", "def connect_to_db():\n    \"\"\"\n    Connect to the database at 192.168.1.100.\n    \"\"\"\n    return create_connection()\n"),
@@ -315,7 +314,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_ip_in_comment() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = HardcodedIpsDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("server.py", "# Default: connect to 192.168.1.50 for staging\ndef get_host():\n    return os.environ.get('HOST')\n"),

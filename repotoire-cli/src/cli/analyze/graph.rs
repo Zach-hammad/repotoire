@@ -13,7 +13,6 @@ use crate::graph::builder::GraphBuilder;
 use crate::graph::interner::{StrKey, global_interner};
 use crate::graph::{CodeEdge, CodeNode, NodeKind};
 use crate::models::{Class, Function};
-use crate::parsers::bounded_pipeline::{run_bounded_pipeline, run_bounded_pipeline_from_channel, PipelineConfig};
 use crate::parsers::streaming::{
     FunctionIndex, ModuleIndex, ParsedFileInfo, StreamingGraphBuilder,
 };
@@ -1452,124 +1451,6 @@ impl<'a> StreamingGraphBuilder for StreamingGraphBuilderImpl<'a> {
 
         Ok(())
     }
-}
-
-/// Parse files and build graph using BOUNDED PARALLEL PIPELINE
-///
-/// This function uses crossbeam channels with ADAPTIVE sizing:
-/// - Small repos (<5k files): buffer=100 for speed
-/// - Large repos (50k+ files): buffer=10 for memory
-/// - Periodic edge flushing prevents unbounded edge accumulation
-///
-/// Benefits:
-/// - Parallel parsing uses all CPU cores
-/// - Bounded memory via adaptive channel capacities
-/// - Periodic edge flushing caps memory growth
-/// - True backpressure - parsers block when consumer is slow
-///
-/// Memory target: <1.5GB for 50k files, <2GB for 100k files
-#[allow(dead_code)]
-pub(super) fn parse_and_build_streaming(
-    files: &[PathBuf],
-    repo_path: &Path,
-    graph: Arc<crate::graph::GraphStore>,
-    multi: &MultiProgress,
-    bar_style: &ProgressStyle,
-) -> Result<(usize, usize)> {
-    let parse_bar = multi.add(ProgressBar::new(files.len() as u64));
-    parse_bar.set_style(bar_style.clone());
-
-    // Adaptive config based on repo size
-    let config = PipelineConfig::for_repo_size(files.len());
-
-    parse_bar.set_message(format!(
-        "Bounded pipeline ({} workers, buf={}, flush@{})...",
-        config.num_workers, config.buffer_size, config.edge_flush_threshold
-    ));
-
-    // Use the new bounded pipeline with adaptive sizing
-    let (graph_stats, parse_stats) = run_bounded_pipeline(
-        files.to_vec(),
-        repo_path,
-        graph,
-        config,
-        Some(&|count, _total| {
-            if count % 100 == 0 {
-                parse_bar.set_position(count as u64);
-            }
-        }),
-    )?;
-
-    let flush_info = if graph_stats.edge_flushes > 0 {
-        format!(", {} flushes", graph_stats.edge_flushes)
-    } else {
-        String::new()
-    };
-
-    parse_bar.finish_with_message(format!(
-        "{}Bounded pipeline: {} files ({} fns, {} cls{})",
-        style("✓ ").green(),
-        style(parse_stats.parsed_files).cyan(),
-        style(graph_stats.functions_added).cyan(),
-        style(graph_stats.classes_added).cyan(),
-        style(flush_info).dim(),
-    ));
-
-    Ok((graph_stats.functions_added, graph_stats.classes_added))
-}
-
-/// Stream-parse with walk+parse overlap.
-///
-/// Unlike `parse_and_build_streaming` which accepts a pre-collected `&[PathBuf]`,
-/// this variant takes a `Receiver<PathBuf>` that the file walker feeds into
-/// concurrently. Parser threads start working as soon as the first files are
-/// discovered, rather than waiting for the entire walk to complete.
-///
-/// Returns `(total_functions, total_classes)` matching the streaming contract.
-#[allow(dead_code)]
-pub(super) fn parse_and_build_streaming_overlapped(
-    file_receiver: crossbeam_channel::Receiver<PathBuf>,
-    repo_path: &Path,
-    graph: Arc<crate::graph::GraphStore>,
-    multi: &MultiProgress,
-    bar_style: &ProgressStyle,
-    config: PipelineConfig,
-) -> Result<(usize, usize)> {
-    let parse_bar = multi.add(ProgressBar::new_spinner());
-    parse_bar.set_style(bar_style.clone());
-    parse_bar.set_message(format!(
-        "Overlapped walk+parse ({} workers, buf={}, flush@{})...",
-        config.num_workers, config.buffer_size, config.edge_flush_threshold
-    ));
-
-    let (graph_stats, parse_stats) = run_bounded_pipeline_from_channel(
-        file_receiver,
-        repo_path,
-        graph,
-        config,
-        Some(&|count, _total| {
-            if count % 100 == 0 {
-                parse_bar.set_position(count as u64);
-            }
-        }),
-    )?;
-
-    let flush_info = if graph_stats.edge_flushes > 0 {
-        format!(", {} flushes", graph_stats.edge_flushes)
-    } else {
-        String::new()
-    };
-
-    parse_bar.finish_with_message(format!(
-        "{}Overlapped pipeline: {} files ({} fns, {} cls{})",
-        style("✓ ").green(),
-        style(parse_stats.parsed_files).cyan(),
-        style(graph_stats.functions_added).cyan(),
-        style(graph_stats.classes_added).cyan(),
-        style(flush_info).dim(),
-    ));
-
-    Ok((graph_stats.functions_added, graph_stats.classes_added))
 }
 
 #[cfg(test)]

@@ -511,7 +511,7 @@ impl super::RegisteredDetector for DuplicateCodeDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_detects_duplicate_code_blocks() {
@@ -519,7 +519,7 @@ mod tests {
         // of min_lines=6 can form at least one block (loop range: 0..lines.len()-6).
         let block = "def calculate_total(items):\n    total = 0\n    for item in items:\n        price = item.get_price()\n        total += price * item.quantity\n    return total\n\ndef wrapper():\n    pass\n";
 
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = DuplicateCodeDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("billing.py", block),
@@ -539,7 +539,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_unique_code() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = DuplicateCodeDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("module_a.py", "def alpha():\n    x = 1\n    y = 2\n    z = 3\n    w = 4\n    return x + y + z + w\n"),
@@ -558,7 +558,7 @@ mod tests {
         // Both files are test files — should be skipped entirely.
         let block = "def calculate_total(items):\n    total = 0\n    for item in items:\n        price = item.get_price()\n        total += price * item.quantity\n    return total\n\ndef wrapper():\n    pass\n";
 
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = DuplicateCodeDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("tests/test_billing.py", block),
@@ -576,7 +576,7 @@ mod tests {
     fn test_skips_generated_files() {
         let block = "def calculate_total(items):\n    total = 0\n    for item in items:\n        price = item.get_price()\n        total += price * item.quantity\n    return total\n\ndef wrapper():\n    pass\n";
 
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = DuplicateCodeDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("generated/billing.py", block),
@@ -594,7 +594,7 @@ mod tests {
     fn test_skips_fixture_files() {
         let block = "def calculate_total(items):\n    total = 0\n    for item in items:\n        price = item.get_price()\n        total += price * item.quantity\n    return total\n\ndef wrapper():\n    pass\n";
 
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = DuplicateCodeDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("fixtures/billing.py", block),

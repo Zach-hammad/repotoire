@@ -8,7 +8,6 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::graph::GraphQueryExt;
-use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -350,11 +349,11 @@ impl super::RegisteredDetector for RegexDosDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_detects_redos_nested_quantifier() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = RegexDosDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("validate.py", "\nimport re\nuser_input = input(\"Enter data: \")\npattern = re.compile(r'(a+)+$')\npattern.match(user_input)\n"),
@@ -369,7 +368,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_safe_regex() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = RegexDosDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("utils.py", "\nimport re\npattern = re.compile(r'^[a-zA-Z0-9]+$')\n"),

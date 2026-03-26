@@ -32,18 +32,18 @@ pub fn is_api_surface(graph: &dyn GraphQuery, file_path: &str, line: u32) -> boo
 mod tests {
     use super::*;
     use crate::graph::store_models::{CodeEdge, CodeNode};
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_non_exported_not_api_surface() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new();
         // No functions in the graph -> not API surface
         assert!(!is_api_surface(&store, "test.py", 5));
     }
 
     #[test]
     fn test_exported_but_low_fan_in_not_api_surface() {
-        let store = GraphStore::in_memory();
+        let mut store = GraphBuilder::new();
 
         // Add an exported function with 0 callers
         let func = CodeNode::function("handler", "app.py")
@@ -58,7 +58,7 @@ mod tests {
 
     #[test]
     fn test_exported_with_high_fan_in_is_api_surface() {
-        let store = GraphStore::in_memory();
+        let mut store = GraphBuilder::new();
 
         // Add an exported function
         let func = CodeNode::function("handler", "app.py")
@@ -85,7 +85,7 @@ mod tests {
 
     #[test]
     fn test_not_exported_with_high_fan_in_not_api_surface() {
-        let store = GraphStore::in_memory();
+        let mut store = GraphBuilder::new();
 
         // Add a non-exported function (no annotations)
         let func = CodeNode::function("internal_fn", "app.py")
@@ -111,7 +111,7 @@ mod tests {
 
     #[test]
     fn test_line_outside_function_not_api_surface() {
-        let store = GraphStore::in_memory();
+        let mut store = GraphBuilder::new();
 
         let func = CodeNode::function("handler", "app.py")
             .with_qualified_name("app.handler")

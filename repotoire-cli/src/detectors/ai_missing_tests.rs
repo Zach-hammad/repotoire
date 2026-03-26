@@ -313,7 +313,8 @@ mod tests {
     use crate::detectors::detector_context::{ContentFlags, DetectorContext};
     use crate::detectors::file_index::FileIndex;
     use crate::detectors::taint::centralized::CentralizedTaintResults;
-    use crate::graph::{CodeEdge, CodeNode, GraphStore};
+    use crate::graph::{CodeEdge, CodeNode};
+    use crate::graph::builder::GraphBuilder;
     use std::collections::HashMap;
     use std::path::Path;
     use std::sync::Arc;
@@ -365,7 +366,7 @@ mod tests {
 
     #[test]
     fn test_function_reachable_from_test_not_flagged() {
-        let store = GraphStore::in_memory();
+        let mut store = GraphBuilder::new();
 
         // Add a complex function
         let func = CodeNode::function("create_app", "src/app.py")
@@ -402,7 +403,7 @@ mod tests {
 
     #[test]
     fn test_indirectly_tested_function_not_flagged() {
-        let store = GraphStore::in_memory();
+        let mut store = GraphBuilder::new();
 
         // Add a helper function called by create_app
         let helper = CodeNode::function("init_db", "src/db.py")
@@ -448,7 +449,7 @@ mod tests {
 
     #[test]
     fn test_unreachable_complex_function_flagged() {
-        let store = GraphStore::in_memory();
+        let mut store = GraphBuilder::new();
 
         // A complex exported function with no test reaching it
         let func = CodeNode::function("calculate_risk", "src/analytics.py")
@@ -471,7 +472,7 @@ mod tests {
 
     #[test]
     fn test_simple_function_not_flagged() {
-        let store = GraphStore::in_memory();
+        let mut store = GraphBuilder::new();
 
         // Simple function: low complexity, short
         let func = CodeNode::function("get_name", "src/models.py")
@@ -494,7 +495,7 @@ mod tests {
 
     #[test]
     fn test_private_function_not_flagged() {
-        let store = GraphStore::in_memory();
+        let mut store = GraphBuilder::new();
 
         let func = CodeNode::function("_internal_helper", "src/utils.py")
             .with_qualified_name("utils._internal_helper")
@@ -516,7 +517,7 @@ mod tests {
 
     #[test]
     fn test_dunder_method_not_flagged() {
-        let store = GraphStore::in_memory();
+        let mut store = GraphBuilder::new();
 
         let func = CodeNode::function("__repr__", "src/models.py")
             .with_qualified_name("models.MyClass.__repr__")
@@ -539,7 +540,7 @@ mod tests {
     #[test]
     fn test_detect_returns_empty() {
         // detect() with empty graph returns no findings
-        let store = GraphStore::in_memory();
+        let mut store = GraphBuilder::new();
         let func = CodeNode::function("complex_fn", "src/core.py")
             .with_qualified_name("core.complex_fn")
             .with_lines(1, 50)
@@ -556,7 +557,7 @@ mod tests {
 
     #[test]
     fn test_severity_based_on_complexity() {
-        let store = GraphStore::in_memory();
+        let mut store = GraphBuilder::new();
 
         // High complexity (>15) -> High severity
         let func = CodeNode::function("very_complex", "src/core.py")
@@ -576,7 +577,7 @@ mod tests {
 
     #[test]
     fn test_test_function_itself_not_flagged() {
-        let store = GraphStore::in_memory();
+        let mut store = GraphBuilder::new();
 
         // A test function with high complexity should not be flagged
         let func = CodeNode::function("test_complex_scenario", "tests/test_core.py")

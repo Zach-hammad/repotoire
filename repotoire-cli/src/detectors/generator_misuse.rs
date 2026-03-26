@@ -7,7 +7,6 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::graph::GraphQueryExt;
-use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -437,11 +436,11 @@ impl super::RegisteredDetector for GeneratorMisuseDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_detects_single_yield_generator() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = GeneratorMisuseDetector::with_path("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("utils.py", "\ndef single_value():\n    yield 42\n"),
@@ -456,7 +455,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_generator_with_loop() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = GeneratorMisuseDetector::with_path("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("utils.py", "\ndef multi_yield(items):\n    for item in items:\n        yield item * 2\n"),
@@ -471,7 +470,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_fastapi_dependency() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = GeneratorMisuseDetector::with_path("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("deps.py", "from fastapi import Depends\n\ndef get_db():\n    db = SessionLocal()\n    try:\n        yield db\n    finally:\n        db.close()\n"),
@@ -486,7 +485,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_contextmanager() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = GeneratorMisuseDetector::with_path("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("utils.py", "from contextlib import contextmanager\n\n@contextmanager\ndef managed_resource():\n    resource = acquire()\n    try:\n        yield resource\n    finally:\n        release(resource)\n"),
@@ -501,7 +500,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_yield_from() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = GeneratorMisuseDetector::new();
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("iterators.py", "def __iter__(self):\n    yield from self.items\n"),
@@ -513,7 +512,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_yield_in_string() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = GeneratorMisuseDetector::new();
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("paginator.py", "def _check(self):\n    warnings.warn(\"Pagination may yield inconsistent results\")\n"),
@@ -525,7 +524,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_contextmanager_without_finally() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = GeneratorMisuseDetector::new();
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("errors.py", "from contextlib import contextmanager\n\n@contextmanager\ndef wrap_errors():\n    try:\n        yield\n    except DatabaseError:\n        raise\n"),
@@ -537,7 +536,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_polymorphic_single_yield() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = GeneratorMisuseDetector::with_path("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("loaders/locmem.py", "class Loader(BaseLoader):\n    def get_template_sources(self, template_name):\n        yield Origin(name=template_name, loader=self)\n"),

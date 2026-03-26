@@ -9,7 +9,6 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::graph::GraphQueryExt;
-use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -312,7 +311,7 @@ impl MessageChainDetector {
     }
 
     /// Check if a chain is trait delegation — most members share the same function name.
-    /// e.g. GraphStore::get_callers → MmapStore::get_callers
+    /// e.g. GraphBuilder::get_callers → MmapStore::get_callers
     fn is_trait_delegation_chain(&self, chain_members: &[String]) -> bool {
         if chain_members.len() < 3 {
             return false;

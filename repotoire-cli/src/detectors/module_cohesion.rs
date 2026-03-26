@@ -600,9 +600,9 @@ mod tests {
     use super::*;
     use crate::detectors::analysis_context::AnalysisContext;
     use crate::graph::store_models::{CodeEdge, CodeNode};
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
-    /// Build a GraphStore with `file_count` files in the same directory.
+    /// Build a GraphBuilder with `file_count` files in the same directory.
     ///
     /// The target file (`dir/file0.rs`) is given:
     /// - `internal_call_count` calls between functions inside itself
@@ -612,13 +612,13 @@ mod tests {
         file_count: usize,
         internal_call_count: usize,
         external_call_count: usize,
-    ) -> GraphStore {
-        let store = GraphStore::in_memory();
+    ) -> crate::graph::CodeGraph {
+        let mut builder = GraphBuilder::new();
 
         // Create file_count files in the same directory
         for i in 0..file_count {
             let path = format!("{}/file{}.rs", dir, i);
-            store.add_node(CodeNode::file(&path));
+            builder.add_node(CodeNode::file(&path));
         }
 
         // The target is the first file: dir/file0.rs
@@ -631,24 +631,24 @@ mod tests {
             // qualified_name = "file_path::func_name" by CodeNode::new convention
             let a_qn = format!("{}::{}", target_file, a_name);
             let b_qn = format!("{}::{}", target_file, b_name);
-            store.add_node(CodeNode::function(&a_name, &target_file));
-            store.add_node(CodeNode::function(&b_name, &target_file));
-            store.add_edge_by_name(&a_qn, &b_qn, CodeEdge::calls());
+            builder.add_node(CodeNode::function(&a_name, &target_file));
+            builder.add_node(CodeNode::function(&b_name, &target_file));
+            builder.add_edge_by_name(&a_qn, &b_qn, CodeEdge::calls());
         }
 
         // Add external functions (in file1) and wire external calls from target
         let external_file = format!("{}/file1.rs", dir);
         let caller_qn = format!("{}::pass_caller", target_file);
-        store.add_node(CodeNode::function("pass_caller", &target_file));
+        builder.add_node(CodeNode::function("pass_caller", &target_file));
 
         for k in 0..external_call_count {
             let ext_func_name = format!("ext_func{}", k);
             let ext_qn = format!("{}::{}", external_file, ext_func_name);
-            store.add_node(CodeNode::function(&ext_func_name, &external_file));
-            store.add_edge_by_name(&caller_qn, &ext_qn, CodeEdge::calls());
+            builder.add_node(CodeNode::function(&ext_func_name, &external_file));
+            builder.add_edge_by_name(&caller_qn, &ext_qn, CodeEdge::calls());
         }
 
-        store
+        builder.freeze()
     }
 
     #[test]

@@ -8,7 +8,6 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::graph::GraphQueryExt;
-use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -387,11 +386,11 @@ impl super::RegisteredDetector for StringConcatLoopDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_detects_string_concat_in_loop() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = StringConcatLoopDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("builder.py", "def build_output(items):\n    result = \"\"\n    for item in items:\n        result += \"key: \"\n        result += \"value\"\n    return result\n"),
@@ -406,7 +405,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_join() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = StringConcatLoopDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("builder.py", "def build_output(items):\n    parts = []\n    for item in items:\n        parts.append(str(item))\n    return ''.join(parts)\n"),
@@ -421,7 +420,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_numeric_accumulation() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = StringConcatLoopDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("calc.py", "def total_price(items):\n    total = 0\n    for item in items:\n        total += item.price\n    return total\n"),
@@ -436,7 +435,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_counter_increment() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = StringConcatLoopDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("count.py", "def count_active(users):\n    count = 0\n    for user in users:\n        count += 1\n    return count\n"),
@@ -451,7 +450,7 @@ mod tests {
 
     #[test]
     fn test_still_detects_string_literal_concat_in_loop() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = StringConcatLoopDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("build.py", "def build(items):\n    result = \"\"\n    for item in items:\n        result += \"prefix_\"\n        result += \"suffix_\"\n    return result\n"),
@@ -465,7 +464,7 @@ mod tests {
 
     #[test]
     fn test_still_detects_string_concat_with_plus() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = StringConcatLoopDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("build.py", "def build(items):\n    result = \"\"\n    for item in items:\n        result = result + \"value\"\n    return result\n"),
@@ -481,7 +480,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_media_iadd() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = StringConcatLoopDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("forms.py", "for fs in formsets:\n    media += fs.media\n"),
@@ -496,7 +495,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_concat_after_loop() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = StringConcatLoopDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("builder.py", "for item in items:\n    process(item)\n\nresult += \"_suffix\"\n"),
@@ -511,7 +510,7 @@ mod tests {
 
     #[test]
     fn test_still_detects_string_concat_in_loop() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = StringConcatLoopDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("slow.py", "result = \"\"\nfor item in items:\n    result += \"item: \"\n    result += \"value\"\n"),
@@ -525,7 +524,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_single_concat_per_iteration() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = StringConcatLoopDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("views.py", "for item in items:\n    url += \"/\"\n"),
@@ -540,7 +539,7 @@ mod tests {
 
     #[test]
     fn test_still_detects_multiple_concats_in_loop() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = StringConcatLoopDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("builder.py", "for field in fields:\n    definition += \" \" + check\n    definition += \" \" + suffix\n    definition += \" \" + fk\n"),

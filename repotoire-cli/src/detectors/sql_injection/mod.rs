@@ -18,7 +18,6 @@ mod tests;
 use crate::detectors::base::{is_test_file, Detector, DetectorConfig};
 use crate::detectors::framework_detection::{detect_frameworks, is_safe_orm_pattern};
 use crate::detectors::taint::{TaintAnalysisResult, TaintAnalyzer, TaintCategory};
-use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;

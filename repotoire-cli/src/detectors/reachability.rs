@@ -4,6 +4,7 @@
 //! via `AnalysisContext`.
 
 use crate::graph::{GraphQuery, GraphQueryExt};
+    use crate::graph::builder::GraphBuilder;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 /// Index of functions reachable from entry points via BFS on the call graph.
@@ -213,11 +214,12 @@ pub fn build_decorator_index(graph: &dyn GraphQuery) -> HashMap<String, Vec<Stri
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::{CodeEdge, CodeNode, GraphStore};
+    use crate::graph::{CodeEdge, CodeNode};
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_bfs_reaches_callees() {
-        let graph = GraphStore::in_memory();
+        let mut graph = GraphBuilder::new();
         // A (entry, zero fan-in) -> B -> C
         let a = CodeNode::function("a", "src/main.py")
             .with_qualified_name("src/main.py::a");
@@ -240,7 +242,7 @@ mod tests {
 
     #[test]
     fn test_unreachable_function_not_in_set() {
-        let graph = GraphStore::in_memory();
+        let mut graph = GraphBuilder::new();
         // A -> B, D is isolated (but zero fan-in, so it's an entry point too)
         let a = CodeNode::function("a", "src/main.py")
             .with_qualified_name("src/main.py::a");
@@ -265,7 +267,7 @@ mod tests {
 
     #[test]
     fn test_cycle_handling() {
-        let graph = GraphStore::in_memory();
+        let mut graph = GraphBuilder::new();
         // A -> B -> A (cycle). A is entry point (exported).
         let mut a = CodeNode::function("a", "src/main.py")
             .with_qualified_name("src/main.py::a");
@@ -285,7 +287,7 @@ mod tests {
 
     #[test]
     fn test_empty_graph() {
-        let graph = GraphStore::in_memory();
+        let mut graph = GraphBuilder::new();
         let idx = ReachabilityIndex::build(&graph);
         assert_eq!(idx.reachable_count(), 0);
         assert!(!idx.is_reachable("anything"));
@@ -300,7 +302,7 @@ mod tests {
 
     #[test]
     fn test_build_public_api() {
-        let graph = GraphStore::in_memory();
+        let mut graph = GraphBuilder::new();
         let mut exported_fn = CodeNode::function("exported_fn", "src/lib.py")
             .with_qualified_name("src/lib.py::exported_fn");
         exported_fn.flags |= crate::graph::store_models::FLAG_IS_EXPORTED;
@@ -330,7 +332,7 @@ mod tests {
 
     #[test]
     fn test_build_decorator_index_empty() {
-        let graph = GraphStore::in_memory();
+        let mut graph = GraphBuilder::new();
         let idx = build_decorator_index(&graph);
         assert!(idx.is_empty());
     }

@@ -7,7 +7,6 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::graph::GraphQueryExt;
-use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use std::collections::HashSet;
@@ -275,7 +274,7 @@ impl super::RegisteredDetector for LargeFilesDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_detects_large_file() {
@@ -284,7 +283,7 @@ mod tests {
             .map(|i| format!("x_{} = {}\n", i, i))
             .collect();
 
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = LargeFilesDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("big_module.py", &content),
@@ -307,7 +306,7 @@ mod tests {
             .map(|i| format!("x_{} = {}\n", i, i))
             .collect();
 
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = LargeFilesDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("small_module.py", &content),

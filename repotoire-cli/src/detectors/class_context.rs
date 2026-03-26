@@ -5,7 +5,7 @@
 
 #![allow(dead_code)] // Module under development - structs/helpers used in tests only
 
-use crate::graph::{EdgeKind, GraphStore, NodeKind};
+use crate::graph::{EdgeKind, NodeKind};
 use crate::graph::GraphQueryExt;
 use std::collections::{HashMap, HashSet};
 use tracing::{debug, info};
@@ -232,7 +232,7 @@ impl<'a> ClassContextBuilder<'a> {
         let class_idxs = self.graph.classes_idx();
 
         // Use NodeIndex-based fast path when available (CodeGraph)
-        // Fall back to old API for GraphStore (used in tests)
+        // Fall back to old API for GraphBuilder (used in tests)
         if class_idxs.is_empty() {
             let classes = self.graph.get_classes_shared();
             if classes.is_empty() {
@@ -435,7 +435,7 @@ impl<'a> ClassContextBuilder<'a> {
         contexts
     }
 
-    /// Build using old string-based API (GraphStore fallback for tests).
+    /// Build using old string-based API (GraphBuilder fallback for tests).
     fn build_legacy(
         &self,
         i: &crate::graph::interner::StringInterner,
@@ -731,7 +731,7 @@ mod tests {
 
     #[test]
     fn test_framework_core_detection() {
-        let store = crate::graph::GraphStore::in_memory();
+        let store = crate::graph::GraphBuilder::new().freeze();
         let builder = ClassContextBuilder::new(&store);
 
         let (role, _) = builder.infer_role("Flask", "src/app.py", 50, 5.0, 0.8, 3, 10, false, false);
@@ -743,7 +743,7 @@ mod tests {
 
     #[test]
     fn test_facade_detection() {
-        let store = crate::graph::GraphStore::in_memory();
+        let store = crate::graph::GraphBuilder::new().freeze();
         let builder = ClassContextBuilder::new(&store);
 
         // High method count, low complexity, high delegation
@@ -754,7 +754,7 @@ mod tests {
 
     #[test]
     fn test_data_class_detection() {
-        let store = crate::graph::GraphStore::in_memory();
+        let store = crate::graph::GraphBuilder::new().freeze();
         let builder = ClassContextBuilder::new(&store);
 
         let (role, _) = builder.infer_role("UserDTO", "src/models.py", 10, 1.0, 0.1, 0, 2, false, false);
@@ -763,7 +763,7 @@ mod tests {
 
     #[test]
     fn test_orchestrator_detection_by_name() {
-        let store = crate::graph::GraphStore::in_memory();
+        let store = crate::graph::GraphBuilder::new().freeze();
         let builder = ClassContextBuilder::new(&store);
 
         // Controller suffix
@@ -785,7 +785,7 @@ mod tests {
 
     #[test]
     fn test_orchestrator_detection_by_path() {
-        let store = crate::graph::GraphStore::in_memory();
+        let store = crate::graph::GraphBuilder::new().freeze();
         let builder = ClassContextBuilder::new(&store);
 
         // File in controllers/ directory
@@ -799,7 +799,7 @@ mod tests {
 
     #[test]
     fn test_orchestrator_detection_by_metrics() {
-        let store = crate::graph::GraphStore::in_memory();
+        let store = crate::graph::GraphBuilder::new().freeze();
         let builder = ClassContextBuilder::new(&store);
 
         // High delegation + many external deps + low complexity = orchestrator
@@ -813,7 +813,7 @@ mod tests {
 
     #[test]
     fn test_orchestrator_not_triggered_for_low_delegation() {
-        let store = crate::graph::GraphStore::in_memory();
+        let store = crate::graph::GraphBuilder::new().freeze();
         let builder = ClassContextBuilder::new(&store);
 
         // Low delegation + few external deps = NOT orchestrator (should be data class)

@@ -14,14 +14,14 @@
 //!
 //! ```ignore
 //! use repotoire::git::{GitHistory, GitEnricher};
-//! use repotoire::graph::GraphStore;
+//! use repotoire::graph::GraphBuilder;
 //! use std::path::Path;
 //!
 //! let history = GitHistory::open(Path::new("/path/to/repo")).unwrap();
 //! let commits = history.get_file_commits("src/main.rs", 50).unwrap();
 //!
 //! // Enrich graph with git data
-//! let graph = GraphStore::new(Path::new(".repotoire/graph")).unwrap();
+//! let graph = GraphBuilder::new(Path::new(".repotoire/graph")).unwrap();
 //! let enricher = GitEnricher::new(&history, &graph);
 //! let stats = enricher.enrich_all().unwrap();
 //! ```

@@ -8,7 +8,6 @@
 
 use crate::detectors::base::{Detector, DetectorConfig, DetectorScope};
 use crate::graph::GraphQueryExt;
-use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use std::collections::HashMap;
@@ -368,7 +367,7 @@ impl Detector for CircularDependencyDetector {
         let graph = ctx.graph;
         debug!("Starting circular dependency detection");
 
-        // Use GraphStore's built-in cycle detection
+        // Use GraphBuilder's built-in cycle detection
         let cycles = graph.find_import_cycles();
 
         debug!("Found {} cycles", cycles.len());
@@ -430,6 +429,7 @@ impl super::RegisteredDetector for CircularDependencyDetector {
 mod tests {
     use super::*;
     use crate::graph::{CodeEdge, CodeNode, NodeKind};
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_severity_calculation() {
@@ -460,7 +460,7 @@ mod tests {
 
     #[test]
     fn test_detect_cycle() {
-        let store = GraphStore::in_memory();
+        let mut store = GraphBuilder::new();
 
         // Create files
         store.add_node(CodeNode::file("a.py"));
@@ -482,7 +482,7 @@ mod tests {
 
     #[test]
     fn test_no_cycle() {
-        let store = GraphStore::in_memory();
+        let mut store = GraphBuilder::new();
 
         // Create files
         store.add_node(CodeNode::file("a.py"));

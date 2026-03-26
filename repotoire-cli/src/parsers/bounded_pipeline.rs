@@ -33,7 +33,7 @@
 //! - Memory estimation: warns before OOM
 
 use crate::graph::store_models::{FLAG_ADDRESS_TAKEN, FLAG_HAS_DECORATORS, FLAG_IS_ASYNC, FLAG_IS_EXPORTED};
-use crate::graph::{CodeEdge, CodeNode, GraphStore, NodeKind};
+use crate::graph::{CodeEdge, CodeNode, NodeKind};
 use crate::parsers::lightweight::{LightweightFileInfo, LightweightParseStats};
 use crate::parsers::parse_file_lightweight;
 use anyhow::Result;
@@ -880,7 +880,7 @@ mod tests {
 
         let files = vec![path.join("a.py"), path.join("b.py")];
 
-        let graph = Arc::new(GraphStore::in_memory());
+        let graph = Arc::new(GraphBuilder::new());
         let config = PipelineConfig::for_repo_size(2);
 
         let (stats, parse_stats) =
@@ -908,7 +908,7 @@ mod tests {
             .map(|i| path.join(format!("file_{}.py", i)))
             .collect();
 
-        let graph = Arc::new(GraphStore::in_memory());
+        let graph = Arc::new(GraphBuilder::new());
         let mut config = PipelineConfig::for_repo_size(20);
         config.edge_flush_threshold = 500; // Low threshold to trigger flush
 
@@ -929,7 +929,7 @@ mod tests {
 
         let files = vec![path.join("a.py"), path.join("b.py")];
 
-        let graph = Arc::new(GraphStore::in_memory());
+        let graph = Arc::new(GraphBuilder::new());
         let config = PipelineConfig::for_repo_size(2);
 
         // Simulate a walker feeding into the channel
@@ -976,7 +976,7 @@ mod tests {
         let mut edge_snapshots: Vec<Vec<String>> = Vec::new();
 
         for run_idx in 0..5 {
-            let graph = Arc::new(GraphStore::in_memory());
+            let graph = Arc::new(GraphBuilder::new());
             let config = PipelineConfig::for_repo_size(2);
 
             let (tx, rx) = bounded::<PathBuf>(config.buffer_size);
@@ -1041,7 +1041,7 @@ mod tests {
         let mut edge_snapshots: Vec<Vec<String>> = Vec::new();
 
         for run_idx in 0..5 {
-            let graph = Arc::new(GraphStore::in_memory());
+            let graph = Arc::new(GraphBuilder::new());
             let config = PipelineConfig::for_repo_size(2);
 
             // Alternate file order
@@ -1089,7 +1089,7 @@ mod tests {
         create_test_file(path, "b_utils.py", "def process():\n    pass\n");
         create_test_file(path, "c_main.py", "def main():\n    process()\n");
 
-        let graph = Arc::new(GraphStore::in_memory());
+        let graph = Arc::new(GraphBuilder::new());
         let mut config = PipelineConfig::for_repo_size(3);
         config.num_workers = 1;
         let files = vec![
@@ -1128,7 +1128,7 @@ mod tests {
         create_test_file(path, "caller.py", "def main():\n    helper()\n");
         create_test_file(path, "helper.py", "def helper():\n    pass\n");
 
-        let graph = Arc::new(GraphStore::in_memory());
+        let graph = Arc::new(GraphBuilder::new());
         let mut config = PipelineConfig::for_repo_size(2);
         config.num_workers = 1; // deterministic order: caller before helper
         let files = vec![path.join("caller.py"), path.join("helper.py")];

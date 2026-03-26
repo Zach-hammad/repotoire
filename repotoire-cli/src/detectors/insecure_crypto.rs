@@ -1,7 +1,6 @@
 //! Insecure Crypto Detector
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -568,11 +567,11 @@ impl super::RegisteredDetector for InsecureCryptoDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_detects_md5_usage() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = InsecureCryptoDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("crypto_util.py", "import hashlib\n\ndef compute_hash(data):\n    return hashlib.md5(data).hexdigest()\n"),
@@ -588,7 +587,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_sha256() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = InsecureCryptoDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("crypto_util.py", "import hashlib\n\ndef compute_hash(data):\n    return hashlib.sha256(data).hexdigest()\n"),
@@ -600,7 +599,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_usedforsecurity_false() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = InsecureCryptoDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("cache.py", "import hashlib\n\ndef make_cache_key(data):\n    return hashlib.md5(data.encode(), usedforsecurity=False).hexdigest()\n"),
@@ -612,7 +611,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_class_definition() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = InsecureCryptoDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("text.py", "from django.db.models import Transform\n\nclass MD5(Transform):\n    function = 'MD5'\n    lookup_name = 'md5'\n"),
@@ -624,7 +623,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_sqlite_shim() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = InsecureCryptoDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("_functions.py", "import hashlib\n\ndef _sqlite_md5(text):\n    return hashlib.md5(text.encode()).hexdigest()\n"),
@@ -636,7 +635,7 @@ mod tests {
 
     #[test]
     fn test_still_detects_real_md5_usage() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = InsecureCryptoDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("auth.py", "import hashlib\n\ndef hash_password(password, salt):\n    return hashlib.md5((salt + password).encode()).hexdigest()\n"),
@@ -647,7 +646,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_cache_key_hash() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = InsecureCryptoDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("template/loaders/cached.py", "def generate_hash(self, values):\n    return hashlib.sha1(\"|\".join(values).encode()).hexdigest()\n"),
@@ -662,7 +661,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_release_checksums() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = InsecureCryptoDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("scripts/do_release.py", "checksums = [\n    (\"md5\", hashlib.md5),\n    (\"sha1\", hashlib.sha1),\n    (\"sha256\", hashlib.sha256),\n]\n"),
@@ -677,7 +676,7 @@ mod tests {
 
     #[test]
     fn test_detects_java_des_cipher() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = InsecureCryptoDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("CryptoUtil.java", "import javax.crypto.*;\n\npublic class CryptoUtil {\n    public byte[] encrypt(byte[] data) throws Exception {\n        Cipher cipher = Cipher.getInstance(\"DES\");\n        return cipher.doFinal(data);\n    }\n}\n"),

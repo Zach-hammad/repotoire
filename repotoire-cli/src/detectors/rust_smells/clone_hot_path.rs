@@ -341,11 +341,11 @@ impl super::super::RegisteredDetector for CloneInHotPathDetector {
 mod tests {
     use super::*;
     use crate::detectors::base::Detector;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_clone_in_loop_multiple_clones_flagged() {
-        let graph = GraphStore::in_memory();
+        let graph = GraphBuilder::new().freeze();
         let detector = CloneInHotPathDetector::new("/mock/repo");
         // Two clones in a loop — should be flagged even without graph context
         let ctx =
@@ -373,7 +373,7 @@ mod tests {
 
     #[test]
     fn test_clone_in_test_skipped() {
-        let graph = GraphStore::in_memory();
+        let graph = GraphBuilder::new().freeze();
         let detector = CloneInHotPathDetector::new("/mock/repo");
         let ctx =
             crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
@@ -397,7 +397,7 @@ mod tests {
 
     #[test]
     fn test_single_clone_in_large_function_skipped() {
-        let graph = GraphStore::in_memory();
+        let graph = GraphBuilder::new().freeze();
         let detector = CloneInHotPathDetector::new("/mock/repo");
         // A single clone in a 20+ line function — should be skipped (below threshold)
         let mut lines = String::from("fn big_function(items: &[Item]) {\n");
@@ -448,7 +448,7 @@ mod tests {
 
     #[test]
     fn test_no_hot_path_context_not_flagged() {
-        let graph = GraphStore::in_memory();
+        let graph = GraphBuilder::new().freeze();
         let detector = CloneInHotPathDetector::new("/mock/repo");
         // Clones outside of loops/iterators should not be flagged
         let ctx =

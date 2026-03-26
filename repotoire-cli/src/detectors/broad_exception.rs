@@ -7,7 +7,6 @@
 //! - Assess risk based on operation types
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -257,13 +256,13 @@ impl super::RegisteredDetector for BroadExceptionDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_detects_bare_except() {
-        let store = GraphStore::in_memory();
+        let graph = GraphBuilder::new().freeze();
         let detector = BroadExceptionDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![
             ("handler.py", "def process():\n    try:\n        do_work()\n    except:\n        log(\"something failed\")\n"),
         ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
@@ -280,9 +279,9 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_specific_exception() {
-        let store = GraphStore::in_memory();
+        let graph = GraphBuilder::new().freeze();
         let detector = BroadExceptionDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![
             ("handler.py", "def process():\n    try:\n        do_work()\n    except ValueError as e:\n        log(f\"bad value: {e}\")\n"),
         ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");

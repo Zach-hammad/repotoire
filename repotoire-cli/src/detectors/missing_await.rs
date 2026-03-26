@@ -7,7 +7,6 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::graph::GraphQueryExt;
-use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -349,11 +348,11 @@ impl super::RegisteredDetector for MissingAwaitDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_detects_fetch_without_await() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = MissingAwaitDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("api.js", "async function loadData() {\n  const config = \"default\";\n  fetch(\"/api/data\");\n  const result = await process(config);\n  return result;\n}\n"),
@@ -367,7 +366,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_when_awaited() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = MissingAwaitDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("api_good.js", "async function loadData() {\n  const res = await fetch(\"/api/data\");\n  const data = await res.json();\n  return data;\n}\n"),

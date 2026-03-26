@@ -7,7 +7,6 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::graph::GraphQueryExt;
-use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -272,11 +271,11 @@ impl super::RegisteredDetector for CorsMisconfigDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_detects_wildcard_cors() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = CorsMisconfigDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("config.conf", "Access-Control-Allow-Origin: *\n"),
@@ -292,7 +291,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_specific_origin() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = CorsMisconfigDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("server.js", "const express = require('express');\nconst app = express();\napp.use((req, res, next) => {\n    res.setHeader('Access-Control-Allow-Origin', 'https://myapp.example.com');\n    next();\n});\n"),

@@ -1,9 +1,24 @@
 //! Graph command - query the code graph directly
 
-use crate::graph::GraphStore;
+use crate::graph::CodeGraph;
+use crate::graph::traits::GraphQueryExt;
 use anyhow::{Context, Result};
 use console::style;
 use std::path::Path;
+
+/// Load the code graph from the session cache (bincode format).
+fn load_graph(repo_path: &Path) -> Result<CodeGraph> {
+    let session_dir = crate::cache::paths::cache_dir(repo_path).join("session");
+    let graph_path = session_dir.join("graph.bin");
+    if !graph_path.exists() {
+        anyhow::bail!(
+            "No analysis found. Run {} first.",
+            style("repotoire analyze").cyan()
+        );
+    }
+    CodeGraph::load_cache(&graph_path)
+        .ok_or_else(|| anyhow::anyhow!("Failed to load graph cache (corrupt or version mismatch). Run {} again.", style("repotoire analyze").cyan()))
+}
 
 /// Run a query against the code graph
 ///
@@ -13,15 +28,7 @@ pub fn run(path: &Path, query: &str, format: &str) -> Result<()> {
         .canonicalize()
         .with_context(|| format!("Path does not exist: {}", path.display()))?;
 
-    let db_path = crate::cache::graph_db_path(&repo_path);
-    if !db_path.exists() {
-        anyhow::bail!(
-            "No analysis found. Run {} first.",
-            style("repotoire analyze").cyan()
-        );
-    }
-
-    let graph = GraphStore::new(&db_path).with_context(|| "Failed to open graph database")?;
+    let graph = load_graph(&repo_path)?;
 
     let json_output = format == "json";
 
@@ -48,14 +55,14 @@ pub fn run(path: &Path, query: &str, format: &str) -> Result<()> {
     Ok(())
 }
 
-fn query_functions(graph: &GraphStore, json_output: bool) -> Result<()> {
+fn query_functions(graph: &CodeGraph, json_output: bool) -> Result<()> {
     let i = graph.interner();
     let functions = graph.get_functions();
     if json_output {
         let json: Vec<_> = functions.iter().map(function_to_json).collect();
         println!("{}", serde_json::to_string_pretty(&json)?);
     } else {
-        println!("\n{} Functions ({})\n", style("📊").bold(), functions.len());
+        println!("\n{} Functions ({})\n", style("\u{1f4ca}").bold(), functions.len());
         for func in functions.iter().take(50) {
             println!(
                 "  {} ({}:{})",
@@ -71,14 +78,14 @@ fn query_functions(graph: &GraphStore, json_output: bool) -> Result<()> {
     Ok(())
 }
 
-fn query_classes(graph: &GraphStore, json_output: bool) -> Result<()> {
+fn query_classes(graph: &CodeGraph, json_output: bool) -> Result<()> {
     let i = graph.interner();
     let classes = graph.get_classes();
     if json_output {
         let json: Vec<_> = classes.iter().map(class_to_json).collect();
         println!("{}", serde_json::to_string_pretty(&json)?);
     } else {
-        println!("\n{} Classes ({})\n", style("📊").bold(), classes.len());
+        println!("\n{} Classes ({})\n", style("\u{1f4ca}").bold(), classes.len());
         for class in classes.iter().take(50) {
             println!(
                 "  {} ({}:{})",
@@ -94,14 +101,14 @@ fn query_classes(graph: &GraphStore, json_output: bool) -> Result<()> {
     Ok(())
 }
 
-fn query_files(graph: &GraphStore, json_output: bool) -> Result<()> {
+fn query_files(graph: &CodeGraph, json_output: bool) -> Result<()> {
     let i = graph.interner();
     let files = graph.get_files();
     if json_output {
         let json: Vec<_> = files.iter().map(|f| serde_json::json!({"path": f.path(i)})).collect();
         println!("{}", serde_json::to_string_pretty(&json)?);
     } else {
-        println!("\n{} Files ({})\n", style("📊").bold(), files.len());
+        println!("\n{} Files ({})\n", style("\u{1f4ca}").bold(), files.len());
         for file in files.iter().take(50) {
             println!("  {}", style(file.path(i)).cyan());
         }
@@ -112,14 +119,14 @@ fn query_files(graph: &GraphStore, json_output: bool) -> Result<()> {
     Ok(())
 }
 
-fn query_calls(graph: &GraphStore, json_output: bool) -> Result<()> {
+fn query_calls(graph: &CodeGraph, json_output: bool) -> Result<()> {
     let i = graph.interner();
     let calls = graph.get_calls();
     if json_output {
         let json: Vec<_> = calls.iter().map(|(from, to)| serde_json::json!({"from": i.resolve(*from), "to": i.resolve(*to)})).collect();
         println!("{}", serde_json::to_string_pretty(&json)?);
     } else {
-        println!("\n{} Call Edges ({})\n", style("📊").bold(), calls.len());
+        println!("\n{} Call Edges ({})\n", style("\u{1f4ca}").bold(), calls.len());
         for (from, to) in calls.iter().take(50) {
             println!("  {} -> {}", style(i.resolve(*from)).cyan(), style(i.resolve(*to)).green());
         }
@@ -130,7 +137,7 @@ fn query_calls(graph: &GraphStore, json_output: bool) -> Result<()> {
     Ok(())
 }
 
-fn query_imports(graph: &GraphStore, json_output: bool) -> Result<()> {
+fn query_imports(graph: &CodeGraph, json_output: bool) -> Result<()> {
     let i = graph.interner();
     let imports = graph.get_imports();
     if json_output {
@@ -139,7 +146,7 @@ fn query_imports(graph: &GraphStore, json_output: bool) -> Result<()> {
     } else {
         println!(
             "\n{} Import Edges ({})\n",
-            style("📊").bold(),
+            style("\u{1f4ca}").bold(),
             imports.len()
         );
         for (from, to) in imports.iter().take(50) {
@@ -169,7 +176,7 @@ pub fn stats(path: &Path) -> Result<()> {
         .canonicalize()
         .with_context(|| format!("Path does not exist: {}", path.display()))?;
 
-    // Try to read from cached JSON stats first (avoids redb lock issues)
+    // Try to read from cached JSON stats first (avoids loading the full graph)
     let stats_path = crate::cache::graph_stats_path(&repo_path);
     if stats_path.exists() {
         let stats_json =
@@ -177,7 +184,7 @@ pub fn stats(path: &Path) -> Result<()> {
         let stats: serde_json::Value =
             serde_json::from_str(&stats_json).with_context(|| "Failed to parse graph stats")?;
 
-        println!("\n{} Graph Statistics\n", style("📊").bold());
+        println!("\n{} Graph Statistics\n", style("\u{1f4ca}").bold());
 
         // Node counts
         println!(
@@ -225,18 +232,10 @@ pub fn stats(path: &Path) -> Result<()> {
         return Ok(());
     }
 
-    // Fallback to opening redb database (may fail with lock issues)
-    let db_path = crate::cache::graph_db_path(&repo_path);
-    if !db_path.exists() {
-        anyhow::bail!(
-            "No analysis found. Run {} first.",
-            style("repotoire analyze").cyan()
-        );
-    }
+    // Fallback to loading the graph from session cache
+    let graph = load_graph(&repo_path)?;
 
-    let graph = GraphStore::new(&db_path).with_context(|| "Failed to open graph database")?;
-
-    println!("\n{} Graph Statistics\n", style("📊").bold());
+    println!("\n{} Graph Statistics\n", style("\u{1f4ca}").bold());
 
     let stats = graph.stats();
 

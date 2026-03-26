@@ -24,7 +24,6 @@
 //! These classes know too much about each other's internals.
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use std::collections::HashSet;

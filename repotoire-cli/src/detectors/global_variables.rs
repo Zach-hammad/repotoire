@@ -7,7 +7,6 @@
 //! - Find potential encapsulation points
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -364,12 +363,12 @@ impl super::RegisteredDetector for GlobalVariablesDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_detects_global_statement_in_python() {
         // Python: `global counter` inside a function body triggers detection
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = GlobalVariablesDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("state.py", "counter = 0\n\ndef increment():\n    global counter\n    counter += 1\n"),
@@ -388,7 +387,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_global_in_docstring() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = GlobalVariablesDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("widgets.py", "class Widget:\n    def merge(self):\n        \"\"\"\n        global or in CSS you might want to override a style.\n        \"\"\"\n        pass\n"),
@@ -400,7 +399,7 @@ mod tests {
 
     #[test]
     fn test_dedup_same_variable_across_functions() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = GlobalVariablesDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("trans.py", "def func_a():\n    global _default\n    _default = get_default()\n\ndef func_b():\n    global _default\n    return _default\n\ndef func_c():\n    global _default\n    _default = None\n"),
@@ -412,7 +411,7 @@ mod tests {
     #[test]
     fn test_no_finding_for_local_variables() {
         // No `global` statement, no module-level mutable var
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = GlobalVariablesDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("clean.py", "def compute(x):\n    result = x * 2\n    return result\n"),
@@ -428,7 +427,7 @@ mod tests {
     #[test]
     fn test_single_assignment_not_flagged() {
         // var app = express() — assigned once, never reassigned → should NOT be flagged
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = GlobalVariablesDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("test.js", "var app = express();\napp.get('/', handler);\napp.listen(3000);"),
@@ -445,7 +444,7 @@ mod tests {
     #[test]
     fn test_reassigned_variable_flagged() {
         // var count = 0; count++ — genuinely mutable → should be flagged
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = GlobalVariablesDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("test.js", "var count = 0;\ncount++;\nconsole.log(count);"),

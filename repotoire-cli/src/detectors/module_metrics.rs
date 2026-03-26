@@ -4,6 +4,7 @@
 //! via `AnalysisContext`.
 
 use crate::graph::{GraphQuery, GraphQueryExt};
+    use crate::graph::builder::GraphBuilder;
 use std::collections::{HashMap, HashSet};
 
 /// Per-module metrics computed from the call graph.
@@ -341,7 +342,8 @@ fn extract_module(path: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::{CodeEdge, CodeNode, GraphStore};
+    use crate::graph::{CodeEdge, CodeNode};
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_extract_module() {
@@ -380,7 +382,7 @@ mod tests {
 
     #[test]
     fn test_build_module_metrics_basic() {
-        let graph = GraphStore::in_memory();
+        let mut graph = GraphBuilder::new();
 
         let a = CodeNode::function("a", "src/mod_a/foo.py")
             .with_qualified_name("src/mod_a/foo.py::a");
@@ -419,14 +421,14 @@ mod tests {
 
     #[test]
     fn test_build_module_metrics_empty_graph() {
-        let graph = GraphStore::in_memory();
+        let mut graph = GraphBuilder::new();
         let metrics = build_module_metrics(&graph);
         assert!(metrics.is_empty());
     }
 
     #[test]
     fn test_class_cohesion_single_method() {
-        let graph = GraphStore::in_memory();
+        let mut graph = GraphBuilder::new();
 
         let class = CodeNode::class("Foo", "src/foo.py")
             .with_qualified_name("src/foo.py::Foo")
@@ -445,7 +447,7 @@ mod tests {
 
     #[test]
     fn test_class_cohesion_connected_methods() {
-        let graph = GraphStore::in_memory();
+        let mut graph = GraphBuilder::new();
 
         let class = CodeNode::class("Foo", "src/foo.py")
             .with_qualified_name("src/foo.py::Foo")
@@ -474,7 +476,7 @@ mod tests {
 
     #[test]
     fn test_class_cohesion_disconnected_methods() {
-        let graph = GraphStore::in_memory();
+        let mut graph = GraphBuilder::new();
 
         let class = CodeNode::class("Foo", "src/foo.py")
             .with_qualified_name("src/foo.py::Foo")
@@ -501,7 +503,7 @@ mod tests {
 
     #[test]
     fn test_build_class_cohesion_empty() {
-        let graph = GraphStore::in_memory();
+        let mut graph = GraphBuilder::new();
         let cohesion = build_class_cohesion(&graph);
         assert!(cohesion.is_empty());
     }

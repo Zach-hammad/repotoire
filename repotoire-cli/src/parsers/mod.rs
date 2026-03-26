@@ -20,8 +20,6 @@ pub mod streaming;
 pub mod lightweight;
 pub mod lightweight_parser;
 
-/// Memory-bounded parallel pipeline with adaptive sizing
-pub mod bounded_pipeline;
 
 // Re-export lightweight types for convenience
 pub use lightweight_parser::parse_file_lightweight;

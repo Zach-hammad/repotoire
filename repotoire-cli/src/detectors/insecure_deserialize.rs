@@ -8,7 +8,6 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::graph::GraphQueryExt;
-use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -371,11 +370,11 @@ impl super::RegisteredDetector for InsecureDeserializeDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_detects_unsafe_yaml_load() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = InsecureDeserializeDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("config_loader.py", "import yaml\nfrom flask import request\n\ndef load_config():\n    payload = request.get_json()\n    config = yaml.load(payload)\n    return config\n"),
@@ -391,7 +390,7 @@ mod tests {
 
     #[test]
     fn test_detects_java_object_input_stream() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = InsecureDeserializeDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("Handler.java", "import java.io.*;\nimport javax.servlet.*;\n\npublic class Handler {\n    public void handle(HttpServletRequest request) {\n        InputStream in = request.getInputStream();\n        ObjectInputStream ois = new ObjectInputStream(in);\n        Object obj = ois.readObject();\n    }\n}\n"),
@@ -402,7 +401,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_json_dumps() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = InsecureDeserializeDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("config_loader.py", "import json\n\ndef save_config(config):\n    output = json.dumps(config, indent=2)\n    with open(\"config.json\", \"w\") as f:\n        f.write(output)\n"),

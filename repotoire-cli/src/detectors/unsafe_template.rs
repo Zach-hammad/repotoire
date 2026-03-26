@@ -14,7 +14,6 @@
 //! CWE-1336: Server-Side Template Injection
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -833,11 +832,11 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_static_innerhtml() {
-        use crate::graph::GraphStore;
+        use crate::graph::builder::GraphBuilder;
 
         let content = "function clearContent(el) {\n    el.innerHTML = \"\";\n}\nfunction setLoading(el) {\n    el.innerHTML = \"<div>Loading...</div>\";\n}\n";
 
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = UnsafeTemplateDetector::with_repository_path(std::path::PathBuf::from("/mock/repo"));
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("app.js", content),

@@ -10,7 +10,6 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::graph::GraphQueryExt;
-use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use std::collections::HashMap;
@@ -294,7 +293,8 @@ impl super::RegisteredDetector for MiddleManDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::{CodeEdge, CodeNode, GraphStore};
+    use crate::graph::{CodeEdge, CodeNode};
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_should_exclude() {
@@ -310,7 +310,7 @@ mod tests {
 
     #[test]
     fn test_detect_middle_man() {
-        let graph = GraphStore::in_memory();
+        let mut graph = GraphBuilder::new();
 
         // Create a middle man class
         graph.add_node(

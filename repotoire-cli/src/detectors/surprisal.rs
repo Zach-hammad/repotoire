@@ -295,7 +295,7 @@ impl super::RegisteredDetector for SurprisalDetector {
 mod tests {
     use super::*;
     use crate::calibrate::NgramModel;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_normal_cdf_known_values() {
@@ -340,7 +340,7 @@ def foo():
         let model = NgramModel::new(); // Empty model, not confident
         assert!(!model.is_confident());
 
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = SurprisalDetector::new(dir.path(), model);
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
         let findings = detector.detect(&ctx).expect("detection should succeed");

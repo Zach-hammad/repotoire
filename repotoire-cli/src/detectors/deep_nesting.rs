@@ -12,7 +12,6 @@
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::graph::GraphQueryExt;
 use crate::detectors::function_context::FunctionRole;
-use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use std::path::{Path, PathBuf};
@@ -632,12 +631,12 @@ fn structural_braces(line: &str) -> Vec<char> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_detects_deep_nesting() {
         // Python threshold is 6, so >6 means 7+ levels needed to trigger.
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = DeepNestingDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("nested.py", "def process(data):\n    if True {\n        if True {\n            if True {\n                if True {\n                    if True {\n                        if True {\n                            if True {\n                                print(\"deeply nested\")\n                            }\n                        }\n                    }\n                }\n            }\n        }\n    }\n"),
@@ -657,7 +656,7 @@ mod tests {
     #[test]
     fn test_no_finding_for_shallow_nesting() {
         // Only 2 levels of braces - well below threshold of 4
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = DeepNestingDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("shallow.py", "def process(data):\n    result = {\"key\": \"value\"}\n    if True {\n        print(\"ok\")\n    }\n"),
@@ -674,7 +673,7 @@ mod tests {
     fn test_match_switch_discount() {
         // fn{match{arm{if{if{  = 5 raw depth, 1 match level
         // Rust threshold=6, discount=2 => effective 5-2=3, well below threshold => no finding
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = DeepNestingDetector::new("/mock/repo");
         let code = "\
 fn process(x: i32) {
@@ -709,7 +708,7 @@ fn process(x: i32) {
         // fn{match{arm{if×6}}} = 9 raw depth, 1 match line (`match x {`),
         // applied discount = min(match_levels=1, lang_discount=2) = 1
         // effective = 9 - 1 = 8 > threshold 6 => finding
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = DeepNestingDetector::new("/mock/repo");
         let code = "\
 fn process(x: i32) {
@@ -757,7 +756,7 @@ fn process(x: i32) {
         // Rust threshold=7, no match discount applies (no match statements).
         // Shallow: well below threshold, no finding.
         // Deep: raw depth 8 > threshold 7 => one finding.
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = DeepNestingDetector::new("/mock/repo");
         let code = "\
 fn shallow() {

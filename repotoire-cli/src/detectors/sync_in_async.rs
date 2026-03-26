@@ -7,7 +7,6 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::graph::GraphQueryExt;
-use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -310,11 +309,11 @@ impl super::RegisteredDetector for SyncInAsyncDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_detects_time_sleep_in_async_def() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = SyncInAsyncDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("server.py", "import asyncio\nimport time\n\nasync def handle_request():\n    data = await fetch_data()\n    time.sleep(1)\n    return data\n"),
@@ -334,7 +333,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_sync_function() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = SyncInAsyncDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("utils.py", "import time\n\ndef slow_function():\n    time.sleep(1)\n    return 42\n"),

@@ -6,7 +6,6 @@
 //! - Groups by file for bulk cleanup suggestions
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -419,7 +418,7 @@ impl super::RegisteredDetector for UnusedImportsDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_no_finding_for_noqa_suppressed_import() {
@@ -431,7 +430,7 @@ mod tests {
         )
         .expect("should write test file");
 
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = UnusedImportsDetector::new(dir.path());
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
@@ -452,7 +451,7 @@ mod tests {
         )
         .expect("should write test file");
 
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = UnusedImportsDetector::new(dir.path());
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
@@ -465,7 +464,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_type_checking_block() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = UnusedImportsDetector::new("/mock/repo");
         // UserModel is only imported inside TYPE_CHECKING and never referenced
         // outside (only in string annotation "UserModel").
@@ -486,7 +485,7 @@ mod tests {
 
     #[test]
     fn test_handles_multiline_import() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = UnusedImportsDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("views.py", "from django.db.models import (\n    CharField,\n    IntegerField,\n)\n\nname = CharField(max_length=100)\nage = IntegerField()\n"),
@@ -501,7 +500,7 @@ mod tests {
 
     #[test]
     fn test_still_detects_unused_import() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = UnusedImportsDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("unused.py", "import os\nimport sys\n\nprint(sys.argv)\n"),
@@ -515,7 +514,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_function_scoped_import() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = UnusedImportsDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("lookups.py", "def get_prep_lookup(self):\n    from django.db.models.sql.query import Query\n    if isinstance(self.rhs, Query):\n        return self.rhs\n"),
@@ -530,7 +529,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_deeply_indented_import() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = UnusedImportsDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("base.py", "class DatabaseWrapper:\n    def connect(self):\n        from .psycopg_any import IsolationLevel, is_psycopg3\n        if is_psycopg3:\n            conn.isolation_level = IsolationLevel.READ_COMMITTED\n"),

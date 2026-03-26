@@ -14,7 +14,6 @@
 //! - Type-hinted names: user_list, config_dict
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -673,9 +672,9 @@ mod tests {
 
     #[test]
     fn test_detects_generic_naming_in_function_body() {
-        use crate::graph::GraphStore;
+        use crate::graph::builder::GraphBuilder;
 
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = AINamingPatternDetector::new();
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("generic.py", "def process_users(users):\n    result = []\n    for item in users:\n        data = item.get('name')\n        temp = data.strip()\n        value = temp.lower()\n        obj = {'name': value}\n        result.append(obj)\n    output = sorted(result)\n    return output\n"),
@@ -689,9 +688,9 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_domain_specific_naming() {
-        use crate::graph::GraphStore;
+        use crate::graph::builder::GraphBuilder;
 
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = AINamingPatternDetector::new();
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("users.py", "def create_user(username, email, password):\n    hashed_password = hash_password(password)\n    user = User(username=username, email=email)\n    user.set_password(hashed_password)\n    user.save()\n    confirmation_email = build_welcome_email(user)\n    send_email(confirmation_email)\n    return user\n"),

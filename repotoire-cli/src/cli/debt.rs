@@ -5,7 +5,7 @@ use console::style;
 use std::path::Path;
 
 use crate::classifier::debt::{compute_debt, DebtWeights};
-use crate::graph::{GraphQuery, GraphStore};
+use crate::graph::{CodeGraph, GraphQuery};
 use crate::models::Finding;
 use std::collections::HashMap;
 
@@ -37,17 +37,19 @@ fn load_findings(path: &Path) -> Result<Vec<Finding>> {
     Ok(findings)
 }
 
-/// Load the graph from the cached graph database.
-fn load_graph(path: &Path) -> Result<GraphStore> {
-    let db_path = crate::cache::graph_db_path(path);
-    if !db_path.exists() {
+/// Load the graph from the session cache (bincode format).
+fn load_graph(path: &Path) -> Result<CodeGraph> {
+    let session_dir = crate::cache::paths::cache_dir(path).join("session");
+    let graph_path = session_dir.join("graph.bin");
+    if !graph_path.exists() {
         anyhow::bail!(
             "No graph database found. Run {} first.",
             style("repotoire analyze").cyan()
         );
     }
 
-    GraphStore::new(&db_path).with_context(|| "Failed to open graph database")
+    CodeGraph::load_cache(&graph_path)
+        .ok_or_else(|| anyhow::anyhow!("Failed to load graph cache (corrupt or version mismatch). Run {} again.", style("repotoire analyze").cyan()))
 }
 
 /// Run the `repotoire debt` command.

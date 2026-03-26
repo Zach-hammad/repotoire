@@ -5,7 +5,6 @@
 
 use crate::detectors::base::{is_test_file, Detector, DetectorConfig};
 use crate::graph::GraphQueryExt;
-use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -513,11 +512,11 @@ impl super::RegisteredDetector for SecretDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_detects_hardcoded_aws_key() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = SecretDetector::new("/mock/repo");
         // Use .rb extension: masking has no tree-sitter grammar for Ruby,
         let detector = SecretDetector::new("/mock/repo");
@@ -534,7 +533,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_env_variable_usage() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = SecretDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("config.py", "\nimport os\nAWS_KEY = os.environ.get(\"AWS_ACCESS_KEY_ID\")\nSECRET = os.getenv(\"AWS_SECRET_ACCESS_KEY\")\n"),
@@ -549,7 +548,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_password_in_docstring() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = SecretDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("auth.py", "def authenticate(username, password):\n    \"\"\"\n    Authenticate user with password.\n    password = hashlib.sha256(raw).hexdigest()\n    \"\"\"\n    return check_password(username, password)\n"),
@@ -564,7 +563,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_password_type_annotation() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = SecretDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("models.py", "from pydantic import BaseModel\n\nclass LoginRequest(BaseModel):\n    username: str\n    password: str\n"),
@@ -579,7 +578,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_password_field_definition() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = SecretDetector::new("/mock/repo");
         // Use .rb -- no tree-sitter masking, content passes through
         let detector = SecretDetector::new("/mock/repo");
@@ -596,7 +595,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_password_list_assignment() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = SecretDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("config.rb", "password = [\"django.contrib.auth.hashers.PBKDF2PasswordHasher\"]\nsecret = {\"key\": \"value\", \"other\": \"data\"}\n"),
@@ -611,7 +610,7 @@ mod tests {
 
     #[test]
     fn test_still_detects_real_hardcoded_password() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = SecretDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("config.rb", "password = \"super_secret_password_123\"\n"),
@@ -625,7 +624,7 @@ mod tests {
 
     #[test]
     fn test_skips_uppercase_constant_reference() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = SecretDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("config.rb", "password = HARDCODED_SECRET_VALUE\n"),
@@ -640,7 +639,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_password_variable_reference() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = SecretDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("views.rb", "password=auth_password,\nsecret = settings.SECRET_KEY\nself._password = raw_password\n"),
@@ -655,7 +654,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_settings_read() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = SecretDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("config.rb", "self.password = settings.EMAIL_HOST_PASSWORD if password is None else password\npassword=self.settings_dict[\"PASSWORD\"],\n"),
@@ -670,7 +669,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_request_data_read() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = SecretDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("views.rb", "csrf_secret = request.META[\"CSRF_COOKIE\"]\nold_password = self.cleaned_data[\"old_password\"]\n"),

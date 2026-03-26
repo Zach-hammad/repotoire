@@ -7,7 +7,6 @@
 
 use crate::detectors::base::{Detector, DetectorConfig, DetectorScope};
 use crate::graph::GraphQueryExt;
-use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -377,11 +376,11 @@ impl super::RegisteredDetector for PrototypePollutionDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_detects_proto_pollution_with_user_input() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = PrototypePollutionDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("server.js", "\nconst data = req.body;\nObject.assign(config, data);\n"),
@@ -396,7 +395,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_without_user_input() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = PrototypePollutionDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("utils.js", "\nconst defaults = { color: \"blue\" };\nconst merged = Object.assign({}, defaults);\n"),

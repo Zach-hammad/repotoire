@@ -8,7 +8,6 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::graph::GraphQueryExt;
-use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use std::collections::HashSet;
@@ -323,11 +322,11 @@ impl super::RegisteredDetector for CallbackHellDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_detects_deeply_nested_callbacks() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = CallbackHellDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("nested.js", "getData(function(a) {\n  process(a, function(b) {\n    transform(b, function(c) {\n      save(c, function(d) {\n        done(d);\n      });\n    });\n  });\n});\n"),
@@ -345,7 +344,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_shallow_callbacks() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = CallbackHellDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("shallow.js", "getData(function(a) {\n  process(a);\n});\n"),
@@ -360,7 +359,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_object_methods() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = CallbackHellDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("admin.js", "var DateTimeShortcuts = {\n    init: function() {\n        this.setup();\n    },\n    setup: function() {\n        this.render();\n    },\n    render: function() {\n        this.draw();\n    },\n    draw: function() {\n        console.log('done');\n    }\n};\n"),

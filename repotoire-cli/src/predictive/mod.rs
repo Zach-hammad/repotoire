@@ -524,11 +524,11 @@ mod tests {
 
     #[test]
     fn test_engine_empty_graph() {
-        let store = crate::graph::GraphStore::in_memory();
+        let graph = crate::graph::builder::GraphBuilder::new().freeze();
         let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
         let contexts = std::collections::HashMap::new();
         let mut engine = PredictiveCodingEngine::new();
-        engine.train_and_score(&store, &empty_files, &contexts);
+        engine.train_and_score(&graph, &empty_files, &contexts);
         assert!(engine.get_surprising_entities(1).is_empty());
     }
 

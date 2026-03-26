@@ -7,7 +7,6 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::graph::GraphQueryExt;
-use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -239,11 +238,11 @@ impl super::RegisteredDetector for MutableDefaultArgsDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_detects_mutable_default_list() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = MutableDefaultArgsDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("service.py", "def collect_items(items=[]):\n    items.append(\"new\")\n    return items\n"),
@@ -262,7 +261,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_immutable_default() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = MutableDefaultArgsDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("service.py", "def process(count=0, name=\"default\", flag=True):\n    return count + len(name)\n"),

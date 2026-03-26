@@ -15,7 +15,6 @@
 
 use crate::detectors::base::{Detector, DetectorConfig, DetectorScope};
 use crate::graph::GraphQueryExt;
-use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use std::collections::HashSet;
@@ -806,7 +805,7 @@ mod tests {
     fn test_detects_near_duplicates() {
         // Two functions with identical structure but different variable names
         // across different files — classic Type-2 clone.
-        let store = crate::graph::GraphStore::in_memory();
+        let store = crate::graph::GraphBuilder::new().freeze();
         let detector = AIDuplicateBlockDetector::new();
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             (
@@ -835,7 +834,7 @@ mod tests {
     #[test]
     fn test_no_finding_for_different_functions() {
         // Two structurally different functions — should produce no duplicates.
-        let store = crate::graph::GraphStore::in_memory();
+        let store = crate::graph::GraphBuilder::new().freeze();
         let detector = AIDuplicateBlockDetector::new();
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             (

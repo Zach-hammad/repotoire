@@ -13,7 +13,6 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::detectors::taint::{TaintAnalyzer, TaintCategory};
-use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -710,13 +709,13 @@ impl super::RegisteredDetector for EvalDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_detects_eval_with_variable() {
         let content = "def process(user_input):\n    result = eval(user_input)\n    return result\n";
 
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = EvalDetector::with_repository_path(PathBuf::from("/mock/repo"));
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("handler.py", content),
@@ -733,7 +732,7 @@ mod tests {
     fn test_no_finding_for_management_command() {
         let content = "def handle(self, **options):\n    code = compile(source, '<shell>', 'exec')\n    exec(code)\n";
 
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = EvalDetector::with_repository_path(PathBuf::from("/mock/repo"));
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("management/commands/shell.py", content),
@@ -750,7 +749,7 @@ mod tests {
     fn test_no_finding_for_method_eval() {
         let content = "class Operator:\n    def eval(self, context):\n        return self.value\n\nresult = op.eval(context)\n";
 
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = EvalDetector::with_repository_path(PathBuf::from("/mock/repo"));
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("smartif.py", content),
@@ -765,7 +764,7 @@ mod tests {
     fn test_no_finding_for_safe_subprocess() {
         let content = "import subprocess\n\ndef run_command(args):\n    result = subprocess.run(args, capture_output=True)\n    return result.stdout\n";
 
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = EvalDetector::with_repository_path(PathBuf::from("/mock/repo"));
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("runner.py", content),
@@ -782,7 +781,7 @@ mod tests {
     fn test_no_finding_for_literal_eval() {
         let content = "import ast\ndata = ast.literal_eval(\"[1, 2, 3]\")\n";
 
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = EvalDetector::with_repository_path(PathBuf::from("/mock/repo"));
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("safe.py", content),

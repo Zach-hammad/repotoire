@@ -8,7 +8,6 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::graph::GraphQueryExt;
-use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -349,11 +348,11 @@ impl super::RegisteredDetector for JwtWeakDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_detects_none_algorithm() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = JwtWeakDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("auth.py", "import jwt\n\ndef decode_token(token):\n    payload = jwt.decode(token, algorithm=\"none\")\n    return payload\n"),
@@ -376,7 +375,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_secure_jwt() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = JwtWeakDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("auth.py", "import jwt\n\ndef decode_token(token, public_key):\n    payload = jwt.decode(token, public_key, algorithms=[\"RS256\"])\n    return payload\n"),

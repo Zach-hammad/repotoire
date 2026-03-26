@@ -246,7 +246,7 @@ pub fn train_gbdt_model(_config: &TrainConfig) -> Result<TrainResult, String> {
     tracing::info!("Loaded {} labeled examples for GBDT training", examples.len());
 
     let extractor = FeatureExtractorV2::new();
-    let graph = crate::graph::GraphStore::in_memory();
+    let graph = crate::graph::builder::GraphBuilder::new().freeze();
 
     let features: Vec<_> = examples
         .iter()

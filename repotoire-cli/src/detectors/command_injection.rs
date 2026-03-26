@@ -2,7 +2,6 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::detectors::taint::{TaintAnalysisResult, TaintAnalyzer, TaintCategory};
-use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -518,11 +517,11 @@ impl super::RegisteredDetector for CommandInjectionDetector {
 mod tests {
     use super::*;
     use crate::detectors::base::Detector;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_detects_os_system_with_user_input() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = CommandInjectionDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("vuln.py", "import os\n\ndef run_command(user_input):\n    os.system(\"ls \" + user_input)\n"),
@@ -545,7 +544,7 @@ mod tests {
 
     #[test]
     fn test_no_findings_for_safe_subprocess() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = CommandInjectionDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("safe.py", "import subprocess\n\ndef list_files():\n    result = subprocess.run([\"ls\", \"-la\"], capture_output=True)\n    return result.stdout\n"),
@@ -560,7 +559,7 @@ mod tests {
 
     #[test]
     fn test_detects_subprocess_shell_true_python() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = CommandInjectionDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("run.py", "import subprocess\n\ndef execute(user_input):\n    subprocess.call(\"grep \" + user_input, shell=True)\n"),
@@ -578,7 +577,7 @@ mod tests {
 
     #[test]
     fn test_detects_child_process_exec_with_template_js() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = CommandInjectionDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("handler.js", "const { exec } = require('child_process');\n\nfunction runCommand(req, res) {\n    const userId = req.params.id;\n    child_process.exec(`find /data -user ${userId}`);\n}\n"),
@@ -597,7 +596,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_exec_in_comment() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = CommandInjectionDetector::new("/mock/repo");
         // The command_injection detector uses masked_content. In masked mode,
         // comments are NOT stripped by MockFileProvider (only Python triple-quoted strings are).
@@ -616,7 +615,7 @@ mod tests {
 
     #[test]
     fn test_detects_go_exec_command() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = CommandInjectionDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("handler.go", "package main\n\nimport (\n\t\"os/exec\"\n\t\"net/http\"\n)\n\nfunc runCmd(w http.ResponseWriter, r *http.Request) {\n\tcmd := r.FormValue(\"command\")\n\texec.Command(cmd)\n}\n"),

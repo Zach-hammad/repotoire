@@ -6,7 +6,6 @@
 //! CWE-78: Improper Neutralization of Special Elements used in an OS Command
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use regex::Regex;

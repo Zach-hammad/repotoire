@@ -19,7 +19,6 @@
 //! - CRUD operations that could be genericized
 
 use crate::detectors::base::{Detector, DetectorConfig, DetectorScope};
-use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
@@ -752,7 +751,7 @@ mod tests {
 
     #[test]
     fn test_detects_boilerplate_cluster() {
-        let store = crate::graph::GraphStore::in_memory();
+        let store = crate::graph::GraphBuilder::new().freeze();
         let detector = AIBoilerplateDetector::new();
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("handlers/user.py", "def create_user(data):\n    try:\n        validated = validate(data)\n        result = db.insert(validated)\n        return result\n    except Exception as e:\n        log.error(e)\n        raise\n"),
@@ -768,7 +767,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_diverse_functions() {
-        let store = crate::graph::GraphStore::in_memory();
+        let store = crate::graph::GraphBuilder::new().freeze();
         let detector = AIBoilerplateDetector::new();
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("auth.py", "def login(username, password):\n    user = authenticate(username, password)\n    if user is None:\n        raise AuthError('Invalid credentials')\n    token = create_token(user)\n    return token\n"),

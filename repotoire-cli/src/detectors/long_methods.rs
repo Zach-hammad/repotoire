@@ -18,7 +18,6 @@ use crate::detectors::analysis_context::AnalysisContext;
 use crate::graph::GraphQueryExt;
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::detectors::function_context::FunctionRole;
-use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use std::collections::HashSet;
@@ -337,7 +336,8 @@ impl super::RegisteredDetector for LongMethodsDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::{CodeNode, GraphStore, NodeKind};
+    use crate::graph::{CodeNode, NodeKind};
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_language_threshold_long_methods() {
@@ -351,7 +351,7 @@ mod tests {
     #[test]
     fn test_detects_long_method() {
         let dir = tempfile::tempdir().expect("should create temp dir");
-        let store = GraphStore::in_memory();
+        let mut store = GraphBuilder::new();
 
         // Add a function node with line_end - line_start = 120 (> threshold 80 for .py)
         let func = CodeNode::function("big_function", "/src/app.py")
@@ -376,7 +376,7 @@ mod tests {
     #[test]
     fn test_no_finding_for_short_method() {
         let dir = tempfile::tempdir().expect("should create temp dir");
-        let store = GraphStore::in_memory();
+        let mut store = GraphBuilder::new();
 
         // Add a function with only 20 lines (< threshold 80)
         let func = CodeNode::function("small_func", "/src/app.py")
@@ -397,7 +397,7 @@ mod tests {
     #[test]
     fn test_test_function_severity_capped() {
         let dir = tempfile::tempdir().expect("should create temp dir");
-        let store = GraphStore::in_memory();
+        let mut store = GraphBuilder::new();
 
         // A 250-line test function -- normally High severity
         let func = CodeNode::function("test_big_scenario", "/src/tests.py")
@@ -422,7 +422,7 @@ mod tests {
     #[test]
     fn test_severity_uses_overshoot_ratio() {
         let dir = tempfile::tempdir().expect("should create temp dir");
-        let store = GraphStore::in_memory();
+        let mut store = GraphBuilder::new();
 
         // 160 lines with threshold 150 (for .rs) => slightly over threshold => Low
         let func = CodeNode::function("slightly_long", "/src/app.rs")
@@ -440,7 +440,7 @@ mod tests {
     #[test]
     fn test_description_shows_effective_threshold() {
         let dir = tempfile::tempdir().expect("should create temp dir");
-        let store = GraphStore::in_memory();
+        let mut store = GraphBuilder::new();
 
         let func = CodeNode::function("big_fn", "/src/app.py")
             .with_qualified_name("app::big_fn")
@@ -461,7 +461,7 @@ mod tests {
     #[test]
     fn test_python_threshold_is_100() {
         let dir = tempfile::tempdir().expect("should create temp dir");
-        let store = GraphStore::in_memory();
+        let mut store = GraphBuilder::new();
 
         // 110-line Python function: > 100 (py threshold) => should fire
         let func = CodeNode::function("medium_fn", "/src/app.py")
@@ -481,7 +481,7 @@ mod tests {
     #[test]
     fn test_java_threshold_is_200() {
         let dir = tempfile::tempdir().expect("should create temp dir");
-        let store = GraphStore::in_memory();
+        let mut store = GraphBuilder::new();
 
         // 180-line Java function: < 200 (java threshold) => should NOT fire
         let func = CodeNode::function("medium_java_fn", "/src/Foo.java")

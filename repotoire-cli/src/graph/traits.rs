@@ -15,7 +15,7 @@ use std::sync::Arc;
 ///
 /// **NodeIndex-based methods** (`functions_idx()`, `callers_idx(idx)`, …) —
 ///   Return zero-copy `&[NodeIndex]` slices from pre-built indexes.
-///   Implemented by `CodeGraph` (frozen, production path) and `GraphStore`
+///   Implemented by `CodeGraph` (frozen, production path) and `GraphBuilder`
 ///   (via lazily-built `QuerySnapshot`).
 ///   Default implementations return empty results for backends that
 ///   don't support indexed access (e.g., lightweight test mocks).
@@ -49,7 +49,7 @@ pub trait GraphQuery: Send + Sync {
     //
     // Zero-copy, O(1) access using petgraph NodeIndex.
     // CodeGraph implements all of these via pre-built indexes.
-    // GraphStore implements them via a lazily-built QuerySnapshot.
+    // GraphBuilder implements them via a lazily-built QuerySnapshot.
     // Default implementations return empty results for lightweight
     // test mocks that don't support indexed access.
 

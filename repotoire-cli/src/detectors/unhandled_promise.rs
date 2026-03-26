@@ -7,7 +7,6 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::graph::GraphQueryExt;
-use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -330,11 +329,11 @@ impl super::RegisteredDetector for UnhandledPromiseDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_detects_promise_without_catch() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = UnhandledPromiseDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("service.js", "async function handleRequest() {\n  const x = 1;\n  fetch(\"/api/data\").then(res => res.json());\n  return x;\n}\n"),
@@ -348,7 +347,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_when_catch_present() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = UnhandledPromiseDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("service_good.js", "async function handleRequest() {\n  fetch(\"/api/data\")\n    .then(res => res.json())\n    .catch(err => console.error(err));\n}\n"),

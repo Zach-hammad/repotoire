@@ -458,11 +458,11 @@ impl DetectorContext {
 mod tests {
     use super::*;
     use crate::graph::store_models::{CodeEdge, CodeNode};
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_empty_graph_produces_empty_context() {
-        let graph = GraphStore::in_memory();
+        let graph = GraphBuilder::new();
         let (ctx, _file_data) = DetectorContext::build(&graph, &[], None, Path::new("/tmp"));
         assert!(ctx.callers_by_qn.is_empty());
         assert!(ctx.callees_by_qn.is_empty());
@@ -472,7 +472,7 @@ mod tests {
 
     #[test]
     fn test_file_contents_loaded() {
-        let graph = GraphStore::in_memory();
+        let graph = GraphBuilder::new();
         let dir = tempfile::tempdir().unwrap();
         let file_path = dir.path().join("test.py");
         std::fs::write(&file_path, "def hello(): pass").unwrap();
@@ -486,7 +486,7 @@ mod tests {
 
     #[test]
     fn test_file_contents_skips_missing_files() {
-        let graph = GraphStore::in_memory();
+        let graph = GraphBuilder::new();
         let missing = PathBuf::from("/nonexistent/path/file.py");
 
         let (ctx, _file_data) = DetectorContext::build(&graph, &[missing], None, Path::new("/tmp"));
@@ -495,7 +495,7 @@ mod tests {
 
     #[test]
     fn test_callers_callees_populated() {
-        let graph = GraphStore::in_memory();
+        let mut graph = GraphBuilder::new();
 
         graph.add_node(
             CodeNode::function("caller", "test.py").with_qualified_name("module.caller"),
@@ -518,7 +518,7 @@ mod tests {
 
     #[test]
     fn test_class_children_populated() {
-        let graph = GraphStore::in_memory();
+        let mut graph = GraphBuilder::new();
 
         graph.add_node(
             CodeNode::class("Parent", "test.py").with_qualified_name("module.Parent"),
@@ -535,7 +535,7 @@ mod tests {
 
     #[test]
     fn test_multiple_callers_for_same_callee() {
-        let graph = GraphStore::in_memory();
+        let mut graph = GraphBuilder::new();
 
         graph.add_node(
             CodeNode::function("a", "test.py").with_qualified_name("mod.a"),
@@ -558,7 +558,7 @@ mod tests {
 
     #[test]
     fn test_multiple_children_for_same_parent() {
-        let graph = GraphStore::in_memory();
+        let mut graph = GraphBuilder::new();
 
         graph.add_node(
             CodeNode::class("Base", "test.py").with_qualified_name("mod.Base"),
@@ -581,7 +581,7 @@ mod tests {
 
     #[test]
     fn test_value_store_stored_when_provided() {
-        let graph = GraphStore::in_memory();
+        let graph = GraphBuilder::new();
         let store = Arc::new(crate::values::store::ValueStore::new());
         let (ctx, _file_data) = DetectorContext::build(&graph, &[], Some(store), Path::new("/tmp"));
         assert!(ctx.value_store.is_some());
@@ -589,7 +589,7 @@ mod tests {
 
     #[test]
     fn test_value_store_none_when_not_provided() {
-        let graph = GraphStore::in_memory();
+        let graph = GraphBuilder::new();
         let (ctx, _file_data) = DetectorContext::build(&graph, &[], None, Path::new("/tmp"));
         assert!(ctx.value_store.is_none());
     }
@@ -628,7 +628,7 @@ mod tests {
 
     #[test]
     fn test_content_flags_populated_in_build() {
-        let graph = GraphStore::in_memory();
+        let graph = GraphBuilder::new();
         let dir = tempfile::tempdir().unwrap();
 
         let py_file = dir.path().join("app.py");

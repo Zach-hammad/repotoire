@@ -832,7 +832,7 @@ impl<'a> GraphScorer<'a> {
 mod tests {
     use super::*;
     use crate::config::ProjectType;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
     use tempfile::TempDir;
 
     fn make_config(project_type: Option<ProjectType>) -> (TempDir, ProjectConfig) {
@@ -844,7 +844,7 @@ mod tests {
 
     #[test]
     fn test_empty_codebase() {
-        let graph = GraphStore::in_memory();
+        let graph = GraphBuilder::new().freeze();
         let (dir, config) = make_config(None);
         let scorer = GraphScorer::new(&graph, &config, dir.path());
 
@@ -856,7 +856,7 @@ mod tests {
 
     #[test]
     fn test_critical_finding_caps_grade() {
-        let graph = GraphStore::in_memory();
+        let graph = GraphBuilder::new().freeze();
         let (dir, config) = make_config(None);
         let scorer = GraphScorer::new(&graph, &config, dir.path());
 
@@ -882,23 +882,24 @@ mod tests {
 
     #[test]
     fn test_graph_bonuses() {
-        let graph = GraphStore::in_memory();
+        let mut builder = GraphBuilder::new();
 
         // Add some test structure
         use crate::graph::CodeNode;
-        graph.add_node(CodeNode::file("src/main.rs"));
-        graph.add_node(CodeNode::file("src/lib.rs"));
-        graph.add_node(CodeNode::file("tests/test_main.rs")); // Test file
-        graph.add_node(
+        builder.add_node(CodeNode::file("src/main.rs"));
+        builder.add_node(CodeNode::file("src/lib.rs"));
+        builder.add_node(CodeNode::file("tests/test_main.rs")); // Test file
+        builder.add_node(
             CodeNode::function("main", "src/main.rs").with_property("complexity", 5i64),
         );
-        graph.add_node(
+        builder.add_node(
             CodeNode::function("helper", "src/lib.rs").with_property("complexity", 3i64),
         );
-        graph.add_node(
+        builder.add_node(
             CodeNode::function("test_main", "tests/test_main.rs")
                 .with_property("complexity", 2i64),
         );
+        let graph = builder.freeze();
 
         let (dir, config) = make_config(None);
         let scorer = GraphScorer::new(&graph, &config, dir.path());
@@ -918,7 +919,7 @@ mod tests {
 
     #[test]
     fn test_compiler_gets_lenient_modularity_bonus() {
-        let graph = GraphStore::in_memory();
+        let graph = GraphBuilder::new().freeze();
         let (dir, compiler_config) = make_config(Some(ProjectType::Compiler));
         let compiler_scorer = GraphScorer::new(&graph, &compiler_config, dir.path());
 
@@ -945,7 +946,7 @@ mod tests {
 
     #[test]
     fn test_kernel_gets_lenient_complexity_bonus() {
-        let graph = GraphStore::in_memory();
+        let graph = GraphBuilder::new().freeze();
         let (dir, kernel_config) = make_config(Some(ProjectType::Kernel));
         let kernel_scorer = GraphScorer::new(&graph, &kernel_config, dir.path());
 
@@ -971,7 +972,7 @@ mod tests {
 
     #[test]
     fn test_web_default_thresholds_unchanged() {
-        let graph = GraphStore::in_memory();
+        let graph = GraphBuilder::new().freeze();
         let (dir, config) = make_config(Some(ProjectType::Web));
         let scorer = GraphScorer::new(&graph, &config, dir.path());
 

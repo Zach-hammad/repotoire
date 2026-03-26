@@ -7,7 +7,6 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::graph::GraphQueryExt;
-use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -383,11 +382,11 @@ impl super::RegisteredDetector for NosqlInjectionDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_detects_where_with_user_input() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = NosqlInjectionDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("routes.js", "const mongoose = require('mongoose');\nconst User = mongoose.model('User');\n\nasync function findUser(req, res) {\n    const name = req.body.name;\n    const result = await User.find({ $where: `this.name == '${name}'` });\n    res.json(result);\n}\n"),
@@ -406,7 +405,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_safe_query() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = NosqlInjectionDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("routes.js", "const mongoose = require('mongoose');\nconst User = mongoose.model('User');\n\nasync function findUser() {\n    const result = await User.find({ active: true });\n    return result;\n}\n"),
@@ -421,7 +420,7 @@ mod tests {
 
     #[test]
     fn test_detects_find_with_req_body_in_js() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = NosqlInjectionDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("controller.js", "const mongoose = require('mongoose');\nconst User = mongoose.model('User');\n\nasync function login(req, res) {\n    const user = await User.findOne(req.body);\n    if (user) res.json(user);\n}\n"),
@@ -439,7 +438,7 @@ mod tests {
 
     #[test]
     fn test_detects_aggregate_with_user_input_ts() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = NosqlInjectionDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("analytics.ts", "import mongoose from 'mongoose';\nconst Order = mongoose.model('Order');\n\nasync function getStats(req: Request, res: Response) {\n    const pipeline = req.body.pipeline;\n    const results = await Order.aggregate(req.body.pipeline);\n    res.json(results);\n}\n"),
@@ -453,7 +452,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_sanitized_query() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = NosqlInjectionDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("safe_controller.js", "const mongoose = require('mongoose');\nconst sanitize = require('mongo-sanitize');\nconst User = mongoose.model('User');\n\nasync function login(req, res) {\n    const clean = sanitize(req.body);\n    const user = await User.findOne(clean);\n    res.json(user);\n}\n"),
@@ -468,7 +467,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_array_find() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = NosqlInjectionDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("utils.js", "const mongoose = require('mongoose');\n\nfunction findItem(items, id) {\n    return items.find(item => item.id === id);\n}\n"),

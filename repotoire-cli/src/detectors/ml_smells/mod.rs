@@ -61,12 +61,12 @@ static EVAL_MODE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\.eval\s*\(").
 mod tests {
     use super::*;
     use crate::detectors::base::Detector;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
     use crate::models::Severity;
 
     #[test]
     fn test_torch_load_unsafe() {
-        let graph = GraphStore::in_memory();
+        let graph = GraphBuilder::new().freeze();
         let detector = TorchLoadUnsafeDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![
             ("test.py", "import torch\nmodel = torch.load('model.pth')\n"),
@@ -78,7 +78,7 @@ mod tests {
 
     #[test]
     fn test_torch_load_safe() {
-        let graph = GraphStore::in_memory();
+        let graph = GraphBuilder::new().freeze();
         let detector = TorchLoadUnsafeDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![
             ("test.py", "import torch\nmodel = torch.load('model.pth', weights_only=True)\n"),
@@ -89,7 +89,7 @@ mod tests {
 
     #[test]
     fn test_nan_equality() {
-        let graph = GraphStore::in_memory();
+        let graph = GraphBuilder::new().freeze();
         let detector = NanEqualityDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![
             ("test.py", "import numpy as np\nif x == np.nan:\n    pass\n"),
@@ -100,7 +100,7 @@ mod tests {
 
     #[test]
     fn test_require_grad_typo() {
-        let graph = GraphStore::in_memory();
+        let graph = GraphBuilder::new().freeze();
         let detector = RequireGradTypoDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![
             ("test.py", "tensor.require_grad = True\n"),
@@ -111,7 +111,7 @@ mod tests {
 
     #[test]
     fn test_chain_indexing() {
-        let graph = GraphStore::in_memory();
+        let graph = GraphBuilder::new().freeze();
         let detector = ChainIndexingDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![
             ("test.py", "import pandas as pd\ndf['col1']['col2'] = value\n"),

@@ -8,7 +8,6 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::graph::GraphQueryExt;
-use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -306,12 +305,12 @@ impl super::RegisteredDetector for CommentedCodeDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_detects_commented_code_block() {
         // Write a file with 6 lines of commented-out code (min_lines default = 5)
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = CommentedCodeDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("example.py", "def active():\n    pass\n\n# if condition:\n#     x = 1\n#     y = x + 2\n#     result = process(x, y)\n#     return result\n#     foo = bar()\n\ndef another():\n    pass\n"),
@@ -327,7 +326,7 @@ mod tests {
     #[test]
     fn test_no_finding_for_normal_comments() {
         // Write a file with regular comments (not code-like)
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = CommentedCodeDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("clean.py", "# This module handles user authentication.\n# It provides login and logout functionality.\n# See the docs for more information.\n# Created by the team in 2024.\n# Licensed under MIT.\n\ndef login(user, password):\n    return authenticate(user, password)\n"),
@@ -342,7 +341,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_license_header() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = CommentedCodeDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("licensed.py", "# Copyright (c) 2024 Django Software Foundation\n# All rights reserved.\n# Permission is hereby granted, free of charge,\n# to any person obtaining a copy of this software\n# and associated documentation files (the \"Software\"),\n# to deal in the Software without restriction.\n\ndef main():\n    pass\n"),
@@ -357,7 +356,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_technical_comments_with_equals() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = CommentedCodeDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("doc.py", "# The default timeout = 30 seconds for all connections.\n# Each worker handles requests independently.\n# When count = 0, the queue is considered empty.\n# The maximum retry count = 3 before giving up.\n# Buffer size = 4096 bytes is optimal for most cases.\n# Connection pool size = 10 is the recommended default.\n\ndef process():\n    pass\n"),
@@ -372,7 +371,7 @@ mod tests {
 
     #[test]
     fn test_still_detects_real_commented_code() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = CommentedCodeDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("dead.py", "def active():\n    pass\n\n# def old_function():\n#     x = compute()\n#     if x > 0:\n#         return process(x)\n#     else:\n#         return fallback()\n\ndef another():\n    pass\n"),

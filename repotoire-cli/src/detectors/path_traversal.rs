@@ -3,7 +3,6 @@
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::detectors::detector_context::ContentFlags;
 use crate::detectors::taint::{TaintAnalysisResult, TaintAnalyzer, TaintCategory};
-use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -366,11 +365,11 @@ impl super::RegisteredDetector for PathTraversalDetector {
 mod tests {
     use super::*;
     use crate::detectors::base::Detector;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_detects_open_with_user_input() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = PathTraversalDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("vuln.py", "def download(request):\n    filename = request.GET.get(\"file\")\n    f = open(request.GET[\"file\"], \"r\")\n    return f.read()\n"),
@@ -393,7 +392,7 @@ mod tests {
 
     #[test]
     fn test_no_findings_for_hardcoded_path() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = PathTraversalDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("safe.py", "def read_config():\n    with open(\"config/settings.json\", \"r\") as f:\n        return json.load(f)\n"),
@@ -408,7 +407,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_get_full_path() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = PathTraversalDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("views.py", "from django.http import HttpResponseRedirect\n\ndef my_view(request):\n    return HttpResponseRedirect(request.get_full_path())\n"),
@@ -420,7 +419,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_list_remove() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = PathTraversalDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("library.py", "def process(request):\n    params = list(request.GET.keys())\n    params.remove('page')\n"),
@@ -432,7 +431,7 @@ mod tests {
 
     #[test]
     fn test_still_detects_real_path_traversal() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = PathTraversalDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("download.py", "import os\n\ndef download(request):\n    filepath = os.path.join('/uploads', request.GET.get('file'))\n    return open(filepath, 'r').read()\n"),
@@ -443,7 +442,7 @@ mod tests {
 
     #[test]
     fn test_detects_path_join_with_req_params_js() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = PathTraversalDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("download.js", "const path = require('path');\n\nfunction getFile(req, res) {\n    const filePath = path.join('/uploads', req.params.filename);\n    res.sendFile(filePath);\n}\n"),
@@ -461,7 +460,7 @@ mod tests {
 
     #[test]
     fn test_detects_readfile_with_request_query_ts() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = PathTraversalDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("serve.ts", "import fs from 'fs';\n\nfunction serveFile(req: Request, res: Response) {\n    const name = req.query.file;\n    const data = readFileSync('/data/' + req.query.file);\n    res.send(data);\n}\n"),
@@ -475,7 +474,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_path_traversal_in_comment() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = PathTraversalDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("safe.py", "# Vulnerable: open(request.GET['file'], 'r')\ndef read_config():\n    with open('config.json', 'r') as f:\n        return f.read()\n"),
@@ -490,7 +489,7 @@ mod tests {
 
     #[test]
     fn test_detects_sendfile_with_user_input_js() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = PathTraversalDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("server.js", "const express = require('express');\n\napp.get('/download', (req, res) => {\n    const file = req.query.file;\n    res.sendFile(req.query.file);\n});\n"),

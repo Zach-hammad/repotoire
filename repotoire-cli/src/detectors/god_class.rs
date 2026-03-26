@@ -14,7 +14,6 @@
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::graph::GraphQueryExt;
 use crate::detectors::class_context::{ClassContextBuilder, ClassContextMap, ClassRole};
-use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -646,7 +645,8 @@ impl super::RegisteredDetector for GodClassDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::{CodeNode, GraphStore};
+    use crate::graph::{CodeNode};
+    use crate::graph::builder::GraphBuilder;
 
     fn create_test_class(name: &str, methods: usize, loc: u32, complexity: i64) -> CodeNode {
         CodeNode::class(name, "test.py")
@@ -658,7 +658,7 @@ mod tests {
 
     #[test]
     fn test_skip_framework_class() {
-        let store = GraphStore::in_memory();
+        let mut store = GraphBuilder::new();
         store.add_node(create_test_class("Flask", 50, 2000, 150));
 
         let detector = GodClassDetector::new();
@@ -673,7 +673,7 @@ mod tests {
 
     #[test]
     fn test_skip_application_pattern() {
-        let store = GraphStore::in_memory();
+        let mut store = GraphBuilder::new();
         store.add_node(create_test_class("MyApplication", 40, 1500, 120));
 
         let detector = GodClassDetector::new();
@@ -688,7 +688,7 @@ mod tests {
 
     #[test]
     fn test_flag_actual_god_class() {
-        let store = GraphStore::in_memory();
+        let mut store = GraphBuilder::new();
         store.add_node(create_test_class("OrderProcessor", 35, 1200, 180));
 
         let detector = GodClassDetector::new();
@@ -749,7 +749,7 @@ mod tests {
 
     #[test]
     fn test_java_class_below_2x_threshold_not_flagged() {
-        let store = GraphStore::in_memory();
+        let mut store = GraphBuilder::new();
         // 35 methods — would flag Python (threshold 20) but not Java (threshold 40).
         store.add_node(create_java_class("UserService", 35, 800, 80));
 
@@ -766,7 +766,7 @@ mod tests {
 
     #[test]
     fn test_java_class_above_2x_threshold_flagged() {
-        let store = GraphStore::in_memory();
+        let mut store = GraphBuilder::new();
         // 45 methods with 1200 LOC — exceeds the 2x Java threshold (40 methods / 1000 LOC).
         store.add_node(create_java_class("MegaService", 45, 1200, 220));
 
@@ -783,7 +783,7 @@ mod tests {
 
     #[test]
     fn test_skips_test_class_by_name() {
-        let store = GraphStore::in_memory();
+        let mut store = GraphBuilder::new();
         // Test classes should be skipped regardless of size.
         store.add_node(create_test_class("MapInterfaceTest", 60, 2000, 200));
         store.add_node(create_test_class("CollectionTests", 50, 1500, 180));

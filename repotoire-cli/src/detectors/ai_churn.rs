@@ -14,7 +14,6 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::graph::GraphQueryExt;
-use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use chrono::{DateTime, Duration, Utc};
@@ -675,7 +674,7 @@ mod tests {
 
     #[test]
     fn test_detect_returns_empty_without_git() {
-        let store = crate::graph::GraphStore::in_memory();
+        let store = crate::graph::GraphBuilder::new().freeze();
         let detector = AIChurnDetector::new();
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
         let findings = detector.detect(&ctx).expect("should detect without git");

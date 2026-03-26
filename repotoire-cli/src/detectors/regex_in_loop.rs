@@ -7,7 +7,6 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::graph::GraphQueryExt;
-use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -431,11 +430,11 @@ impl super::RegisteredDetector for RegexInLoopDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_detects_re_compile_in_loop() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = RegexInLoopDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("parser.py", "import re\n\ndef process_lines(lines):\n    for line in lines:\n        pattern = re.compile(r'\\d+')\n        match = pattern.match(line)\n        if match:\n            print(match.group())\n"),
@@ -453,7 +452,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_when_regex_outside_loop() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = RegexInLoopDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("parser_good.py", "import re\n\ndef process_lines(lines):\n    pattern = re.compile(r'\\d+')\n    for line in lines:\n        match = pattern.match(line)\n        if match:\n            print(match.group())\n"),
@@ -468,7 +467,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_python_regex_outside_loop() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = RegexInLoopDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("parser.py", "import re\n\nfor item in items:\n    process(item)\n\npattern = re.compile(r'\\w+')\n"),
@@ -480,7 +479,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_list_comprehension() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = RegexInLoopDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("security.py", "import re\n\nREDIRECT_HOSTS = [re.compile(r) for r in settings.ALLOWED_REDIRECTS]\n"),
@@ -492,7 +491,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_regex_in_comment() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = RegexInLoopDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("settings.py", "LANGUAGES = [\n    ('en', 'English'),\n    ('fr', 'French'),\n]\n# LANGUAGES_BIDI = re.compile(r'...')\n"),
@@ -504,7 +503,7 @@ mod tests {
 
     #[test]
     fn test_still_detects_regex_inside_python_loop() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = RegexInLoopDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("slow.py", "import re\n\nfor pattern in patterns:\n    compiled = re.compile(pattern)\n    compiled.match(text)\n"),

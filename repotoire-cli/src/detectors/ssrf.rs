@@ -2,7 +2,6 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::detectors::taint::{TaintAnalysisResult, TaintAnalyzer, TaintCategory};
-use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -243,11 +242,11 @@ impl super::RegisteredDetector for SsrfDetector {
 mod tests {
     use super::*;
     use crate::detectors::base::Detector;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_detects_requests_get_with_user_input() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = SsrfDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("vuln.py", "import requests\n\ndef fetch_url(req):\n    url = req.body.get(\"url\")\n    response = requests.get(req.body[\"url\"])\n    return response.text\n"),
@@ -270,7 +269,7 @@ mod tests {
 
     #[test]
     fn test_no_findings_for_hardcoded_url() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = SsrfDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("safe.py", "import requests\n\ndef fetch_data():\n    response = requests.get(\"https://api.example.com/data\")\n    return response.json()\n"),
@@ -285,7 +284,7 @@ mod tests {
 
     #[test]
     fn test_detects_fetch_with_user_input_in_js() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = SsrfDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("proxy.js", "async function proxyRequest(req, res) {\n    const targetUrl = req.body.url;\n    const response = await fetch(req.body.url);\n    const data = await response.json();\n    res.json(data);\n}\n"),
@@ -303,7 +302,7 @@ mod tests {
 
     #[test]
     fn test_detects_urllib_with_user_input_in_python() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = SsrfDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("handler.py", "from urllib.request import urlopen\n\ndef fetch(request):\n    url = request.query.get('target')\n    response = urlopen(request.query['target'])\n    return response.read()\n"),
@@ -321,7 +320,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_env_sourced_url() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = SsrfDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("client.py", "import os\nimport requests\n\ndef call_api():\n    base = os.environ.get('API_HOST')\n    response = requests.get(base + '/health')\n    return response.status_code\n"),
@@ -336,7 +335,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_relative_fetch() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = SsrfDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("api.js", "async function loadData(req, res) {\n    const data = await fetch('/api/users');\n    res.json(await data.json());\n}\n"),

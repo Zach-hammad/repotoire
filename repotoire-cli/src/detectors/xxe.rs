@@ -7,7 +7,6 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::graph::GraphQueryExt;
-use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -415,11 +414,11 @@ impl super::RegisteredDetector for XxeDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_detects_xxe_without_protection() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = XxeDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("parser.py", "\nfrom lxml import etree\ntree = etree.parse(xml_file)\n"),
@@ -434,7 +433,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_with_defusedxml() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = XxeDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("safe_parser.py", "\nimport defusedxml.ElementTree as ET\ntree = ET.parse(xml_file)\n"),
@@ -449,7 +448,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_import_only() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = XxeDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("parser.py", "from xml.dom import minidom, pulldom\nimport xml.etree.ElementTree as ET\n"),
@@ -464,7 +463,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_with_custom_defused_parser() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = XxeDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("serializer.py", "class DefusedExpatParser:\n    feature_external_ges = False\n    feature_external_pes = False\n    def reset(self):\n        raise DTDForbidden()\n\ndef deserialize(stream):\n    event_stream = pulldom.parse(stream, parser)\n"),
@@ -479,7 +478,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_js_static_data() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = XxeDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("globals.js", "var globals = {\n    \"DOMParser\": false,\n    \"XMLHttpRequest\": false,\n};\n"),

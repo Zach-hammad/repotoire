@@ -8,7 +8,6 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::graph::GraphQueryExt;
-use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -479,11 +478,11 @@ impl super::RegisteredDetector for InfiniteLoopDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_detects_while_true_without_break() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = InfiniteLoopDetector::with_path("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("processor.py", "\ndef process():\n    while True:\n        do_something()\n"),
@@ -498,7 +497,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_while_true_with_break() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = InfiniteLoopDetector::with_path("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("processor.py", "\ndef process():\n    while True:\n        data = get_data()\n        if data is None:\n            break\n        handle(data)\n"),

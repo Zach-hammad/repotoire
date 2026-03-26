@@ -7,7 +7,6 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::graph::GraphQueryExt;
-use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use std::path::PathBuf;
@@ -272,7 +271,8 @@ impl super::RegisteredDetector for MissingDocstringsDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::{CodeNode, GraphStore};
+    use crate::graph::{CodeNode};
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_detects_missing_docstring() {
@@ -291,7 +291,7 @@ mod tests {
         )
         .expect("should write test file");
 
-        let store = GraphStore::in_memory();
+        let mut store = GraphBuilder::new();
         let file_path_str = file.to_string_lossy().to_string();
         // Add a function node matching the file (line_end - line_start >= 5)
         store.add_node(
@@ -329,7 +329,7 @@ mod tests {
         )
         .expect("should write test file");
 
-        let store = GraphStore::in_memory();
+        let mut store = GraphBuilder::new();
         let file_path_str = file.to_string_lossy().to_string();
         store.add_node(
             CodeNode::function("calculate_score", &file_path_str)

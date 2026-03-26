@@ -7,7 +7,6 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::graph::GraphQueryExt;
-use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -216,11 +215,11 @@ impl super::RegisteredDetector for WildcardImportsDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_detects_wildcard_import() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = WildcardImportsDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("app.py", "from os.path import *\n\nresult = join(\"/tmp\", \"file.txt\")\n"),
@@ -235,7 +234,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_explicit_import() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = WildcardImportsDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("app.py", "from os.path import join, exists\n\nresult = join(\"/tmp\", \"file.txt\")\n"),
@@ -250,7 +249,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_relative_import_in_init_py() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = WildcardImportsDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("__init__.py", "from .models import *\nfrom .views import *\n"),
@@ -265,7 +264,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_absolute_import_in_init_py() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = WildcardImportsDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("__init__.py", "from django.db.models.fields import *\nfrom os.path import *\n"),
@@ -280,7 +279,7 @@ mod tests {
 
     #[test]
     fn test_still_detects_wildcard_in_regular_file() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = WildcardImportsDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("app.py", "from os.path import *\nresult = join('/tmp', 'file')\n"),

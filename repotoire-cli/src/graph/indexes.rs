@@ -375,7 +375,7 @@ fn compute_import_cycles(graph: &StableGraph<CodeNode, CodeEdge>) -> Vec<Vec<Nod
 /// Compute a fingerprint of all cross-file edges for topology change detection.
 ///
 /// Hashes (source_qn, target_qn, kind) tuples for edges where source and target
-/// are in different files. Replicates the logic from `GraphStore::compute_edge_fingerprint()`.
+/// are in different files. Replicates the logic from `GraphBuilder::compute_edge_fingerprint()`.
 fn compute_edge_fingerprint(graph: &StableGraph<CodeNode, CodeEdge>) -> u64 {
     use std::collections::hash_map::DefaultHasher;
 

@@ -8,7 +8,6 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::graph::GraphQueryExt;
-use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -446,11 +445,11 @@ impl super::RegisteredDetector for DjangoSecurityDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_detects_csrf_exempt() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = DjangoSecurityDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("views.py", "from django.views.decorators.csrf import csrf_exempt\n\n@csrf_exempt\ndef webhook(request):\n    return JsonResponse({\"ok\": True})\n"),
@@ -471,7 +470,7 @@ mod tests {
     #[test]
     fn test_detects_debug_true() {
         // File name must contain "settings" but not "dev" or "local"
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = DjangoSecurityDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("settings.py", "import os\n\nDEBUG = True\nALLOWED_HOSTS = []\n"),
@@ -492,7 +491,7 @@ mod tests {
 
     #[test]
     fn test_detects_raw_sql() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = DjangoSecurityDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("queries.py", "from django.db import connection\n\ndef get_users(name):\n    cursor = connection.cursor()\n    cursor.execute(\"SELECT * FROM users WHERE name = %s\", [name])\n    return cursor.fetchall()\n\ndef get_posts():\n    return Post.objects.raw(\"SELECT * FROM posts\")\n"),
@@ -517,7 +516,7 @@ mod tests {
 
     #[test]
     fn test_detects_wildcard_allowed_hosts() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = DjangoSecurityDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("settings.py", "import os\n\nSECRET_KEY = os.environ['SECRET_KEY']\nDEBUG = False\nALLOWED_HOSTS = ['*']\n"),
@@ -540,7 +539,7 @@ mod tests {
 
     #[test]
     fn test_clean_django_no_findings() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = DjangoSecurityDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("views.py", "from django.http import JsonResponse\nfrom django.views.decorators.http import require_POST\nfrom django.contrib.auth.decorators import login_required\n\n@login_required\n@require_POST\ndef create_item(request):\n    name = request.POST.get('name')\n    item = Item.objects.create(name=name)\n    return JsonResponse({\"id\": item.id})\n\ndef list_items(request):\n    items = Item.objects.filter(active=True).values('id', 'name')\n    return JsonResponse({\"items\": list(items)})\n"),
@@ -555,7 +554,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_debug_in_test_settings() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = DjangoSecurityDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("tests/settings.py", "DEBUG = True\nSECRET_KEY = 'test-secret-key-for-testing'\n"),
@@ -570,7 +569,7 @@ mod tests {
 
     #[test]
     fn test_raw_sql_concat_not_critical_without_user_input() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = DjangoSecurityDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("queries.py", "def get_table_data(table_name):\n    return Model.objects.raw(\"SELECT * FROM \" + table_name)\n"),
@@ -590,7 +589,7 @@ mod tests {
 
     #[test]
     fn test_no_raw_sql_finding_for_db_backend() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = DjangoSecurityDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("db/backends/postgresql/introspection.py", "def get_table_list(self, cursor):\n    cursor.execute(\"SELECT c.relname FROM pg_catalog.pg_class c\")\n"),
@@ -603,7 +602,7 @@ mod tests {
 
     #[test]
     fn test_still_detects_debug_in_production_settings() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = DjangoSecurityDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("settings.py", "import os\n\nDEBUG = True\nALLOWED_HOSTS = []\n"),
@@ -617,7 +616,7 @@ mod tests {
 
     #[test]
     fn test_no_raw_sql_finding_for_orm_internals() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = DjangoSecurityDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("db/models/constraints.py", "def as_sql(self, compiler, connection):\n    return cursor.execute(sql)\n"),
@@ -635,7 +634,7 @@ mod tests {
 
     #[test]
     fn test_no_csrf_finding_for_decorator_definition_module() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = DjangoSecurityDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("views/decorators/csrf.py", "from functools import wraps\n\ndef csrf_exempt(view_func):\n    @wraps(view_func)\n    def wrapper(*args, **kwargs):\n        return view_func(*args, **kwargs)\n    wrapper.csrf_exempt = True\n    return wrapper\n"),
@@ -651,7 +650,7 @@ mod tests {
 
     #[test]
     fn test_no_csrf_finding_for_comment() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = DjangoSecurityDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("views/base.py", "class View:\n    # Copy possible attributes set by decorators, e.g. @csrf_exempt\n    pass\n"),
@@ -667,7 +666,7 @@ mod tests {
 
     #[test]
     fn test_no_raw_sql_finding_for_management_command() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = DjangoSecurityDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("management/commands/loaddata.py", "class Command(BaseCommand):\n    def handle(self):\n        cursor.execute(line)\n"),
@@ -686,7 +685,7 @@ mod tests {
     fn test_raw_sql_with_fstring_is_critical() {
         // cursor.execute(f"SELECT ... {user_input}") should be Critical severity
         // because the f-string indicates user input interpolation.
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = DjangoSecurityDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![(
             "views.py",
@@ -715,7 +714,7 @@ mod tests {
         // cursor.execute("SELECT ... WHERE id=%s", [id]) is parameterized —
         // the detector still flags cursor.execute but at Medium severity
         // (no f-string/request. interpolation markers).
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = DjangoSecurityDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![(
             "queries.py",
@@ -745,7 +744,7 @@ mod tests {
     #[test]
     fn test_safe_orm_rendering_no_findings() {
         // Standard Django ORM queries and template rendering should be clean.
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = DjangoSecurityDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![(
             "views.py",
@@ -763,7 +762,7 @@ mod tests {
 
     #[test]
     fn test_hardcoded_secret_key_in_settings() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = DjangoSecurityDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![(
             "settings.py",

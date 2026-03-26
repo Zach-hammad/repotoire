@@ -8,7 +8,6 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::graph::GraphQueryExt;
-use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -268,11 +267,11 @@ impl super::RegisteredDetector for TodoScanner {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_detects_todo_fixme_hack() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = TodoScanner::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("tasks.py", "def process():\n    # TODO: refactor this function\n    # FIXME: handle edge case\n    # HACK: workaround for upstream bug\n    return 42\n"),
@@ -288,7 +287,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_clean_comments() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = TodoScanner::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("clean.py", "# This function processes data.\n# It handles all edge cases properly.\ndef process():\n    return 42\n"),

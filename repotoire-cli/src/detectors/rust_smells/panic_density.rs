@@ -313,11 +313,11 @@ impl super::super::RegisteredDetector for PanicDensityDetector {
 mod tests {
     use super::*;
     use crate::detectors::base::Detector;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_function_above_threshold() {
-        let graph = GraphStore::in_memory();
+        let graph = GraphBuilder::new().freeze();
         let detector = PanicDensityDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![
             ("test.rs", "\nfn fragile() {\n    let a = foo().unwrap();\n    let b = bar().unwrap();\n    let c = baz().unwrap();\n    let d = qux().expect(\"oops\");\n}\n"),
@@ -332,7 +332,7 @@ mod tests {
     #[test]
     fn test_function_at_threshold_not_flagged() {
         // Exactly 3 calls should NOT be flagged (threshold is >3)
-        let graph = GraphStore::in_memory();
+        let graph = GraphBuilder::new().freeze();
         let detector = PanicDensityDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![
             ("test.rs", "\nfn borderline() {\n    let a = foo().unwrap();\n    let b = bar().unwrap();\n    let c = baz().unwrap();\n}\n"),
@@ -344,7 +344,7 @@ mod tests {
     #[test]
     fn test_file_level_threshold() {
         // 11 unwraps spread across multiple functions, all outside tests
-        let graph = GraphStore::in_memory();
+        let graph = GraphBuilder::new().freeze();
         let detector = PanicDensityDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![
             ("test.rs", "\nfn one() {\n    let a = foo().unwrap();\n    let b = bar().unwrap();\n    let c = baz().unwrap();\n}\nfn two() {\n    let a = foo().unwrap();\n    let b = bar().unwrap();\n    let c = baz().unwrap();\n}\nfn three() {\n    let a = foo().unwrap();\n    let b = bar().unwrap();\n    let c = baz().unwrap();\n}\nfn four() {\n    let a = foo().unwrap();\n    let b = bar().unwrap();\n}\n"),
@@ -361,7 +361,7 @@ mod tests {
 
     #[test]
     fn test_test_code_skipped() {
-        let graph = GraphStore::in_memory();
+        let graph = GraphBuilder::new().freeze();
         let detector = PanicDensityDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![
             ("test.rs", "\n#[cfg(test)]\nmod tests {\n    fn test_something() {\n        let a = foo().unwrap();\n        let b = bar().unwrap();\n        let c = baz().unwrap();\n        let d = qux().unwrap();\n        let e = quux().unwrap();\n    }\n}\n"),
@@ -372,7 +372,7 @@ mod tests {
 
     #[test]
     fn test_panic_macro_counted() {
-        let graph = GraphStore::in_memory();
+        let graph = GraphBuilder::new().freeze();
         let detector = PanicDensityDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![
             ("test.rs", "\nfn panicky() {\n    if bad { panic!(\"oh no\"); }\n    let a = foo().unwrap();\n    let b = bar().unwrap();\n    panic!(\"fatal\");\n}\n"),
@@ -399,7 +399,7 @@ mod tests {
 
     #[test]
     fn test_safe_unwrap_not_counted() {
-        let graph = GraphStore::in_memory();
+        let graph = GraphBuilder::new().freeze();
         let detector = PanicDensityDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![
             ("test.rs", "\nfn init() {\n    REGEX.get_or_init(|| make_regex().unwrap());\n    do_stuff_a();\n    do_stuff_b();\n    do_stuff_c();\n    do_stuff_d();\n    let a = foo().unwrap();\n    let b = bar().unwrap();\n    let c = baz().unwrap();\n    let d = qux().unwrap();\n}\n"),
@@ -412,7 +412,7 @@ mod tests {
 
     #[test]
     fn test_no_findings_for_clean_code() {
-        let graph = GraphStore::in_memory();
+        let graph = GraphBuilder::new().freeze();
         let detector = PanicDensityDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![
             ("test.rs", "\nfn clean() -> Result<(), Error> {\n    let a = foo()?;\n    let b = bar().unwrap_or_default();\n    Ok(())\n}\n"),

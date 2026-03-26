@@ -508,12 +508,13 @@ impl super::RegisteredDetector for LazyClassDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::{CodeEdge, CodeNode, GraphStore};
+    use crate::graph::{CodeEdge, CodeNode};
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_standalone_small_class_not_flagged() {
         // A class with 2 methods, no overlap with anything, not a wrapper → NOT flagged
-        let graph = GraphStore::in_memory();
+        let mut graph = GraphBuilder::new();
 
         graph.add_node(
             CodeNode::class("SmallHelper", "src/helper.py")
@@ -551,7 +552,7 @@ mod tests {
     #[test]
     fn test_overlapping_classes_flagged() {
         // Two classes in the same directory with 3+ matching method names → flagged
-        let graph = GraphStore::in_memory();
+        let mut graph = GraphBuilder::new();
 
         // Class A with 4 methods
         graph.add_node(
@@ -617,7 +618,7 @@ mod tests {
     #[test]
     fn test_data_class_skipped() {
         // Class with only __init__ and __str__ → NOT flagged even if it overlaps
-        let graph = GraphStore::in_memory();
+        let mut graph = GraphBuilder::new();
 
         graph.add_node(
             CodeNode::class("UserData", "src/models.py")
@@ -652,7 +653,7 @@ mod tests {
 
     #[test]
     fn test_error_type_skipped() {
-        let graph = GraphStore::in_memory();
+        let mut graph = GraphBuilder::new();
 
         graph.add_node(
             CodeNode::class("ParseError", "src/errors.py")
@@ -680,7 +681,7 @@ mod tests {
 
     #[test]
     fn test_enum_like_skipped() {
-        let graph = GraphStore::in_memory();
+        let mut graph = GraphBuilder::new();
 
         graph.add_node(
             CodeNode::class("StatusType", "src/types.py")
@@ -708,7 +709,7 @@ mod tests {
 
     #[test]
     fn test_trivial_wrapper_flagged() {
-        let graph = GraphStore::in_memory();
+        let mut graph = GraphBuilder::new();
 
         // The target class that the wrapper delegates to
         graph.add_node(
@@ -780,7 +781,7 @@ mod tests {
     #[test]
     fn test_non_wrapper_not_flagged() {
         // A class that calls methods on multiple different classes → NOT a wrapper
-        let graph = GraphStore::in_memory();
+        let mut graph = GraphBuilder::new();
 
         graph.add_node(
             CodeNode::class("Orchestrator", "src/orchestrator.py")
@@ -838,7 +839,7 @@ mod tests {
     #[test]
     fn test_overlap_not_flagged_when_too_few_matches() {
         // Two classes sharing only 2 method names (below threshold of 3) → NOT flagged
-        let graph = GraphStore::in_memory();
+        let mut graph = GraphBuilder::new();
 
         graph.add_node(
             CodeNode::class("AlphaWorker", "src/workers.py")
@@ -886,7 +887,7 @@ mod tests {
 
     #[test]
     fn test_overlap_severity_medium_when_no_callers() {
-        let graph = GraphStore::in_memory();
+        let mut graph = GraphBuilder::new();
 
         // Two classes with 3 overlapping methods, no external callers
         graph.add_node(
@@ -977,7 +978,7 @@ mod tests {
 
     #[test]
     fn test_interface_skipped_by_qn() {
-        let graph = GraphStore::in_memory();
+        let mut graph = GraphBuilder::new();
 
         graph.add_node(
             CodeNode::class("Stringer", "pkg/fmt/stringer.go")
@@ -999,7 +1000,7 @@ mod tests {
 
     #[test]
     fn test_record_skipped_by_qn() {
-        let graph = GraphStore::in_memory();
+        let mut graph = GraphBuilder::new();
 
         graph.add_node(
             CodeNode::class("UserRecord", "src/main/java/UserRecord.java")
@@ -1018,7 +1019,7 @@ mod tests {
 
     #[test]
     fn test_rust_trait_skipped_by_qn() {
-        let graph = GraphStore::in_memory();
+        let mut graph = GraphBuilder::new();
 
         graph.add_node(
             CodeNode::class("GraphQuery", "src/graph/traits.rs")

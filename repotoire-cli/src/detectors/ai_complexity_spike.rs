@@ -15,7 +15,6 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::graph::GraphQueryExt;
-use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use std::collections::HashMap;
@@ -568,7 +567,7 @@ impl super::RegisteredDetector for AIComplexitySpikeDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::{CodeNode, GraphStore};
+    use crate::graph::{CodeNode};
 
     #[test]
     fn test_compute_baseline() {
@@ -627,7 +626,7 @@ mod tests {
     #[test]
     fn test_detects_complexity_outlier() {
         use crate::graph::CodeEdge;
-        let store = crate::graph::GraphStore::in_memory();
+        let mut store = crate::graph::GraphBuilder::new();
 
         // Add 10 normal-complexity functions (complexity 3-5)
         for i in 0..10 {
@@ -682,7 +681,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_normal_complexity() {
-        let store = crate::graph::GraphStore::in_memory();
+        let mut store = crate::graph::GraphBuilder::new();
 
         // Add 20 functions all with normal complexity (3-7)
         for i in 0..20 {

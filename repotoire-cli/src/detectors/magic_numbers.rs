@@ -677,11 +677,11 @@ impl super::RegisteredDetector for MagicNumbersDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_detects_magic_number() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = MagicNumbersDetector::new("/mock/repo");
         // 9999 is a 4-digit number NOT in the acceptable set.
         // Must appear in 2+ files to be flagged (single-file findings are dropped).
@@ -707,7 +707,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_acceptable_numbers() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = MagicNumbersDetector::new("/mock/repo");
         let ctx =
             crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
@@ -727,7 +727,7 @@ mod tests {
 
     #[test]
     fn test_skips_named_constants() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = MagicNumbersDetector::new("/mock/repo");
         let ctx =
             crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
@@ -747,7 +747,7 @@ mod tests {
 
     #[test]
     fn test_skips_bit_operations() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = MagicNumbersDetector::new("/mock/repo");
         let ctx =
             crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
@@ -767,7 +767,7 @@ mod tests {
 
     #[test]
     fn test_skips_match_arms() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = MagicNumbersDetector::new("/mock/repo");
         let ctx =
             crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
@@ -787,7 +787,7 @@ mod tests {
 
     #[test]
     fn test_skips_float_literals() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = MagicNumbersDetector::new("/mock/repo");
         let ctx =
             crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
@@ -807,7 +807,7 @@ mod tests {
 
     #[test]
     fn test_skips_enum_values() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = MagicNumbersDetector::new("/mock/repo");
         let ctx =
             crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
@@ -827,7 +827,7 @@ mod tests {
 
     #[test]
     fn test_skips_assertions() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = MagicNumbersDetector::new("/mock/repo");
         let ctx =
             crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
@@ -847,7 +847,7 @@ mod tests {
 
     #[test]
     fn test_skips_range_expressions() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = MagicNumbersDetector::new("/mock/repo");
         let ctx =
             crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
@@ -867,7 +867,7 @@ mod tests {
 
     #[test]
     fn test_detects_real_magic_number_in_business_logic() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = MagicNumbersDetector::new("/mock/repo");
         // 9999 must appear in 2+ files to be flagged (single-file findings are dropped).
         let ctx =
@@ -903,7 +903,7 @@ mod tests {
 
     #[test]
     fn test_skips_test_file_paths() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = MagicNumbersDetector::new("/mock/repo");
         let ctx =
             crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(

@@ -26,7 +26,6 @@ use crate::calibrate::MetricKind;
 use crate::graph::GraphQueryExt;
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::detectors::function_context::FunctionRole;
-use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use std::collections::HashSet;
@@ -678,7 +677,7 @@ mod tests {
 
     #[test]
     fn test_detect_no_findings_on_empty_graph() {
-        let graph = GraphStore::in_memory();
+        let graph = crate::graph::builder::GraphBuilder::new().freeze();
         let ctx = AnalysisContext::test(&graph);
         let detector = LongParameterListDetector::new();
         let findings = detector.detect(&ctx).unwrap();

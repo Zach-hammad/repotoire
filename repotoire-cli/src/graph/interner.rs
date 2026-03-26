@@ -20,10 +20,10 @@ pub type StrKey = Spur;
 /// Global interner singleton — used by CodeNode convenience builders
 /// (CodeNode::function(), CodeNode::file(), CodeNode::class(), etc.)
 /// so that nodes can be constructed without needing a reference to a
-/// specific GraphStore.
+/// specific GraphBuilder.
 ///
-/// In production, GraphStore also uses this same interner so all StrKeys
-/// are compatible. Tests that create a standalone GraphStore::in_memory()
+/// In production, GraphBuilder also uses this same interner so all StrKeys
+/// are compatible. Tests that create a standalone GraphBuilder::new().freeze()
 /// share this interner too since it's a global singleton.
 static GLOBAL_INTERNER: LazyLock<StringInterner> = LazyLock::new(StringInterner::new);
 

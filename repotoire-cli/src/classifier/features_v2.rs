@@ -442,7 +442,8 @@ fn category_ordinal(detector: &str) -> f64 {
 mod tests {
     use super::*;
     use crate::graph::store_models::CodeNode;
-    use crate::graph::{CodeEdge, GraphStore};
+    use crate::graph::{CodeEdge};
+    use crate::graph::builder::GraphBuilder;
     use crate::graph::traits::GraphQueryExt;
     use std::collections::HashMap;
     use std::path::PathBuf;
@@ -468,36 +469,36 @@ mod tests {
         }
     }
 
-    fn make_graph() -> GraphStore {
-        let store = GraphStore::in_memory();
+    fn make_graph() -> crate::graph::CodeGraph {
+        let mut builder = GraphBuilder::new();
 
         let func = CodeNode::function("handle_query", "src/api/users.py")
             .with_qualified_name("src.api.users.handle_query")
             .with_lines(10, 50)
             .with_property("complexity", 8)
             .with_property("nesting_depth", 3);
-        store.add_node(func);
+        builder.add_node(func);
 
         // 3 callers (fan_in=3)
         for i in 0..3 {
             let name = format!("caller_{i}");
-            store.add_node(
+            builder.add_node(
                 CodeNode::function(&name, "src/other.py")
                     .with_qualified_name(&name),
             );
-            store.add_edge_by_name(&name, "src.api.users.handle_query", CodeEdge::calls());
+            builder.add_edge_by_name(&name, "src.api.users.handle_query", CodeEdge::calls());
         }
         // 2 callees (fan_out=2)
         for i in 0..2 {
             let name = format!("callee_{i}");
-            store.add_node(
+            builder.add_node(
                 CodeNode::function(&name, "src/other.py")
                     .with_qualified_name(&name),
             );
-            store.add_edge_by_name("src.api.users.handle_query", &name, CodeEdge::calls());
+            builder.add_edge_by_name("src.api.users.handle_query", &name, CodeEdge::calls());
         }
 
-        store
+        builder.freeze()
     }
 
     // -----------------------------------------------------------------------
@@ -705,8 +706,9 @@ mod tests {
             .with_lines(1, 100);
 
         // Graph has only a class, no function covering line 5.
-        let graph = GraphStore::in_memory();
-        graph.add_node(cls);
+        let mut builder = GraphBuilder::new();
+        builder.add_node(cls);
+        let graph = builder.freeze();
 
         let features = extractor.extract(&finding, Some(&graph), None, None);
         // entity_type should be 2.0 (class)
@@ -718,11 +720,12 @@ mod tests {
         let extractor = FeatureExtractorV2::new();
         let finding = make_finding();
 
-        let graph = GraphStore::in_memory();
-        graph.add_node(CodeNode::file("src/api/users.py"));
-        graph.add_node(CodeNode::file("src/api/orders.py"));
-        graph.add_edge_by_name("src/api/users.py", "src/api/orders.py", CodeEdge::imports());
-        graph.add_edge_by_name("src/api/orders.py", "src/api/users.py", CodeEdge::imports());
+        let mut builder = GraphBuilder::new();
+        builder.add_node(CodeNode::file("src/api/users.py"));
+        builder.add_node(CodeNode::file("src/api/orders.py"));
+        builder.add_edge_by_name("src/api/users.py", "src/api/orders.py", CodeEdge::imports());
+        builder.add_edge_by_name("src/api/orders.py", "src/api/users.py", CodeEdge::imports());
+        let graph = builder.freeze();
 
         let features = extractor.extract(&finding, Some(&graph), None, None);
         // File is in a cycle.

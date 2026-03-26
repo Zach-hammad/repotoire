@@ -7,7 +7,6 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::graph::GraphQueryExt;
-use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -289,11 +288,11 @@ impl super::RegisteredDetector for TestInProductionDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_detects_mock_in_production_code() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = TestInProductionDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("service.py", "\nfrom unittest.mock import Mock\n\ndef get_client():\n    client = Mock()\n    return client\n"),
@@ -308,7 +307,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_clean_production_code() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = TestInProductionDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("service.py", "\nimport os\n\ndef get_config():\n    return os.environ.get(\"APP_CONFIG\", \"default\")\n\ndef process_data(data):\n    return [item.strip() for item in data]\n"),

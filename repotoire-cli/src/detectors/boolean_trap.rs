@@ -8,7 +8,6 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::graph::GraphQueryExt;
-use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -247,11 +246,11 @@ impl super::RegisteredDetector for BooleanTrapDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_detects_boolean_trap() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = BooleanTrapDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("caller.py", "def main():\n    process(data, True, False)\n"),
@@ -271,7 +270,7 @@ mod tests {
     #[test]
     fn test_no_finding_without_multiple_booleans() {
         // Only one boolean argument - no trap
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = BooleanTrapDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("caller.py", "def main():\n    process(data, True)\n"),

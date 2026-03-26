@@ -163,9 +163,9 @@ fn test_is_pub_api_surface() {
 #[test]
 fn test_exported_functions_are_skipped() {
     use crate::graph::store_models::{CodeNode, FLAG_IS_EXPORTED};
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
-    let store = GraphStore::in_memory();
+    let mut store = GraphBuilder::new();
 
     // Add an exported function with no callers
     let mut func = CodeNode::function("my_api", "src/lib.rs")
@@ -198,9 +198,9 @@ fn test_exported_functions_are_skipped() {
 #[test]
 fn test_decorated_functions_are_skipped() {
     use crate::graph::store_models::{CodeNode, FLAG_HAS_DECORATORS};
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
-    let store = GraphStore::in_memory();
+    let mut store = GraphBuilder::new();
 
     // Add a decorated function with no callers
     let mut func = CodeNode::function("route_handler", "src/routes.py")
@@ -221,9 +221,9 @@ fn test_decorated_functions_are_skipped() {
 #[test]
 fn test_address_taken_functions_are_skipped() {
     use crate::graph::store_models::{CodeNode, FLAG_ADDRESS_TAKEN};
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
-    let store = GraphStore::in_memory();
+    let mut store = GraphBuilder::new();
 
     // Add a function whose address is taken (used as callback)
     let mut func = CodeNode::function("my_callback", "src/events.rs")
@@ -244,9 +244,9 @@ fn test_address_taken_functions_are_skipped() {
 #[test]
 fn test_dunder_methods_are_skipped() {
     use crate::graph::store_models::CodeNode;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
-    let store = GraphStore::in_memory();
+    let mut store = GraphBuilder::new();
 
     // Add a dunder method with no callers
     let func = CodeNode::function("__repr__", "src/model.py")
@@ -267,9 +267,9 @@ fn test_dunder_methods_are_skipped() {
 fn test_test_functions_skipped_via_role() {
     use crate::detectors::function_context::FunctionContext as FuncCtx;
     use crate::graph::store_models::CodeNode;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
-    let store = GraphStore::in_memory();
+    let mut store = GraphBuilder::new();
 
     let func = CodeNode::function("verify_output", "tests/test_api.py")
         .with_qualified_name("tests/test_api.py::verify_output");
@@ -313,9 +313,9 @@ fn test_test_functions_skipped_via_role() {
 fn test_entry_point_role_skipped() {
     use crate::detectors::function_context::FunctionContext as FuncCtx;
     use crate::graph::store_models::CodeNode;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
-    let store = GraphStore::in_memory();
+    let mut store = GraphBuilder::new();
 
     let func = CodeNode::function("app_entry", "src/main.py")
         .with_qualified_name("src/main.py::app_entry");
@@ -358,9 +358,9 @@ fn test_entry_point_role_skipped() {
 fn test_hub_role_skipped() {
     use crate::detectors::function_context::FunctionContext as FuncCtx;
     use crate::graph::store_models::CodeNode;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
-    let store = GraphStore::in_memory();
+    let mut store = GraphBuilder::new();
 
     let func = CodeNode::function("dispatch", "src/core.rs")
         .with_qualified_name("src/core.rs::dispatch");
@@ -402,9 +402,9 @@ fn test_hub_role_skipped() {
 #[test]
 fn test_hmm_handler_skipped() {
     use crate::graph::store_models::CodeNode;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
-    let store = GraphStore::in_memory();
+    let mut store = GraphBuilder::new();
 
     let func = CodeNode::function("on_message", "src/events.py")
         .with_qualified_name("src/events.py::on_message");
@@ -429,9 +429,9 @@ fn test_hmm_handler_skipped() {
 #[test]
 fn test_trait_impl_method_skipped_in_detection() {
     use crate::graph::store_models::CodeNode;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
-    let store = GraphStore::in_memory();
+    let mut store = GraphBuilder::new();
 
     // A trait impl method: QN has impl<Trait for Type> pattern
     let func = CodeNode::function("detect", "src/detectors/god_class.rs")
@@ -463,9 +463,9 @@ fn test_trait_impl_method_skipped_in_detection() {
 #[test]
 fn test_uncalled_function_is_flagged() {
     use crate::graph::store_models::CodeNode;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
-    let store = GraphStore::in_memory();
+    let mut store = GraphBuilder::new();
 
     // A plain function with no callers, no flags, not in test path
     let func = CodeNode::function("unused_helper", "src/core.rs")

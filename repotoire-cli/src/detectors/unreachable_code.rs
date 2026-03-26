@@ -447,13 +447,14 @@ impl super::RegisteredDetector for UnreachableCodeDetector {
 mod tests {
     use super::*;
     use crate::graph::store_models::ExtraProps;
-    use crate::graph::{CodeEdge, CodeNode, GraphStore};
+    use crate::graph::{CodeEdge, CodeNode};
+    use crate::graph::builder::GraphBuilder;
 
     // ── Verify no dead function findings ─────────────────────────────────
 
     #[test]
     fn test_no_dead_function_findings() {
-        let graph = GraphStore::in_memory();
+        let mut graph = GraphBuilder::new();
         graph.add_node(
             CodeNode::function("dead_func", "src/utils.py")
                 .with_qualified_name("utils::dead_func")
@@ -890,7 +891,7 @@ function foo() {
 
     #[test]
     fn test_rust_cfg_test_attribute_skipped() {
-        let graph = GraphStore::in_memory();
+        let mut graph = GraphBuilder::new();
         let i = graph.interner();
 
         let func = CodeNode::function("helper_in_test", "src/lib.rs")
@@ -913,7 +914,7 @@ function foo() {
 
     #[test]
     fn test_rust_cfg_feature_attribute_skipped() {
-        let graph = GraphStore::in_memory();
+        let mut graph = GraphBuilder::new();
         let i = graph.interner();
 
         let func = CodeNode::function("optional_feature", "src/lib.rs")
@@ -936,7 +937,7 @@ function foo() {
 
     #[test]
     fn test_rust_test_attribute_skipped() {
-        let graph = GraphStore::in_memory();
+        let mut graph = GraphBuilder::new();
         let i = graph.interner();
 
         let func = CodeNode::function("my_test", "src/lib.rs")
@@ -959,7 +960,7 @@ function foo() {
 
     #[test]
     fn test_rust_bench_attribute_skipped() {
-        let graph = GraphStore::in_memory();
+        let mut graph = GraphBuilder::new();
         let i = graph.interner();
 
         let func = CodeNode::function("bench_algo", "src/bench.rs")
@@ -982,7 +983,7 @@ function foo() {
 
     #[test]
     fn test_rust_multiple_attrs_with_cfg() {
-        let graph = GraphStore::in_memory();
+        let mut graph = GraphBuilder::new();
         let i = graph.interner();
 
         let func = CodeNode::function("complex_func", "src/lib.rs")
@@ -1005,7 +1006,7 @@ function foo() {
 
     #[test]
     fn test_rust_non_conditional_attr_not_skipped() {
-        let graph = GraphStore::in_memory();
+        let mut graph = GraphBuilder::new();
         let i = graph.interner();
 
         let func = CodeNode::function("normal_func", "src/lib.rs")
@@ -1028,7 +1029,7 @@ function foo() {
 
     #[test]
     fn test_rust_no_extra_props_not_skipped() {
-        let graph = GraphStore::in_memory();
+        let mut graph = GraphBuilder::new();
 
         let func = CodeNode::function("bare_func", "src/lib.rs")
             .with_qualified_name("lib::bare_func")
@@ -1410,8 +1411,8 @@ export function Broken() {
         use std::path::Path;
         use std::sync::Arc;
 
-        // Leak a GraphStore so we can return AnalysisContext<'static>
-        let graph: &'static GraphStore = Box::leak(Box::new(GraphStore::in_memory()));
+        // Leak a GraphBuilder so we can return AnalysisContext<'static>
+        let graph: &'static crate::graph::CodeGraph = Box::leak(Box::new(GraphBuilder::new().freeze()));
 
         let file_data = vec![(
             PathBuf::from(filename),

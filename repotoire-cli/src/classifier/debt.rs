@@ -213,26 +213,27 @@ pub fn compute_debt(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::{CodeEdge, CodeNode, GraphStore, NodeKind};
+    use crate::graph::{CodeEdge, CodeNode, NodeKind};
+    use crate::graph::builder::GraphBuilder;
     use std::collections::HashMap;
     use std::path::PathBuf;
 
-    /// Build a GraphStore-based mock with files, functions, and fake call edges.
-    fn build_mock_graph() -> GraphStore {
-        let store = GraphStore::in_memory();
+    /// Build a mock graph with files, functions, and fake call edges.
+    fn build_mock_graph() -> crate::graph::CodeGraph {
+        let mut builder = GraphBuilder::new();
 
         // File node
         let mut file_node = CodeNode::new(NodeKind::File, "src/main.rs", "src/main.rs");
         file_node.line_start = 1;
         file_node.line_end = 500;
-        store.add_node(file_node);
+        builder.add_node(file_node);
 
         // Functions
-        store.add_node(
+        builder.add_node(
             CodeNode::new(NodeKind::Function, "main", "src/main.rs")
                 .with_qualified_name("main"),
         );
-        store.add_node(
+        builder.add_node(
             CodeNode::new(NodeKind::Function, "helper", "src/main.rs")
                 .with_qualified_name("helper"),
         );
@@ -240,26 +241,26 @@ mod tests {
         // Fake callers: 3 callers for each function (fan_in=3)
         for i in 0..3 {
             let caller_name = format!("caller_{i}");
-            store.add_node(
+            builder.add_node(
                 CodeNode::new(NodeKind::Function, &caller_name, "src/other.rs")
                     .with_qualified_name(&caller_name),
             );
-            store.add_edge_by_name(&caller_name, "main", CodeEdge::calls());
-            store.add_edge_by_name(&caller_name, "helper", CodeEdge::calls());
+            builder.add_edge_by_name(&caller_name, "main", CodeEdge::calls());
+            builder.add_edge_by_name(&caller_name, "helper", CodeEdge::calls());
         }
 
         // Fake callees: 2 callees for each function (fan_out=2)
         for i in 0..2 {
             let callee_name = format!("callee_{i}");
-            store.add_node(
+            builder.add_node(
                 CodeNode::new(NodeKind::Function, &callee_name, "src/other.rs")
                     .with_qualified_name(&callee_name),
             );
-            store.add_edge_by_name("main", &callee_name, CodeEdge::calls());
-            store.add_edge_by_name("helper", &callee_name, CodeEdge::calls());
+            builder.add_edge_by_name("main", &callee_name, CodeEdge::calls());
+            builder.add_edge_by_name("helper", &callee_name, CodeEdge::calls());
         }
 
-        store
+        builder.freeze()
     }
 
     fn make_finding(path: &str, severity: Severity) -> Finding {
@@ -306,16 +307,17 @@ mod tests {
 
     #[test]
     fn test_debt_scoring_empty() {
-        let store = GraphStore::in_memory();
+        let mut builder = GraphBuilder::new();
         let mut file_node = CodeNode::new(NodeKind::File, "src/lib.rs", "src/lib.rs");
         file_node.line_start = 1;
         file_node.line_end = 100;
-        store.add_node(file_node);
+        builder.add_node(file_node);
+        let graph = builder.freeze();
 
         let findings: Vec<Finding> = vec![];
         let churn: HashMap<String, (f64, usize, f64)> = HashMap::new();
 
-        let debts = compute_debt(&findings, &store, &churn, &DebtWeights::default());
+        let debts = compute_debt(&findings, &graph, &churn, &DebtWeights::default());
 
         assert!(
             debts.is_empty(),

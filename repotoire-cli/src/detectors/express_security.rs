@@ -7,7 +7,6 @@
 //! - Trace error handling coverage
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -451,11 +450,11 @@ impl super::RegisteredDetector for ExpressSecurityDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_detects_missing_helmet() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = ExpressSecurityDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("app.js", "const express = require('express');\nconst app = express();\n\napp.get('/api/users', (req, res) => {\n  res.json({ users: [] });\n});\n\napp.post('/api/users', (req, res) => {\n  res.json({ created: true });\n});\n\napp.listen(3000);\n"),
@@ -472,7 +471,7 @@ mod tests {
 
     #[test]
     fn test_secure_express_fewer_findings() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = ExpressSecurityDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("server.js", "const express = require('express');\nconst helmet = require('helmet');\nconst cors = require('cors');\nconst rateLimit = require('express-rate-limit');\n\nconst app = express();\napp.use(helmet());\napp.use(cors());\napp.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 100 }));\napp.use(express.json({ limit: '10kb' }));\n\napp.get('/api/data', (req, res) => {\n  res.json({ ok: true });\n});\n\napp.listen(3000);\n"),
@@ -496,7 +495,7 @@ mod tests {
 
     #[test]
     fn test_non_express_file_no_findings() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = ExpressSecurityDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("utils.js", "function add(a, b) {\n  return a + b;\n}\n\nfunction multiply(a, b) {\n  return a * b;\n}\n\nmodule.exports = { add, multiply };\n"),
@@ -514,7 +513,7 @@ mod tests {
     fn test_express_app_without_helmet_or_rate_limit() {
         // An Express app with many routes but no helmet or rate limiting
         // should produce findings for both.
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = ExpressSecurityDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![(
             "server.js",
@@ -538,7 +537,7 @@ mod tests {
     #[test]
     fn test_express_with_helmet_no_helmet_finding() {
         // An Express app with helmet() installed should NOT produce a helmet finding.
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = ExpressSecurityDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![(
             "app.js",
@@ -558,7 +557,7 @@ mod tests {
     fn test_express_with_cors_has_cors_detected() {
         // An Express app using cors() should have has_cors = true,
         // so the security score includes CORS points.
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = ExpressSecurityDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![(
             "app.js",
@@ -580,7 +579,7 @@ mod tests {
     #[test]
     fn test_express_missing_error_handler_with_many_routes() {
         // An Express app with >3 routes and no error handler should be flagged.
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = ExpressSecurityDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![(
             "app.js",
@@ -601,7 +600,7 @@ mod tests {
     #[test]
     fn test_express_with_error_handler_no_error_finding() {
         // An Express app with a proper error handler should not produce that finding.
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = ExpressSecurityDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![(
             "app.js",

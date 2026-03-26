@@ -10,7 +10,7 @@ use std::path::Path;
 
 /// Input for the score stage.
 pub struct ScoreInput<'a> {
-    /// The graph — any type that implements GraphQuery (CodeGraph, GraphStore, etc.).
+    /// The graph — any type that implements GraphQuery (CodeGraph, etc.).
     pub graph: &'a dyn GraphQuery,
     pub findings: &'a [Finding],
     pub project_config: &'a ProjectConfig,

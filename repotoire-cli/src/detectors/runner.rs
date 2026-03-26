@@ -371,13 +371,13 @@ pub fn sort_findings_deterministic(findings: &mut [Finding]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
     use crate::models::Severity;
     use std::path::PathBuf;
 
     #[test]
     fn test_run_detectors_empty() {
-        let graph = GraphStore::in_memory();
+        let graph = GraphBuilder::new().freeze();
         let ctx = AnalysisContext::test(&graph);
         let (findings, bypass_set) = run_detectors(&[], &ctx, 1);
         assert!(findings.is_empty());

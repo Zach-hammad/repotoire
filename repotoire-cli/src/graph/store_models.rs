@@ -73,7 +73,7 @@ impl CodeNode {
         }
     }
 
-    // --- Convenience builders (use GraphStore's interner) ---
+    // --- Convenience builders (use GraphBuilder's interner) ---
 
     /// Create a new CodeNode with the given kind, name, and file_path.
     /// The qualified_name defaults to `file_path::name`.

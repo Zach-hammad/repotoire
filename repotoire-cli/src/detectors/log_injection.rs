@@ -2,7 +2,6 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::detectors::taint::{TaintAnalyzer, TaintCategory};
-use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -172,11 +171,11 @@ impl super::RegisteredDetector for LogInjectionDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_detects_user_input_in_log() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = LogInjectionDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("app.py", "import logging\n\ndef handle_request(request):\n    username = request.get(\"user\")\n    logging.info(f\"Login attempt for user: {username}\")\n"),
@@ -194,7 +193,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_static_log() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = LogInjectionDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("app.py", "import logging\n\ndef startup():\n    logging.info(\"Application started successfully\")\n    logging.debug(\"Debug mode enabled\")\n"),
@@ -209,7 +208,7 @@ mod tests {
 
     #[test]
     fn test_detects_console_log_with_user_input_js() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = LogInjectionDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("server.js", "function handleLogin(req, res) {\n    const username = req.body.username;\n    console.log(`Login attempt: ${req.body.username}`);\n    res.sendStatus(200);\n}\n"),
@@ -227,7 +226,7 @@ mod tests {
 
     #[test]
     fn test_detects_logger_with_user_input_python() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = LogInjectionDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("views.py", "import logging\nlogger = logging.getLogger(__name__)\n\ndef process_request(request):\n    user_agent = request.headers.get('User-Agent')\n    logger.info(f\"Request from user agent: {user_agent}\")\n"),
@@ -245,7 +244,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_log_pattern_in_string_literal() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = LogInjectionDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("config.js", "const config = {\n    message: \"Use console.log for debugging\",\n    level: \"info\"\n};\n"),
@@ -260,7 +259,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_log_without_interpolation() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = LogInjectionDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("app.js", "function handleRequest(req) {\n    console.log(\"Received request from user\");\n    processData(req);\n}\n"),

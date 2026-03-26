@@ -9,7 +9,6 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::graph::GraphQueryExt;
-use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -417,11 +416,11 @@ impl super::RegisteredDetector for ReactHooksDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_hook_in_conditional() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = ReactHooksDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("Component.tsx", "function MyComponent({ show }) {\n  if (show) {\n    const [val, setVal] = useState(0);\n  }\n  return <div />;\n}\n"),
@@ -439,7 +438,7 @@ mod tests {
 
     #[test]
     fn test_hook_in_loop() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = ReactHooksDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("LoopComponent.tsx", "function ListComponent({ items }) {\n  for (let i = 0; i < items.length; i++) {\n    const [val, setVal] = useState(items[i]);\n  }\n  return <div />;\n}\n"),
@@ -457,7 +456,7 @@ mod tests {
 
     #[test]
     fn test_correct_hook_usage_no_findings() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = ReactHooksDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("GoodComponent.tsx", "function GoodComponent({ items }) {\n  const [count, setCount] = useState(0);\n  const [name, setName] = useState(\"\");\n  useEffect(() => {\n    console.log(count);\n  }, [count]);\n  return <div>{count} {name}</div>;\n}\n"),
@@ -472,7 +471,7 @@ mod tests {
 
     #[test]
     fn test_hook_in_nested_function() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = ReactHooksDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("NestedComponent.tsx", "function ParentComponent() {\n  function helperFunc() {\n    const [state, setState] = useState(0);\n    return state;\n  }\n  return <div />;\n}\n"),
@@ -493,7 +492,7 @@ mod tests {
 
     #[test]
     fn test_use_effect_in_conditional() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = ReactHooksDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![(
             "ConditionalEffect.tsx",
@@ -517,7 +516,7 @@ mod tests {
 
     #[test]
     fn test_hooks_in_custom_hook_no_findings() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = ReactHooksDetector::new("/mock/repo");
         // Custom hooks (functions starting with "use" + uppercase) are valid hook containers.
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![(
@@ -536,7 +535,7 @@ mod tests {
 
     #[test]
     fn test_hook_in_map_callback() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = ReactHooksDetector::new("/mock/repo");
         // The loop_pattern regex requires .map( at the start of the line (after whitespace),
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![(
@@ -559,7 +558,7 @@ mod tests {
 
     #[test]
     fn test_hooks_in_pascal_case_component_no_findings() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = ReactHooksDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![(
             "UserProfile.tsx",

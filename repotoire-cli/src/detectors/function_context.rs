@@ -7,6 +7,7 @@
 
 use crate::graph::interner::StrKey;
 use crate::graph::{GraphQuery, GraphQueryExt};
+    use crate::graph::builder::GraphBuilder;
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use tracing::{debug, info};
@@ -559,10 +560,11 @@ impl<'a> FunctionContextBuilder<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::{CodeEdge, CodeNode, GraphStore};
+    use crate::graph::{CodeEdge, CodeNode};
+    use crate::graph::builder::GraphBuilder;
 
-    fn setup_test_graph() -> GraphStore {
-        let store = GraphStore::in_memory();
+    fn setup_test_graph() -> crate::graph::CodeGraph {
+        let mut builder = GraphBuilder::new();
 
         // Create a simple call graph:
         // entry1 -> hub -> util
@@ -570,30 +572,30 @@ mod tests {
         // entry3 -> hub
         // hub -> leaf1, leaf2
 
-        store.add_node(CodeNode::function("entry1", "cmd/main.go").with_qualified_name("entry1"));
-        store.add_node(CodeNode::function("entry2", "cmd/cli.go").with_qualified_name("entry2"));
-        store
+        builder.add_node(CodeNode::function("entry1", "cmd/main.go").with_qualified_name("entry1"));
+        builder.add_node(CodeNode::function("entry2", "cmd/cli.go").with_qualified_name("entry2"));
+        builder
             .add_node(CodeNode::function("entry3", "api/handler.go").with_qualified_name("entry3"));
-        store.add_node(CodeNode::function("hub", "core/processor.go").with_qualified_name("hub"));
-        store.add_node(CodeNode::function("util", "utils/helpers.go").with_qualified_name("util"));
-        store.add_node(
+        builder.add_node(CodeNode::function("hub", "core/processor.go").with_qualified_name("hub"));
+        builder.add_node(CodeNode::function("util", "utils/helpers.go").with_qualified_name("util"));
+        builder.add_node(
             CodeNode::function("leaf1", "core/processor.go").with_qualified_name("leaf1"),
         );
-        store.add_node(
+        builder.add_node(
             CodeNode::function("leaf2", "core/processor.go").with_qualified_name("leaf2"),
         );
 
         // Edges
-        store.add_edge_by_name("entry1", "hub", CodeEdge::calls());
-        store.add_edge_by_name("entry2", "hub", CodeEdge::calls());
-        store.add_edge_by_name("entry3", "hub", CodeEdge::calls());
-        store.add_edge_by_name("hub", "util", CodeEdge::calls());
-        store.add_edge_by_name("hub", "leaf1", CodeEdge::calls());
-        store.add_edge_by_name("hub", "leaf2", CodeEdge::calls());
-        store.add_edge_by_name("entry1", "util", CodeEdge::calls());
-        store.add_edge_by_name("entry2", "util", CodeEdge::calls());
+        builder.add_edge_by_name("entry1", "hub", CodeEdge::calls());
+        builder.add_edge_by_name("entry2", "hub", CodeEdge::calls());
+        builder.add_edge_by_name("entry3", "hub", CodeEdge::calls());
+        builder.add_edge_by_name("hub", "util", CodeEdge::calls());
+        builder.add_edge_by_name("hub", "leaf1", CodeEdge::calls());
+        builder.add_edge_by_name("hub", "leaf2", CodeEdge::calls());
+        builder.add_edge_by_name("entry1", "util", CodeEdge::calls());
+        builder.add_edge_by_name("entry2", "util", CodeEdge::calls());
 
-        store
+        builder.freeze()
     }
 
     #[test]
@@ -621,8 +623,8 @@ mod tests {
 
     #[test]
     fn test_is_utility_module() {
-        let store = GraphStore::in_memory();
-        let builder = FunctionContextBuilder::new(&store);
+        let graph = GraphBuilder::new().freeze();
+        let builder = FunctionContextBuilder::new(&graph);
 
         assert!(builder.is_utility_module("src/utils/helpers.py"));
         assert!(builder.is_utility_module("lib/common/utils.ts"));
@@ -631,8 +633,8 @@ mod tests {
 
     #[test]
     fn test_is_test_path() {
-        let store = GraphStore::in_memory();
-        let builder = FunctionContextBuilder::new(&store);
+        let graph = GraphBuilder::new().freeze();
+        let builder = FunctionContextBuilder::new(&graph);
 
         assert!(builder.is_test_path("src/tests/test_auth.py"));
         assert!(builder.is_test_path("pkg/auth/auth_test.go"));

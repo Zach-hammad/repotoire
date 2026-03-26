@@ -11,6 +11,7 @@ use petgraph::stable_graph::{NodeIndex, StableGraph};
 use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 use petgraph::Direction;
 use std::collections::{HashMap, HashSet};
+use std::sync::OnceLock;
 
 use super::frozen::CodeGraph;
 use super::indexes::GraphIndexes;
@@ -85,6 +86,10 @@ pub struct GraphBuilder {
     edge_set: HashSet<(NodeIndex, NodeIndex, EdgeKind)>,
     /// Extra (cold) properties stored per qualified_name StrKey.
     extra_props: HashMap<StrKey, ExtraProps>,
+    /// Lazily-built frozen snapshot for `GraphQuery` trait impl.
+    /// Built on first trait method call; NOT invalidated by mutations.
+    /// Intended for test code that builds a graph then queries it.
+    query_snapshot: OnceLock<CodeGraph>,
 }
 
 impl GraphBuilder {
@@ -97,7 +102,24 @@ impl GraphBuilder {
             node_index: HashMap::new(),
             edge_set: HashSet::new(),
             extra_props: HashMap::new(),
+            query_snapshot: OnceLock::new(),
         }
+    }
+
+    /// Get or build the frozen query snapshot for `GraphQuery` trait access.
+    ///
+    /// Built lazily on first call by cloning the current graph state.
+    /// NOT invalidated by subsequent mutations — intended for test code.
+    pub(crate) fn snapshot(&self) -> &CodeGraph {
+        self.query_snapshot.get_or_init(|| {
+            let indexes = GraphIndexes::build(&self.graph, &self.node_index, None);
+            CodeGraph::from_parts(
+                self.graph.clone(),
+                self.node_index.clone(),
+                self.extra_props.clone(),
+                indexes,
+            )
+        })
     }
 
     /// Access the global string interner.
@@ -559,6 +581,7 @@ impl GraphBuilder {
             node_index,
             edge_set,
             extra_props,
+            query_snapshot: OnceLock::new(),
         }
     }
 }

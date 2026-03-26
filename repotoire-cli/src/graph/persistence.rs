@@ -2,7 +2,7 @@
 //!
 //! Serializes the StableGraph, node_index, and extra_props to a bincode file.
 //! Indexes are NOT serialized — they are rebuilt via `GraphIndexes::build()`
-//! on load. This matches the existing `GraphStore` cache format for compatibility.
+//! on load. This matches the existing `GraphBuilder` cache format for compatibility.
 
 use anyhow::{Context, Result};
 use petgraph::stable_graph::{NodeIndex, StableGraph};

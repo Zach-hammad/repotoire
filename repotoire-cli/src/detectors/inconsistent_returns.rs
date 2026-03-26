@@ -8,7 +8,6 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::graph::GraphQueryExt;
-use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use std::path::PathBuf;
@@ -441,7 +440,8 @@ impl super::RegisteredDetector for InconsistentReturnsDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::{CodeNode, GraphStore};
+    use crate::graph::{CodeNode};
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_detects_inconsistent_returns() {
@@ -457,7 +457,7 @@ mod tests {
 "#;
         std::fs::write(&file, code).expect("should write test file");
 
-        let store = GraphStore::in_memory();
+        let mut store = GraphBuilder::new();
         let file_path = file.to_string_lossy().to_string();
         let func = CodeNode::function("find_item", &file_path)
             .with_qualified_name("logic::find_item")
@@ -489,7 +489,7 @@ mod tests {
 "#;
         std::fs::write(&file, code).expect("should write test file");
 
-        let store = GraphStore::in_memory();
+        let mut store = GraphBuilder::new();
         let file_path = file.to_string_lossy().to_string();
         let func = CodeNode::function("add", &file_path)
             .with_qualified_name("logic::add")
@@ -518,7 +518,7 @@ mod tests {
 "#;
         std::fs::write(&file, code).expect("should write test file");
 
-        let store = GraphStore::in_memory();
+        let mut store = GraphBuilder::new();
         let file_path = file.to_string_lossy().to_string();
         let func = CodeNode::function("test_find_item", &file_path)
             .with_qualified_name("test_logic::test_find_item")
@@ -548,7 +548,7 @@ mod tests {
 "#;
         std::fs::write(&file, code).expect("should write test file");
 
-        let store = GraphStore::in_memory();
+        let mut store = GraphBuilder::new();
         let file_path = file.to_string_lossy().to_string();
         let func = CodeNode::function("create_user", &file_path)
             .with_qualified_name("factory::create_user")
@@ -579,7 +579,7 @@ mod tests {
 "#;
         std::fs::write(&file, code).expect("should write test file");
 
-        let store = GraphStore::in_memory();
+        let mut store = GraphBuilder::new();
         let file_path = file.to_string_lossy().to_string();
         let func = CodeNode::function("process_request", &file_path)
             .with_qualified_name("handler::process_request")

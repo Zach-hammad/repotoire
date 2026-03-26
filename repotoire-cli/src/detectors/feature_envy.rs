@@ -25,7 +25,6 @@
 use crate::detectors::base::{Detector, DetectorConfig, DetectorScope};
 use crate::graph::GraphQueryExt;
 use crate::detectors::function_context::{FunctionContext, FunctionContextMap, FunctionRole};
-use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use std::collections::HashSet;

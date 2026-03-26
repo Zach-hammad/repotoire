@@ -956,11 +956,11 @@ impl super::RegisteredDetector for NPlusOneDetector {
 mod tests {
     use super::*;
     use crate::detectors::analysis_context::AnalysisContext;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_ecosystem_gate_no_db_project() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = NPlusOneDetector::new("/mock/repo");
         let ctx = AnalysisContext::test_with_mock_files(
             &store,

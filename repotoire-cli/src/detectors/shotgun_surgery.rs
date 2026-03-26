@@ -362,14 +362,15 @@ impl super::RegisteredDetector for ShotgunSurgeryDetector {
 mod tests {
     use super::*;
     use crate::detectors::analysis_context::AnalysisContext;
-    use crate::graph::{CodeEdge, CodeNode, GraphStore};
+    use crate::graph::{CodeEdge, CodeNode};
+    use crate::graph::builder::GraphBuilder;
     use crate::git::co_change::CoChangeMatrix;
     use std::sync::Arc;
 
     #[test]
     fn test_no_co_change_data_returns_empty() {
         // When co_change_matrix is None, detector must return zero findings.
-        let graph = GraphStore::in_memory();
+        let mut graph = GraphBuilder::new();
 
         graph.add_node(
             CodeNode::function("do_work", "src/big.py")
@@ -402,7 +403,7 @@ mod tests {
     #[test]
     fn test_no_propagation_not_flagged() {
         // A function with high fan-in but no co-change propagation should NOT be flagged.
-        let graph = GraphStore::in_memory();
+        let mut graph = GraphBuilder::new();
 
         graph.add_node(
             CodeNode::function("stable_api", "src/stable.py")

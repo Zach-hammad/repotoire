@@ -1,6 +1,6 @@
 //! Standalone metrics cache for cross-phase metric reuse.
 //!
-//! Extracted from `GraphStore`'s `metrics_cache: DashMap<String, f64>` field.
+//! Extracted from `GraphBuilder`'s `metrics_cache: DashMap<String, f64>` field.
 //! This is a simple concurrent key-value store used by detectors to cache
 //! computed metrics (e.g., degree centrality, modularity) that are then
 //! reused by the scoring phase.

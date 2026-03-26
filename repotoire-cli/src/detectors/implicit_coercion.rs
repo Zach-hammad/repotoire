@@ -8,7 +8,6 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::graph::GraphQueryExt;
-use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -223,11 +222,11 @@ impl super::RegisteredDetector for ImplicitCoercionDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_detects_loose_equality() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = ImplicitCoercionDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("check.js", "function check(value) {\n    if (value == 'hello') {\n        return true;\n    }\n}\n"),
@@ -246,7 +245,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_strict_equality() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = ImplicitCoercionDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("check.js", "function check(value) {\n    if (value === 'hello') {\n        return true;\n    }\n}\n"),

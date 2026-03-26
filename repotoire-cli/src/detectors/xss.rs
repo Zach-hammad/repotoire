@@ -2,7 +2,6 @@
 
 use crate::detectors::base::{is_test_file, Detector, DetectorConfig};
 use crate::detectors::taint::{TaintAnalysisResult, TaintAnalyzer, TaintCategory};
-use crate::graph::GraphStore;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -252,11 +251,11 @@ impl super::RegisteredDetector for XssDetector {
 mod tests {
     use super::*;
     use crate::detectors::base::Detector;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_detects_innerhtml_with_user_input() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = XssDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("vuln.js", "function renderContent(user_input) {\n    document.getElementById(\"output\").innerHTML = user_input;\n}\n"),
@@ -279,7 +278,7 @@ mod tests {
 
     #[test]
     fn test_no_findings_for_textcontent() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = XssDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("safe.js", "function renderContent(data) {\n    document.getElementById(\"output\").textContent = data;\n}\n"),
@@ -294,7 +293,7 @@ mod tests {
 
     #[test]
     fn test_detects_document_write_in_js() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = XssDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("handler.js", "function showMessage(req) {\n    const msg = req.query.message;\n    document.write(req.query.message);\n}\n"),
@@ -312,7 +311,7 @@ mod tests {
 
     #[test]
     fn test_detects_dangerously_set_innerhtml_in_tsx() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = XssDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("component.tsx", "function UserProfile(props) {\n    return <div dangerouslySetInnerHTML={{ __html: props.bio }} />;\n}\n"),
@@ -330,7 +329,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_innerhtml_in_comment() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = XssDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("safe.js", "function render() {\n    // Never use innerHTML with user input\n    document.getElementById(\"out\").textContent = \"safe\";\n}\n"),
@@ -348,7 +347,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_innerhtml_in_string_literal() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = XssDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("safe.js", "function getDocs() {\n    const help = \"Use textContent instead of innerHTML for safety\";\n    return help;\n}\n"),

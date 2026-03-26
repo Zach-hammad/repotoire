@@ -415,7 +415,7 @@ mod tests {
     use super::*;
     use crate::detectors::detector_context::ContentFlags;
     use crate::detectors::file_provider::FileProvider;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
     /// Build an AnalysisContext with sample files for file-provider tests.
     fn make_ctx_with_sample_files(graph: &dyn GraphQuery) -> AnalysisContext<'_> {
@@ -438,7 +438,7 @@ mod tests {
 
     #[test]
     fn test_constructor_creates_valid_context() {
-        let graph = GraphStore::in_memory();
+        let graph = GraphBuilder::new().freeze();
         let ctx = AnalysisContext::test(&graph);
 
         assert_eq!(ctx.repo_path(), Path::new("/mock/repo"));
@@ -449,7 +449,7 @@ mod tests {
 
     #[test]
     fn test_constructor_with_files() {
-        let graph = GraphStore::in_memory();
+        let graph = GraphBuilder::new().freeze();
         let file_data = vec![(
             PathBuf::from("main.rs"),
             Arc::from("fn main() {}"),
@@ -467,14 +467,14 @@ mod tests {
 
     #[test]
     fn test_repo_path() {
-        let graph = GraphStore::in_memory();
+        let graph = GraphBuilder::new().freeze();
         let ctx = make_ctx_with_sample_files(&graph);
         assert_eq!(ctx.repo_path(), Path::new("/mock/repo"));
     }
 
     #[test]
     fn test_file_provider_shim_files_with_extension() {
-        let graph = GraphStore::in_memory();
+        let graph = GraphBuilder::new().freeze();
         let ctx = make_ctx_with_sample_files(&graph);
         let shim = ctx.as_file_provider();
 
@@ -488,7 +488,7 @@ mod tests {
 
     #[test]
     fn test_file_provider_shim_files_with_extensions() {
-        let graph = GraphStore::in_memory();
+        let graph = GraphBuilder::new().freeze();
         let ctx = make_ctx_with_sample_files(&graph);
         let shim = ctx.as_file_provider();
 
@@ -498,7 +498,7 @@ mod tests {
 
     #[test]
     fn test_file_provider_shim_content() {
-        let graph = GraphStore::in_memory();
+        let graph = GraphBuilder::new().freeze();
         let ctx = make_ctx_with_sample_files(&graph);
         let shim = ctx.as_file_provider();
 
@@ -512,7 +512,7 @@ mod tests {
 
     #[test]
     fn test_file_provider_shim_files_returns_empty() {
-        let graph = GraphStore::in_memory();
+        let graph = GraphBuilder::new().freeze();
         let ctx = make_ctx_with_sample_files(&graph);
         let shim = ctx.as_file_provider();
 
@@ -522,7 +522,7 @@ mod tests {
 
     #[test]
     fn test_file_provider_shim_repo_path() {
-        let graph = GraphStore::in_memory();
+        let graph = GraphBuilder::new().freeze();
         let ctx = make_ctx_with_sample_files(&graph);
         let shim = ctx.as_file_provider();
 

@@ -7,7 +7,6 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::graph::GraphQueryExt;
-use crate::graph::GraphStore;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use std::collections::HashSet;
@@ -427,11 +426,11 @@ impl super::RegisteredDetector for EmptyCatchDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::GraphStore;
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_detects_empty_except_pass_in_python() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = EmptyCatchDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("handler.py", "def process():\n    try:\n        do_something()\n    except:\n        pass\n"),
@@ -450,7 +449,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_handled_exception() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = EmptyCatchDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("handler.py", "def process():\n    try:\n        do_something()\n    except ValueError as e:\n        logger.error(e)\n"),
@@ -465,7 +464,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_except_importerror_pass() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = EmptyCatchDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("optional.py", "try:\n    import yaml\nexcept ImportError:\n    pass\n"),
@@ -480,7 +479,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_except_keyerror_pass_single_line() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = EmptyCatchDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("lookup.py", "try:\n    value = cache[key]\nexcept KeyError:\n    pass\n"),
@@ -495,7 +494,7 @@ mod tests {
 
     #[test]
     fn test_still_detects_bare_except_pass() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = EmptyCatchDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("bad.py", "try:\n    do_something()\nexcept:\n    pass\n"),
@@ -514,7 +513,7 @@ mod tests {
 
     #[test]
     fn test_still_detects_except_exception_pass() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = EmptyCatchDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("bad.py", "try:\n    do_something()\nexcept Exception:\n    pass\n"),
@@ -533,7 +532,7 @@ mod tests {
 
     #[test]
     fn test_specific_exception_gets_low_severity() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = EmptyCatchDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("views.py", "def get_user(pk):\n    try:\n        return User.objects.get(pk=pk)\n    except User.DoesNotExist:\n        pass\n"),
@@ -547,7 +546,7 @@ mod tests {
 
     #[test]
     fn test_broad_except_gets_higher_severity() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = EmptyCatchDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("handler.py", "def process():\n    try:\n        do_something()\n    except Exception:\n        pass\n"),
@@ -561,7 +560,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_cleanup_method() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = EmptyCatchDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("response.py", "class Response:\n    def close(self):\n        for closer in self._closers:\n            try:\n                closer()\n            except Exception:\n                pass\n"),
@@ -576,7 +575,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_exit_method() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = EmptyCatchDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("cursor.py", "class Cursor:\n    def __exit__(self, exc_type, exc_val, tb):\n        try:\n            self.close()\n        except db.Error:\n            pass\n"),
@@ -591,7 +590,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_import_probing_with_broad_except() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = EmptyCatchDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("compat.py", "try:\n    from yaml import CSafeLoader as SafeLoader\nexcept Exception:\n    pass\n"),
@@ -606,7 +605,7 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_safe_single_line_probe() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = EmptyCatchDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("utils.py", "def get_size(f):\n    try:\n        return os.path.getsize(f.name)\n    except (OSError, TypeError):\n        pass\n"),
@@ -621,7 +620,7 @@ mod tests {
 
     #[test]
     fn test_still_detects_broad_except_in_regular_function() {
-        let store = GraphStore::in_memory();
+        let store = GraphBuilder::new().freeze();
         let detector = EmptyCatchDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("handler.py", "def process_data():\n    try:\n        result = complex_operation()\n        save_to_db(result)\n    except Exception:\n        pass\n"),
