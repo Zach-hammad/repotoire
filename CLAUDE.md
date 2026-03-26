@@ -4,7 +4,7 @@ This file provides essential guidance to Claude Code (claude.ai/code) and develo
 
 ## Project Overview
 
-Repotoire is a graph-powered code health platform that analyzes codebases using knowledge graphs to detect code smells, architectural issues, and technical debt. Unlike traditional linters that examine files in isolation, Repotoire builds a **petgraph in-memory graph with redb persistence** combining:
+Repotoire is a graph-powered code health platform that analyzes codebases using knowledge graphs to detect code smells, architectural issues, and technical debt. Unlike traditional linters that examine files in isolation, Repotoire builds a **petgraph in-memory graph** combining:
 - **Structural analysis** (tree-sitter AST parsing across 9 languages)
 - **Relational patterns** (graph algorithms via petgraph)
 
@@ -125,9 +125,9 @@ During **Freeze**, `GraphPrimitives::compute()` runs Phase A algorithms (dominat
 
 1. **Parsers** (`repotoire-cli/src/parsers/`): 9 tree-sitter parsers — Python, TypeScript/JavaScript (with TSX), Rust, Go, Java, C#, C, C++, plus a lightweight fallback parser. Cross-language nesting depth enrichment via brace/indent counting. 2MB file size guardrail. Header file (`.h`) dispatch heuristic for C vs C++.
 
-2. **Graph Layer** (`repotoire-cli/src/graph/`): Two-phase graph: `GraphBuilder` (mutable, used during parse/build/git-enrich) → `CodeGraph` (frozen, immutable, O(1) indexed queries via pre-built `GraphIndexes`). `GraphStore` is legacy/test-only. String interning via `lasso` (`ThreadedRodeo`) for ~66% memory savings. Compact node types (`CompactNode` at ~32 bytes vs ~200 bytes for `CodeNode`) defined in `interner.rs` for future large-repo support. `GraphQuery` trait (24 methods) for backend-agnostic access. Fan-in/fan-out metrics, Tarjan SCC cycle detection. `GraphPrimitives` (computed once during freeze) provides pre-computed dominator trees, articulation points, PageRank, betweenness centrality, call-graph SCCs, weighted PageRank, weighted betweenness, and Louvain community detection — all O(1) lookups from detectors.
+2. **Graph Layer** (`repotoire-cli/src/graph/`): Two-phase graph: `GraphBuilder` (mutable, `&mut self`, used during parse/build/git-enrich) → `CodeGraph` (frozen, immutable, O(1) indexed queries via pre-built `GraphIndexes`). `GraphBuilder.freeze()` produces `CodeGraph`; no locks or interior mutability. String interning via `lasso` (`ThreadedRodeo`) for ~66% memory savings. Compact node types (`CompactNode` at ~32 bytes vs ~200 bytes for `CodeNode`) defined in `interner.rs` for future large-repo support. `GraphQuery` trait (24 core methods) + `GraphQueryExt` (blanket extension trait with convenience methods). Graph primitives accessed via `graph.primitives()`. Fan-in/fan-out metrics, Tarjan SCC cycle detection. `GraphPrimitives` (computed once during freeze) provides pre-computed dominator trees, articulation points, PageRank, betweenness centrality, call-graph SCCs, weighted PageRank, weighted betweenness, and Louvain community detection — all O(1) lookups from detectors.
 
-3. **Engine** (`repotoire-cli/src/engine/`): `AnalysisEngine` is the primary analysis orchestrator. Runs 8 stages in order: collect, parse, graph, git_enrich, calibrate, detect, postprocess, score. Returns `AnalysisResult` (findings + score + stats). Stateful: supports cold, cached, and incremental modes. Persistence via `save()`/`load()` for cross-process incremental analysis. `AnalysisConfig` controls analysis parameters; `OutputOptions` handles presentation. Stage implementations live in `engine/stages/`.
+3. **Engine** (`repotoire-cli/src/engine/`): `AnalysisEngine` is the primary analysis orchestrator. Runs 8 stages in order: collect, parse, graph, git_enrich, calibrate, detect, postprocess, score. Returns `AnalysisResult` (findings + score + stats). Stateful: supports cold, cached, and incremental modes. Session persistence via `save()`/`load()` stores `engine_session.json` + `graph.bin` + `precomputed.json` in `~/.cache/repotoire/<repo>/session/`. Incremental detection with per-scope handling: FileLocal detectors re-run on changed files, FileScopedGraph/GraphWide cached findings carry-forward. `AnalysisConfig` controls analysis parameters; `OutputOptions` handles presentation. Stage implementations live in `engine/stages/`.
 
 4. **Detectors** (`repotoire-cli/src/detectors/`): 106 pure Rust detectors split into two tiers: 73 default (security, bugs, performance, architecture) in `DEFAULT_DETECTOR_FACTORIES` and 33 deep-scan (code smells, style, dead code) in `DEEP_ONLY_DETECTOR_FACTORIES`. Deep-scan detectors run only with `--all-detectors`. No external tool dependencies — all analysis runs in-process. `RegisteredDetector` trait + compile-time factory registries. `create_default_detectors()` for normal mode, `create_all_detectors()` for deep mode. `run_detectors()` (in `runner.rs`) executes them in parallel via rayon. Security detectors use SSA-based intra-function taint analysis via tree-sitter ASTs. Graph-primitive detectors read pre-computed algorithms at O(1) via `GraphQuery`.
 
@@ -143,7 +143,7 @@ During **Freeze**, `GraphPrimitives::compute()` runs Phase A algorithms (dominat
 
 10. **Models** (`repotoire-cli/src/models.rs`): `Finding` (with severity, CWE IDs, confidence, affected files), `Severity` levels (Critical, High, Medium, Low, Info).
 
-11. **Git Co-Change** (`repotoire-cli/src/git/co_change.rs`): `CoChangeMatrix` computes decay-weighted file-pair co-change frequencies from git history. Exponential decay with configurable half-life (default 90 days). Used by `GraphPrimitives` to build a weighted overlay graph for Phase B algorithms (weighted PageRank, weighted betweenness, Louvain communities). Configured via `[co_change]` section in `repotoire.toml`.
+11. **Git Co-Change** (`repotoire-cli/src/git/co_change.rs`): `CoChangeMatrix` tracks integer counts (pair_counts, file_counts, coupling_degrees) alongside decay-weighted file-pair co-change frequencies from git history. Exponential decay with configurable half-life (default 90 days). Used by hidden coupling (Bayesian lift), change coupling (propagation rates), and community detection. Used by `GraphPrimitives` to build a weighted overlay graph for Phase B algorithms (weighted PageRank, weighted betweenness, Louvain communities). Configured via `[co_change]` section in `repotoire.toml`.
 
 12. **Predictive Coding** (`repotoire-cli/src/predictive/`): Hierarchical predictive coding engine applying Friston's free energy formalism to code analysis. Five hierarchy levels independently model "what's normal" and compute prediction errors (z-scores): L1 Token (per-language n-gram), L2 Structural (Mahalanobis distance on function feature vectors), L1.5 Dependency Chain (surprisal along call-graph paths), L3 Relational (per-edge-type node2vec embeddings + kNN cosine distance), L4 Architectural (module-level distributional outlier detection). Severity driven by concordance (how many levels agree something is surprising) with precision-weighted aggregation.
 
@@ -174,17 +174,25 @@ Grouped by category:
 | **Dependency Audit** | 1 | Multi-ecosystem vulnerability audit via OSV.dev API |
 | **Predictive** | 1 | N-gram surprisal anomaly detection (conditional) |
 
-**Cross-Detector Infrastructure**: Voting engine (multi-detector consensus), health score delta calculator (fix impact estimation), risk analyzer (compound risk assessment), root cause analyzer, incremental cache, content classifier, context HMM, data flow / SSA taint analysis, function/class context inference, framework detection for FP reduction, AST fingerprinting.
+**Cross-Detector Infrastructure**: Voting engine (multi-detector consensus), health score delta calculator (fix impact estimation), risk analyzer (compound risk assessment), root cause analyzer, incremental cache, content classifier, context HMM, data flow / SSA taint analysis, function/class context inference, framework detection for FP reduction, AST fingerprinting. `is_network_bound()` trait method skips network detectors (e.g., DepAuditDetector) in incremental mode. `is_non_production_file()` downgrades findings in scripts/benchmarks/tools to LOW severity. Postprocessor `filter_inline_suppressed()` respects `repotoire:ignore` on any finding. Five detectors migrated from filesystem walks to `AnalysisContext` `FileProvider`.
 
 **Inline Suppression**: `// repotoire:ignore` (all detectors) or `// repotoire:ignore[detector-name]` (targeted). Supports `#`, `//`, `/*`, `--` comment styles.
 
 ## Design Decisions (Key Points)
 
-### Why petgraph + redb?
+### Why petgraph?
 - **petgraph**: In-memory directed graph with mature algorithm library (SCC, BFS, DFS)
-- **redb**: Embedded ACID key-value store — zero network overhead, no external database to manage
-- Together they provide fast in-process graph analysis with optional on-disk persistence
+- Session persistence via JSON + bincode (`engine_session.json`, `graph.bin`, `precomputed.json`)
 - No Docker, no Redis, no connection pooling — just a single binary
+
+### Why GraphBuilder over GraphStore?
+- `GraphBuilder` uses `&mut self` (no locks), produces `CodeGraph` via `freeze()`
+- `GraphStore` was RwLock-based with interior mutability — removed in v0.5.1
+- Simpler ownership model, no runtime lock contention
+
+### Why Claude Code hook over MCP?
+- Zero-config pre-commit hook via installer
+- No MCP server needed — Claude Code hook runs repotoire automatically before commits
 
 ### Why Pure Rust Detectors?
 - **Zero dependencies**: No Python, Node, or external tools to install
@@ -204,31 +212,34 @@ Grouped by category:
 
 ## Incremental Analysis
 
-Repotoire provides faster re-analysis through a findings-level cache that skips re-running detectors on unchanged files.
+Repotoire provides session-based incremental analysis with full graph and findings persistence.
+
+### Session Persistence
+
+Analysis state is persisted to `~/.cache/repotoire/<repo>/session/`:
+- **`engine_session.json`** — file hashes, detector metadata, version info
+- **`graph.bin`** — serialized `CodeGraph` (bincode), loaded directly on incremental runs (no rebuild)
+- **`precomputed.json`** — `PrecomputedAnalysis` (lazy loading, no file I/O at load time)
+
+### Performance
+
+| Mode | Time |
+|------|------|
+| Cold (first run) | ~17s |
+| Cached (no changes) | ~1.3s |
+| Incremental (1 file changed) | ~1.4s |
 
 ### How It Works
 
-1. **SipHash Content Hashing**: Each file's content is hashed with `DefaultHasher` (SipHash) and compared to the cached hash
-2. **Findings Cache**: Detector results for unchanged files are loaded from a local JSON cache file (`~/.cache/repotoire/<repo-hash>/incremental/findings_cache.json`)
-3. **Auto-Incremental Mode**: When a warm cache exists, incremental mode activates automatically
-4. **Binary Version Invalidation**: Cache is automatically invalidated when the Repotoire binary version changes
-5. **Cache Schema Versioning**: Internal `CACHE_VERSION` triggers rebuild on schema changes
-
-### What Is and Isn't Cached
-
-- **Cached**: Per-file detector findings, parse results (skip tree-sitter re-parsing), graph-level detector results, health scores
-- **Not cached**: The graph itself — petgraph is always rebuilt from scratch on every run
-- **Pruning**: Stale entries for deleted files are automatically removed
-
-### Fast Path
-
-When no files have changed, the analyze command can return fully cached scores and findings without running any detectors or rebuilding the graph.
-
-### Key Files
-
-- `repotoire-cli/src/detectors/incremental_cache.rs` — `IncrementalCache` with SipHash, version tracking, pruning
-- `repotoire-cli/src/cli/analyze/setup.rs` — Auto-incremental mode detection
-- `repotoire-cli/src/cli/analyze/mod.rs` — Fast-path cached result return
+1. **Session Load**: `AnalysisEngine::load()` restores the full session — graph, precomputed analysis, file hashes
+2. **Change Detection**: SipHash content hashing identifies changed files
+3. **Per-Scope Handling**:
+   - **FileLocal** detectors: re-run only on changed files
+   - **FileScopedGraph / GraphWide** detectors: cached findings carry-forward from previous session
+4. **Network-Bound Skipping**: Detectors with `is_network_bound() == true` (e.g., DepAuditDetector) are skipped in incremental mode
+5. **Graph Reuse**: Loaded `CodeGraph` used directly on incremental-after-load (no rebuild)
+6. **Deterministic**: Identical scores and findings across runs with the same inputs
+7. **Binary Version Invalidation**: Session is automatically invalidated when the Repotoire binary version changes
 
 ## Formal Verification (Lean 4)
 
@@ -319,7 +330,7 @@ cargo test detectors::god_class
 
 ### Implemented
 - Pure Rust CLI (93k+ lines) with clap 4
-- petgraph in-memory graph with redb persistence
+- petgraph in-memory graph with session persistence (JSON + bincode)
 - String interning via lasso for memory efficiency
 - 9 tree-sitter language parsers (Python, TypeScript/JavaScript, Rust, Go, Java, C#, C, C++, lightweight fallback)
 - 106 pure Rust detectors: 73 default (security, bugs, perf, architecture) + 33 deep-scan (`--all-detectors`)
@@ -327,7 +338,7 @@ cargo test detectors::god_class
 - Three-pillar health scoring with flat severity weights (Critical=5, High=2, Medium=0.5, Low=0.1) and graph-derived bonuses
 - Compound smell escalation (arXiv:2509.03896)
 - Adaptive threshold calibration with n-gram surprisal
-- Findings-level incremental cache with auto-detection
+- Session-based incremental analysis (cold ~17s, cached ~1.3s, incremental 1-file ~1.4s)
 - 5 report formats (text, JSON, HTML, SARIF 2.1.0, Markdown)
 - **Redesigned text output**: themed "What stands out" + "Quick wins" sections, score delta on subsequent runs, first-run tips
 - **Graph-powered HTML report**: SVG architecture map, hotspot treemap, bus factor visualization, narrative story generator, finding cards with inline code snippets, README badge snippet
@@ -345,11 +356,14 @@ cargo test detectors::god_class
 - **`--relaxed` deprecated**: replaced by `--severity high` (deprecation warning shown)
 
 - **GitHub Action**: `Zach-hammad/repotoire-action@v1` (separate repo) — composite action with PR diff mode, PR commenting, SARIF upload, quality gates
+- **Claude Code hook integration**: Zero-config pre-commit guardrail via installer
+- **GraphQuery / GraphQueryExt split**: 24 core methods + blanket extension trait
+- **Detector rearchitecture**: `is_network_bound()`, `is_non_production_file()`, `filter_inline_suppressed()` postprocessor, FileProvider migration
 
 ### Planned
 - Web dashboard
-- IDE plugins (VS Code, JetBrains)
 - GitHub App (check run annotations)
+- JetBrains plugin
 - Custom rule engine
 - Team analytics
 
@@ -357,7 +371,6 @@ cargo test detectors::god_class
 
 ### Core (from Cargo.toml)
 - **petgraph** (0.7): In-memory directed graph
-- **redb** (2.4): Embedded ACID key-value store for graph persistence
 - **clap** (4): CLI framework with derive macros
 - **serde** / **serde_json** (1): Serialization
 - **rayon** (1.11): Data parallelism for detectors and parsing
@@ -420,7 +433,6 @@ cargo test detectors::god_class
 ## References
 
 - [petgraph Documentation](https://docs.rs/petgraph/)
-- [redb Documentation](https://docs.rs/redb/)
 - [Tree-sitter](https://tree-sitter.github.io/)
 - [clap Framework](https://docs.rs/clap/)
 - [rayon (Data Parallelism)](https://docs.rs/rayon/)
