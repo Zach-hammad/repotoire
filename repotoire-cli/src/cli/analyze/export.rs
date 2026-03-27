@@ -101,7 +101,7 @@ pub fn export_training_data(
             weight: label.weight,
             label_source: label.source.to_string(),
             detector: finding.detector.clone(),
-            severity: format!("{:?}", finding.severity).to_lowercase(),
+            severity: finding.severity.to_string(),
             file: file_path,
             feature_names: FEATURE_NAMES.to_vec(),
         });

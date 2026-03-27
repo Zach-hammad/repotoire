@@ -1,19 +1,18 @@
 //! Text (terminal) reporter with colors and formatting
 
-use crate::models::{HealthReport, Severity};
+use crate::models::{Grade, HealthReport, Severity};
 use crate::reporters::report_context::ReportContext;
 use anyhow::Result;
 use std::collections::HashMap;
 
 /// Grade colors (ANSI escape codes)
-fn grade_color(grade: &str) -> &'static str {
+fn grade_color(grade: &Grade) -> &'static str {
     match grade {
-        "A" => "\x1b[32m", // Green
-        "B" => "\x1b[92m", // Light green
-        "C" => "\x1b[33m", // Yellow
-        "D" => "\x1b[91m", // Light red
-        "F" => "\x1b[31m", // Red
-        _ => "\x1b[0m",
+        Grade::APlus | Grade::A | Grade::AMinus => "\x1b[32m", // Green
+        Grade::BPlus | Grade::B | Grade::BMinus => "\x1b[92m", // Light green
+        Grade::CPlus | Grade::C | Grade::CMinus => "\x1b[33m", // Yellow
+        Grade::DPlus | Grade::D | Grade::DMinus => "\x1b[91m", // Light red
+        Grade::F => "\x1b[31m",                                 // Red
     }
 }
 
@@ -161,17 +160,18 @@ pub fn render(report: &HealthReport) -> Result<String> {
     }
 
     // Tips based on grade
-    match report.grade.as_str() {
-        "A" => out.push_str(&format!("{DIM}Excellent! Keep up the good work.{RESET}\n")),
-        "B" => out.push_str(&format!(
+    match report.grade {
+        Grade::APlus | Grade::A | Grade::AMinus => {
+            out.push_str(&format!("{DIM}Excellent! Keep up the good work.{RESET}\n"));
+        }
+        Grade::BPlus | Grade::B | Grade::BMinus => out.push_str(&format!(
             "{DIM}Good shape. Address remaining issues for an A.{RESET}\n"
         )),
-        "C" | "D" | "F" => {
+        _ => {
             out.push_str(&format!(
                 "{DIM}Run `repotoire findings -i` for interactive review.{RESET}\n"
             ));
         }
-        _ => {}
     }
 
     Ok(out)
@@ -537,7 +537,7 @@ mod tests {
         ReportContext {
             health: HealthReport {
                 overall_score: 82.5,
-                grade: "B".into(),
+                grade: Grade::B,
                 structure_score: 85.0,
                 quality_score: 80.0,
                 architecture_score: Some(82.0),

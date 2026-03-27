@@ -52,7 +52,7 @@ impl WorkerHandler {
             Ok(result) => {
                 let elapsed_ms = start.elapsed().as_millis() as u64;
                 let score = result.score.overall;
-                let grade = result.score.grade.clone();
+                let grade = result.score.grade;
                 let findings = result.findings;
                 self.engine = Some(engine);
                 vec![Event::Ready {
@@ -89,7 +89,7 @@ impl WorkerHandler {
                     score: delta.score,
                     grade: engine
                         .last_result()
-                        .map(|r| r.score.grade.clone())
+                        .map(|r| r.score.grade)
                         .unwrap_or_default(),
                     score_delta: delta.score_delta,
                     total_findings: delta.total_findings,
@@ -101,7 +101,7 @@ impl WorkerHandler {
                 vec![Event::Unchanged {
                     id: Some(id),
                     score: last.map(|r| r.score.overall).unwrap_or(0.0),
-                    grade: last.map(|r| r.score.grade.clone()).unwrap_or_default(),
+                    grade: last.map(|r| r.score.grade).unwrap_or_default(),
                     total_findings: last.map(|r| r.findings.len()).unwrap_or(0),
                     elapsed_ms: 0,
                 }]
@@ -128,7 +128,7 @@ impl WorkerHandler {
             Ok(result) => {
                 let elapsed_ms = start.elapsed().as_millis() as u64;
                 let score = result.score.overall;
-                let grade = result.score.grade.clone();
+                let grade = result.score.grade;
                 vec![Event::Ready {
                     id: Some(id),
                     findings: result.findings,

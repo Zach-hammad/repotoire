@@ -21,13 +21,16 @@ use anyhow::{anyhow, Result};
 use std::str::FromStr;
 
 /// Supported output formats
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum OutputFormat {
     Text,
     Json,
     Sarif,
     Html,
     Markdown,
+    /// Table format (used by `graph` command)
+    Table,
 }
 
 impl FromStr for OutputFormat {
@@ -40,8 +43,9 @@ impl FromStr for OutputFormat {
             "sarif" => Ok(OutputFormat::Sarif),
             "html" => Ok(OutputFormat::Html),
             "markdown" | "md" => Ok(OutputFormat::Markdown),
+            "table" => Ok(OutputFormat::Table),
             _ => Err(anyhow!(
-                "Unknown format '{}'. Valid formats: text, json, sarif, html, markdown",
+                "Unknown format '{}'. Valid formats: text, json, sarif, html, markdown, table",
                 s
             )),
         }
@@ -56,6 +60,7 @@ impl std::fmt::Display for OutputFormat {
             OutputFormat::Sarif => write!(f, "sarif"),
             OutputFormat::Html => write!(f, "html"),
             OutputFormat::Markdown => write!(f, "markdown"),
+            OutputFormat::Table => write!(f, "table"),
         }
     }
 }
@@ -74,6 +79,7 @@ pub fn report_with_format(report: &HealthReport, format: OutputFormat) -> Result
         OutputFormat::Sarif => sarif::render(report),
         OutputFormat::Html => html::render(report),
         OutputFormat::Markdown => markdown::render(report),
+        OutputFormat::Table => text::render(report), // Table falls back to text for reports
     }
 }
 
@@ -90,6 +96,7 @@ pub fn report_with_context(
         OutputFormat::Json => json::render(&ctx.health),
         OutputFormat::Sarif => sarif::render(&ctx.health),
         OutputFormat::Markdown => markdown::render(&ctx.health),
+        OutputFormat::Table => text::render_with_context(ctx), // Table falls back to text for reports
     }
 }
 
@@ -97,7 +104,7 @@ pub fn report_with_context(
 #[allow(dead_code)] // Public API helper
 pub fn file_extension(format: OutputFormat) -> &'static str {
     match format {
-        OutputFormat::Text => "txt",
+        OutputFormat::Text | OutputFormat::Table => "txt",
         OutputFormat::Json => "json",
         OutputFormat::Sarif => "sarif.json",
         OutputFormat::Html => "html",
@@ -111,7 +118,7 @@ pub(crate) mod tests {
 
     /// Create a minimal HealthReport for testing
     pub(crate) fn test_report() -> HealthReport {
-        use crate::models::{Finding, FindingsSummary, Severity};
+        use crate::models::{Finding, FindingsSummary, Grade, Severity};
 
         let findings = vec![Finding {
             id: "f1".into(),
@@ -127,7 +134,7 @@ pub(crate) mod tests {
 
         HealthReport {
             overall_score: 85.0,
-            grade: "B".into(),
+            grade: Grade::B,
             structure_score: 90.0,
             quality_score: 80.0,
             architecture_score: Some(85.0),

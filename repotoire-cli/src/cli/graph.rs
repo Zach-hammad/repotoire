@@ -23,14 +23,14 @@ fn load_graph(repo_path: &Path) -> Result<CodeGraph> {
 /// Run a query against the code graph
 ///
 /// Note: Cypher queries are no longer supported. Use the built-in query commands instead.
-pub fn run(path: &Path, query: &str, format: &str) -> Result<()> {
+pub fn run(path: &Path, query: &str, format: crate::reporters::OutputFormat) -> Result<()> {
     let repo_path = path
         .canonicalize()
         .with_context(|| format!("Path does not exist: {}", path.display()))?;
 
     let graph = load_graph(&repo_path)?;
 
-    let json_output = format == "json";
+    let json_output = format == crate::reporters::OutputFormat::Json;
 
     // Parse simple query patterns
     let query_lower = query.to_lowercase();

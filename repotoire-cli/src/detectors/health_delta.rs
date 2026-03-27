@@ -15,7 +15,7 @@
 #![allow(dead_code)] // Module under development - structs/helpers used in tests only
 
 use crate::config::PillarWeights;
-use crate::models::{Finding, Severity};
+use crate::models::{Finding, Grade, Severity};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -76,8 +76,8 @@ pub struct HealthScoreDelta {
     pub before_score: f64,
     pub after_score: f64,
     pub score_delta: f64,
-    pub before_grade: String,
-    pub after_grade: String,
+    pub before_grade: Grade,
+    pub after_grade: Grade,
     pub grade_improved: bool,
     pub structure_delta: f64,
     pub quality_delta: f64,
@@ -105,8 +105,8 @@ pub struct BatchHealthScoreDelta {
     pub before_score: f64,
     pub after_score: f64,
     pub score_delta: f64,
-    pub before_grade: String,
-    pub after_grade: String,
+    pub before_grade: Grade,
+    pub after_grade: Grade,
     pub grade_improved: bool,
     pub findings_count: usize,
     pub individual_deltas: Vec<HealthScoreDelta>,
@@ -153,17 +153,17 @@ fn detector_metric_mapping() -> HashMap<&'static str, (&'static str, &'static st
 }
 
 /// Grade thresholds
-fn score_to_grade(score: f64) -> String {
+fn score_to_grade(score: f64) -> Grade {
     if score >= 90.0 {
-        "A".to_string()
+        Grade::A
     } else if score >= 80.0 {
-        "B".to_string()
+        Grade::B
     } else if score >= 70.0 {
-        "C".to_string()
+        Grade::C
     } else if score >= 60.0 {
-        "D".to_string()
+        Grade::D
     } else {
-        "F".to_string()
+        Grade::F
     }
 }
 
@@ -245,9 +245,9 @@ impl HealthScoreDeltaCalculator {
             before_score: current_overall,
             after_score: new_overall,
             score_delta,
-            before_grade: current_grade.clone(),
-            after_grade: new_grade.clone(),
-            grade_improved: new_grade < current_grade, // A < B < C < D < F
+            before_grade: current_grade,
+            after_grade: new_grade,
+            grade_improved: new_grade > current_grade, // Higher enum variant = better grade
             structure_delta,
             quality_delta,
             architecture_delta,
@@ -275,7 +275,7 @@ impl HealthScoreDeltaCalculator {
                 before_score: current_overall,
                 after_score: current_overall,
                 score_delta: 0.0,
-                before_grade: current_grade.clone(),
+                before_grade: current_grade,
                 after_grade: current_grade,
                 grade_improved: false,
                 findings_count: 0,
@@ -314,9 +314,9 @@ impl HealthScoreDeltaCalculator {
             before_score: current_overall,
             after_score: new_overall,
             score_delta: new_overall - current_overall,
-            before_grade: current_grade.clone(),
-            after_grade: new_grade.clone(),
-            grade_improved: new_grade < current_grade,
+            before_grade: current_grade,
+            after_grade: new_grade,
+            grade_improved: new_grade > current_grade,
             findings_count: findings.len(),
             individual_deltas,
         }
@@ -506,11 +506,11 @@ mod tests {
 
     #[test]
     fn test_score_to_grade() {
-        assert_eq!(score_to_grade(95.0), "A");
-        assert_eq!(score_to_grade(85.0), "B");
-        assert_eq!(score_to_grade(75.0), "C");
-        assert_eq!(score_to_grade(65.0), "D");
-        assert_eq!(score_to_grade(55.0), "F");
+        assert_eq!(score_to_grade(95.0), Grade::A);
+        assert_eq!(score_to_grade(85.0), Grade::B);
+        assert_eq!(score_to_grade(75.0), Grade::C);
+        assert_eq!(score_to_grade(65.0), Grade::D);
+        assert_eq!(score_to_grade(55.0), Grade::F);
     }
 
     #[test]

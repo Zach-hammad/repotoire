@@ -23,8 +23,50 @@ use crate::reporters;
 use anyhow::Result;
 use console::style;
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 use std::time::Instant;
+
+/// Consumer-side presentation options — everything needed to format and display
+/// analysis results. No analysis-logic concerns; purely output/filtering.
+#[derive(Debug, Clone)]
+pub struct OutputOptions {
+    pub format: crate::reporters::OutputFormat,
+    pub output_path: Option<PathBuf>,
+    pub severity_filter: Option<crate::models::Severity>,
+    pub min_confidence: Option<f64>,
+    pub show_all: bool,
+    pub top: Option<usize>,
+    pub page: usize,
+    pub per_page: usize,
+    pub no_emoji: bool,
+    pub explain_score: bool,
+    pub rank: bool,
+    pub export_training: Option<PathBuf>,
+    pub timings: bool,
+    pub fail_on: Option<crate::models::Severity>,
+    pub json_sidecar: Option<PathBuf>,
+}
+
+impl Default for OutputOptions {
+    fn default() -> Self {
+        Self {
+            format: crate::reporters::OutputFormat::Text,
+            output_path: None,
+            severity_filter: None,
+            min_confidence: None,
+            show_all: false,
+            top: None,
+            page: 1,
+            per_page: 20,
+            no_emoji: false,
+            explain_score: false,
+            rank: false,
+            export_training: None,
+            timings: false,
+            fail_on: None,
+            json_sidecar: None,
+        }
+    }
+}
 
 /// Cache directory for a repository (legacy .repotoire path).
 ///
@@ -46,7 +88,7 @@ pub fn run_engine(
     telemetry: &crate::telemetry::Telemetry,
 ) -> Result<()> {
     let start_time = Instant::now();
-    let quiet_mode = output.format == "json" || output.format == "sarif";
+    let quiet_mode = matches!(output.format, reporters::OutputFormat::Json | reporters::OutputFormat::Sarif);
 
     // Clear per-run caches (important for long-running server modes)
     crate::parsers::clear_structural_fingerprint_cache();
@@ -142,7 +184,7 @@ pub fn run_engine(
     display_ecosystem_context(
         telemetry,
         quiet_mode,
-        &output.format,
+        output.format,
         &precomputed_primary_language,
         &result.score,
         result.stats.total_loc,
@@ -161,7 +203,7 @@ pub fn run_engine(
         std::thread::spawn(move || { let _ = cache_results(&repotoire_dir, &health_report, &all_findings_clone); });
     }
     let _ = engine.save(&session_dir);
-    check_fail_threshold(&output.fail_on, report)?;
+    check_fail_threshold(output.fail_on, report)?;
 
     Ok(())
 }
@@ -195,8 +237,8 @@ fn emit_optional_output(
                 graph, engine.project_config(), engine.repo_path(),
             );
             let explanation = scorer.explain(&result.score.breakdown);
-            match output.format.as_str() {
-                "json" => {
+            match output.format {
+                reporters::OutputFormat::Json => {
                     let explain_json = build_explain_json(&explanation, &result.score.breakdown);
                     eprintln!("{}", serde_json::to_string_pretty(&explain_json).unwrap_or_default());
                 }
@@ -290,12 +332,12 @@ fn prepare_report(
     }
 
     // Apply severity filter and top-N limit
-    output::filter_findings(&mut findings, &output.severity_filter, output.top);
+    output::filter_findings(&mut findings, output.severity_filter, output.top);
     let all_findings = findings.clone();
 
     // Paginate — structured formats (JSON, SARIF) default to all findings
-    let effective_per_page = match output.format.as_str() {
-        "json" | "sarif" if output.per_page == 20 => 0,
+    let effective_per_page = match output.format {
+        reporters::OutputFormat::Json | reporters::OutputFormat::Sarif if output.per_page == 20 => 0,
         _ => output.per_page,
     };
     let (paginated_findings, pagination_info) =
@@ -305,7 +347,7 @@ fn prepare_report(
     let findings_summary = crate::models::FindingsSummary::from_findings(&paginated_findings);
     let report = crate::models::HealthReport {
         overall_score: result.score.overall,
-        grade: result.score.grade.clone(),
+        grade: result.score.grade,
         structure_score: result.score.breakdown.structure.final_score,
         quality_score: result.score.breakdown.quality.final_score,
         architecture_score: Some(result.score.breakdown.architecture.final_score),
@@ -323,7 +365,7 @@ fn prepare_report(
         .unwrap_or_else(|_| path.join(".repotoire"));
 
     // Build rich report context (graph + git + snippets)
-    let format_enum = crate::reporters::OutputFormat::from_str(&output.format)?;
+    let format_enum = output.format;
     let report_ctx = engine.build_report_context(report.clone(), format_enum)?;
 
     Ok(PreparedReport {
@@ -396,7 +438,7 @@ fn format_and_display_report(
             format_and_output(
                 report,
                 all_findings,
-                &output.format,
+                format_enum,
                 output.output_path.as_deref(),
                 repotoire_dir,
                 pagination_info,
@@ -416,13 +458,13 @@ fn format_and_display_report(
 fn display_ecosystem_context(
     telemetry: &crate::telemetry::Telemetry,
     quiet_mode: bool,
-    output_format: &str,
+    output_format: reporters::OutputFormat,
     primary_language: &str,
     score: &crate::engine::ScoreResult,
     total_loc: usize,
 ) {
     if let crate::telemetry::Telemetry::Active(ref _state) = telemetry {
-        if !quiet_mode && output_format == "text" {
+        if !quiet_mode && output_format == reporters::OutputFormat::Text {
             let total_kloc = total_loc as f64 / 1000.0;
 
             if let Some(data) = crate::telemetry::benchmarks::fetch_benchmarks(primary_language, total_kloc) {
@@ -454,7 +496,7 @@ fn display_ecosystem_context(
             // Telemetry footer
             println!("  {}", style("telemetry: on (repotoire config telemetry off to disable)").dim());
         }
-    } else if !quiet_mode && output_format == "text" {
+    } else if !quiet_mode && output_format == reporters::OutputFormat::Text {
         // Show tip once (only on text output)
         println!("{}", crate::telemetry::display::format_telemetry_tip());
     }
@@ -500,7 +542,7 @@ fn send_telemetry(
     let mut findings_by_detector: std::collections::HashMap<String, std::collections::HashMap<String, u64>> = std::collections::HashMap::new();
     let mut findings_by_category = std::collections::HashMap::new();
     for f in all_findings {
-        let sev = format!("{:?}", f.severity).to_lowercase();
+        let sev = f.severity.to_string();
         *findings_by_severity.entry(sev.clone()).or_insert(0u64) += 1;
         *findings_by_category.entry(f.category.clone().unwrap_or_default()).or_insert(0u64) += 1;
         findings_by_detector
@@ -574,7 +616,7 @@ fn send_telemetry(
         repo_id,
         nth_analysis: Some(telem_state.nth_analysis),
         score: score.overall,
-        grade: score.grade.clone(),
+        grade: score.grade.to_string(),
         pillar_structure: score.breakdown.structure.final_score,
         pillar_quality: score.breakdown.quality.final_score,
         pillar_architecture: score.breakdown.architecture.final_score,

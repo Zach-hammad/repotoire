@@ -17,7 +17,7 @@
 //! cache.save_cache()?;
 //! ```
 
-use crate::models::{Finding, Severity};
+use crate::models::{Finding, Grade, Severity};
 use crate::parsers::ParseResult;
 use anyhow::{Context, Result};
 use dashmap::DashMap;
@@ -36,12 +36,22 @@ const CACHE_VERSION: u32 = 2;
 /// Buffer size for hashing large files (64KB chunks)
 const HASH_BUFFER_SIZE: usize = 65536;
 
+/// Deserialize Severity from both old format ("High", Debug) and new format ("high", Display/serde).
+fn deserialize_severity_compat<'de, D>(deserializer: D) -> Result<Severity, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    s.parse::<Severity>().map_err(serde::de::Error::custom)
+}
+
 /// Serialized finding for cache storage
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CachedFinding {
     pub id: String,
     pub detector: String,
-    pub severity: String,
+    #[serde(deserialize_with = "deserialize_severity_compat")]
+    pub severity: Severity,
     pub title: String,
     pub description: String,
     pub affected_files: Vec<String>,
@@ -65,7 +75,7 @@ impl From<&Finding> for CachedFinding {
         Self {
             id: f.id.clone(),
             detector: f.detector.clone(),
-            severity: format!("{:?}", f.severity),
+            severity: f.severity,
             title: f.title.clone(),
             description: f.description.clone(),
             affected_files: f
@@ -89,19 +99,10 @@ impl From<&Finding> for CachedFinding {
 
 impl CachedFinding {
     fn to_finding(&self) -> Finding {
-        let severity = match self.severity.to_lowercase().as_str() {
-            "critical" => Severity::Critical,
-            "high" => Severity::High,
-            "medium" => Severity::Medium,
-            "low" => Severity::Low,
-            "info" => Severity::Info,
-            _ => Severity::Medium,
-        };
-
         Finding {
             id: self.id.clone(),
             detector: self.detector.clone(),
-            severity,
+            severity: self.severity,
             title: self.title.clone(),
             description: self.description.clone(),
             affected_files: self.affected_files.iter().map(PathBuf::from).collect(),
@@ -137,7 +138,7 @@ struct CachedFile {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CachedScoreResult {
     pub score: f64,
-    pub grade: String,
+    pub grade: Grade,
     pub total_files: usize,
     pub total_functions: usize,
     pub total_classes: usize,
@@ -573,7 +574,7 @@ impl IncrementalCache {
     pub fn cache_score(
         &mut self,
         score: f64,
-        grade: &str,
+        grade: Grade,
         files: usize,
         functions: usize,
         classes: usize,
@@ -581,7 +582,7 @@ impl IncrementalCache {
     ) {
         self.cache_score_with_subscores(CachedScoreResult {
             score,
-            grade: grade.to_string(),
+            grade,
             total_files: files,
             total_functions: functions,
             total_classes: classes,

@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use std::path::Path;
 use std::time::Instant;
 
-use crate::models::{Finding, FindingsSummary, HealthReport, Severity};
+use crate::models::{Finding, FindingsSummary, Grade, HealthReport, Severity};
 use console::style;
 use serde_json::json;
 
@@ -254,7 +254,7 @@ pub fn format_json(result: &DiffResult) -> String {
 pub fn format_sarif(result: &DiffResult) -> anyhow::Result<String> {
     let report = HealthReport {
         overall_score: result.score_after.unwrap_or(0.0),
-        grade: String::new(),
+        grade: Grade::default(),
         structure_score: 0.0,
         quality_score: 0.0,
         architecture_score: None,
@@ -337,14 +337,16 @@ fn send_diff_telemetry(
 /// Format the diff result and write it to the output destination.
 fn emit_output(
     result: &DiffResult,
-    format: &str,
+    format: crate::reporters::OutputFormat,
     no_emoji: bool,
     output: Option<&Path>,
     start: Instant,
 ) -> Result<()> {
+    use crate::reporters::OutputFormat;
+
     let output_str = match format {
-        "json" => format_json(result),
-        "sarif" => format_sarif(result)?,
+        OutputFormat::Json => format_json(result),
+        OutputFormat::Sarif => format_sarif(result)?,
         _ => format_text(result, no_emoji),
     };
 
@@ -356,7 +358,7 @@ fn emit_output(
     }
 
     // Summary (text mode only)
-    if format != "json" && format != "sarif" {
+    if !matches!(format, OutputFormat::Json | OutputFormat::Sarif) {
         let elapsed = start.elapsed();
         let prefix = if no_emoji { "" } else { "✨ " };
         eprintln!(
@@ -372,22 +374,21 @@ fn emit_output(
 }
 
 /// Check whether new findings exceed the fail-on severity threshold.
-fn check_fail_threshold(fail_on: Option<&str>, new_findings: &[Finding]) -> Result<()> {
+fn check_fail_threshold(fail_on: Option<Severity>, new_findings: &[Finding]) -> Result<()> {
     if let Some(threshold) = fail_on {
         let new_summary = FindingsSummary::from_findings(new_findings);
-        let should_fail = match threshold.to_lowercase().as_str() {
-            "critical" => new_summary.critical > 0,
-            "high" => new_summary.critical > 0 || new_summary.high > 0,
-            "medium" => {
+        let should_fail = match threshold {
+            Severity::Critical => new_summary.critical > 0,
+            Severity::High => new_summary.critical > 0 || new_summary.high > 0,
+            Severity::Medium => {
                 new_summary.critical > 0 || new_summary.high > 0 || new_summary.medium > 0
             }
-            "low" => {
+            Severity::Low | Severity::Info => {
                 new_summary.critical > 0
                     || new_summary.high > 0
                     || new_summary.medium > 0
                     || new_summary.low > 0
             }
-            _ => false,
         };
         if should_fail {
             anyhow::bail!(
@@ -404,8 +405,8 @@ fn check_fail_threshold(fail_on: Option<&str>, new_findings: &[Finding]) -> Resu
 pub fn run(
     repo_path: &Path,
     base_ref: Option<String>,
-    format: &str,
-    fail_on: Option<String>,
+    format: crate::reporters::OutputFormat,
+    fail_on: Option<crate::models::Severity>,
     no_emoji: bool,
     output: Option<&Path>,
     telemetry: &crate::telemetry::Telemetry,
@@ -449,7 +450,7 @@ pub fn run(
     emit_output(&result, format, no_emoji, output, start)?;
 
     // 7. Fail-on threshold
-    check_fail_threshold(fail_on.as_deref(), &result.new_findings)?;
+    check_fail_threshold(fail_on, &result.new_findings)?;
 
     Ok(())
 }

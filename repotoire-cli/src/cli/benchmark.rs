@@ -1,7 +1,7 @@
 use anyhow::Result;
 use std::path::Path;
 
-pub fn run(path: &Path, format: &str, telemetry: &crate::telemetry::Telemetry) -> Result<()> {
+pub fn run(path: &Path, format: crate::reporters::OutputFormat, telemetry: &crate::telemetry::Telemetry) -> Result<()> {
     if !telemetry.is_enabled() {
         println!("Telemetry is off. Enable with: repotoire config telemetry on");
         return Ok(());
@@ -46,7 +46,7 @@ pub fn run(path: &Path, format: &str, telemetry: &crate::telemetry::Telemetry) -
             };
 
             match format {
-                "json" => println!("{}", serde_json::to_string_pretty(&ctx)?),
+                crate::reporters::OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&ctx)?),
                 _ => println!(
                     "{}",
                     crate::telemetry::display::format_ecosystem_context(&ctx)

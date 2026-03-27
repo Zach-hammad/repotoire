@@ -14,6 +14,7 @@ use super::diagnostics::DiagnosticMap;
 use super::hover::render_hover;
 use super::worker_client::WorkerClient;
 use crate::cli::worker::protocol::Event;
+use crate::models::Grade;
 
 use std::io::BufReader;
 
@@ -384,13 +385,13 @@ async fn publish_all_diagnostics(
 async fn send_score_update(
     client: &Client,
     score: f64,
-    grade: &str,
+    grade: &Grade,
     delta: Option<f64>,
     findings: usize,
 ) {
     let params = serde_json::json!({
         "score": score,
-        "grade": grade,
+        "grade": grade.to_string(),
         "delta": delta,
         "findings": findings,
     });

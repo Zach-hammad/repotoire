@@ -3,7 +3,7 @@
 //! Collects user feedback on findings to build training data.
 //! Stores labeled examples in JSONL format.
 
-use crate::models::Finding;
+use crate::models::{Finding, Severity};
 use serde::{Deserialize, Serialize};
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
@@ -17,7 +17,8 @@ pub struct LabeledFinding {
     /// Detector name
     pub detector: String,
     /// Severity level
-    pub severity: String,
+    #[serde(deserialize_with = "deserialize_severity_compat")]
+    pub severity: Severity,
     /// Title
     pub title: String,
     /// Description (truncated)
@@ -39,7 +40,7 @@ impl LabeledFinding {
         Self {
             finding_id: finding.id.clone(),
             detector: finding.detector.clone(),
-            severity: format!("{:?}", finding.severity),
+            severity: finding.severity,
             title: finding.title.clone(),
             description: finding.description.chars().take(500).collect(),
             file_path: finding
@@ -218,6 +219,15 @@ impl std::fmt::Display for TrainingStats {
 
         Ok(())
     }
+}
+
+/// Deserialize Severity from both old format ("High", Debug) and new format ("high", Display/serde).
+fn deserialize_severity_compat<'de, D>(deserializer: D) -> Result<Severity, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    s.parse::<Severity>().map_err(serde::de::Error::custom)
 }
 
 #[cfg(test)]

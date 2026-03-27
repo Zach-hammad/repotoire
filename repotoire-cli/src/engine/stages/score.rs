@@ -27,7 +27,7 @@ pub fn score_stage(input: &ScoreInput) -> Result<ScoreResult> {
 
     Ok(ScoreResult {
         overall: breakdown.overall_score,
-        grade: breakdown.grade.clone(),
+        grade: breakdown.grade,
         breakdown,
     })
 }

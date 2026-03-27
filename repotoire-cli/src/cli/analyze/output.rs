@@ -32,11 +32,10 @@ fn normalize_path(path: &Path) -> String {
 /// Filter findings by severity and limit
 pub(crate) fn filter_findings(
     findings: &mut Vec<Finding>,
-    severity: &Option<String>,
+    severity: Option<Severity>,
     top: Option<usize>,
 ) {
-    if let Some(min_severity) = severity {
-        let min = parse_severity(min_severity);
+    if let Some(min) = severity {
         findings.retain(|f| f.severity >= min);
     }
 
@@ -96,18 +95,20 @@ pub(crate) fn paginate_findings(
 pub(crate) fn format_and_output(
     report: &HealthReport,
     all_findings: &[Finding],
-    format: &str,
+    format: reporters::OutputFormat,
     output_path: Option<&Path>,
     repotoire_dir: &Path,
     pagination_info: Option<(usize, usize, usize, usize)>,
     _displayed_findings: usize,
     no_emoji: bool,
 ) -> Result<()> {
+    use reporters::OutputFormat;
+
     // For file-based export formats (SARIF, HTML, Markdown), use ALL findings
     // to avoid truncating to page size. Pagination is for terminal display only.
     // Use all findings for file-based exports; JSON only when writing to file (#58)
-    let use_all = matches!(format, "sarif" | "html" | "markdown" | "md")
-        || (format == "json" && output_path.is_some());
+    let use_all = matches!(format, OutputFormat::Sarif | OutputFormat::Html | OutputFormat::Markdown)
+        || (format == OutputFormat::Json && output_path.is_some());
     let report_for_output = if use_all && !all_findings.is_empty() {
         let mut full_report = report.clone();
         full_report.findings = all_findings.to_vec();
@@ -121,7 +122,7 @@ pub(crate) fn format_and_output(
         r
     };
 
-    let output = reporters::report(&report_for_output, format)?;
+    let output_str = reporters::report_with_format(&report_for_output, format)?;
 
     // Only write to file if --output was explicitly provided (#59)
     let write_to_file = output_path.is_some();
@@ -130,17 +131,11 @@ pub(crate) fn format_and_output(
         let out_path = if let Some(p) = output_path {
             p.to_path_buf()
         } else {
-            let ext = match format {
-                "html" => "html",
-                "sarif" => "sarif.json",
-                "markdown" | "md" => "md",
-                "json" => "json",
-                _ => "txt",
-            };
+            let ext = reporters::file_extension(format);
             repotoire_dir.join(format!("report.{}", ext))
         };
 
-        std::fs::write(&out_path, &output)?;
+        std::fs::write(&out_path, &output_str)?;
         let file_icon = if no_emoji { "" } else { "📄 " };
         // Use stderr for machine-readable formats to keep stdout clean
         eprintln!(
@@ -150,17 +145,17 @@ pub(crate) fn format_and_output(
         );
     } else {
         // For machine-readable formats, skip leading newline to keep stdout clean
-        if format != "json" && format != "sarif" {
+        if !matches!(format, OutputFormat::Json | OutputFormat::Sarif) {
             println!();
         }
-        println!("{}", output);
+        println!("{}", output_str);
     }
 
     // Cache results
     cache_results(repotoire_dir, report, all_findings)?;
 
     // Show pagination info (suppress for machine-readable formats)
-    let quiet_mode = format == "json" || format == "sarif";
+    let quiet_mode = matches!(format, OutputFormat::Json | OutputFormat::Sarif);
     if let Some((current_page, total_pages, per_page, total)) =
         pagination_info.filter(|_| !quiet_mode)
     {
@@ -185,23 +180,28 @@ pub(crate) fn format_and_output(
 }
 
 /// Check if fail threshold is met
-pub(crate) fn check_fail_threshold(fail_on: &Option<String>, report: &HealthReport) -> Result<()> {
-    if let Some(ref threshold) = fail_on {
-        let should_fail = match threshold.to_lowercase().as_str() {
-            "critical" => report.findings_summary.critical > 0,
-            "high" => report.findings_summary.critical > 0 || report.findings_summary.high > 0,
-            "medium" => {
+pub(crate) fn check_fail_threshold(fail_on: Option<Severity>, report: &HealthReport) -> Result<()> {
+    if let Some(threshold) = fail_on {
+        let should_fail = match threshold {
+            Severity::Critical => report.findings_summary.critical > 0,
+            Severity::High => report.findings_summary.critical > 0 || report.findings_summary.high > 0,
+            Severity::Medium => {
                 report.findings_summary.critical > 0
                     || report.findings_summary.high > 0
                     || report.findings_summary.medium > 0
             }
-            "low" => {
+            Severity::Low => {
                 report.findings_summary.critical > 0
                     || report.findings_summary.high > 0
                     || report.findings_summary.medium > 0
                     || report.findings_summary.low > 0
             }
-            _ => false,
+            Severity::Info => {
+                report.findings_summary.critical > 0
+                    || report.findings_summary.high > 0
+                    || report.findings_summary.medium > 0
+                    || report.findings_summary.low > 0
+            }
         };
         if should_fail {
             // Return error instead of process::exit to allow cleanup (#19)
@@ -244,13 +244,9 @@ fn load_findings_from_file(path: &Path) -> Option<Vec<Finding>> {
 
     let mut findings = Vec::new();
     for f in findings_arr {
-        let severity = match f.get("severity")?.as_str()? {
-            "critical" => Severity::Critical,
-            "high" => Severity::High,
-            "medium" => Severity::Medium,
-            "low" => Severity::Low,
-            _ => Severity::Info,
-        };
+        let severity = f.get("severity")?.as_str()?
+            .parse::<Severity>()
+            .unwrap_or(Severity::Info);
 
         let affected_files: Vec<PathBuf> = f
             .get("affected_files")
@@ -391,14 +387,14 @@ pub fn cache_results(
 pub(super) fn output_cached_results(
     no_emoji: bool,
     quiet_mode: bool,
-    config_fail_on: &Option<String>,
+    config_fail_on: Option<Severity>,
     mut findings: Vec<Finding>,
     cached_score: &crate::detectors::CachedScoreResult,
-    format: &str,
+    format: reporters::OutputFormat,
     output_path: Option<&Path>,
     start_time: Instant,
     explain_score: bool,
-    severity: &Option<String>,
+    severity: Option<Severity>,
     top: Option<usize>,
     page: usize,
     per_page: usize,
@@ -423,7 +419,7 @@ pub(super) fn output_cached_results(
     // Build health report with filtered+paginated findings
     let health_report = HealthReport {
         overall_score: cached_score.score,
-        grade: cached_score.grade.clone(),
+        grade: cached_score.grade,
         structure_score: cached_score.structure_score.unwrap_or(cached_score.score),
         quality_score: cached_score.quality_score.unwrap_or(cached_score.score),
         architecture_score: cached_score.architecture_score.or(Some(cached_score.score)),
@@ -457,7 +453,7 @@ pub(super) fn output_cached_results(
     }
 
     // Final summary (text only)
-    if format != "json" && format != "sarif" {
+    if !matches!(format, reporters::OutputFormat::Json | reporters::OutputFormat::Sarif) {
         let elapsed = start_time.elapsed();
         let done_prefix = if no_emoji { "" } else { "✨ " };
         if !quiet_mode {
@@ -473,15 +469,4 @@ pub(super) fn output_cached_results(
     check_fail_threshold(config_fail_on, &health_report)?;
 
     Ok(())
-}
-
-/// Parse a severity string
-fn parse_severity(s: &str) -> Severity {
-    match s.to_lowercase().as_str() {
-        "critical" => Severity::Critical,
-        "high" => Severity::High,
-        "medium" => Severity::Medium,
-        "low" => Severity::Low,
-        _ => Severity::Info,
-    }
 }

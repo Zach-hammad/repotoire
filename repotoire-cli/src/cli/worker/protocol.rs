@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::models::Finding;
+use crate::models::{Finding, Grade};
 
 // ── Commands (LSP → Worker) ──────────────────────────────────────────
 
@@ -64,7 +64,7 @@ pub enum Event {
         id: Option<u64>,
         findings: Vec<Finding>,
         score: f64,
-        grade: String,
+        grade: Grade,
         elapsed_ms: u64,
     },
     Progress {
@@ -78,7 +78,7 @@ pub enum Event {
         new_findings: Vec<Finding>,
         fixed_findings: Vec<Finding>,
         score: f64,
-        grade: String,
+        grade: Grade,
         score_delta: Option<f64>,
         total_findings: usize,
         elapsed_ms: u64,
@@ -86,7 +86,7 @@ pub enum Event {
     Unchanged {
         id: Option<u64>,
         score: f64,
-        grade: String,
+        grade: Grade,
         total_findings: usize,
         elapsed_ms: u64,
     },
@@ -142,7 +142,7 @@ mod tests {
             id: Some(1),
             findings: vec![],
             score: 92.3,
-            grade: "A-".to_string(),
+            grade: Grade::AMinus,
             elapsed_ms: 2050,
         };
         let json = serde_json::to_string(&event).unwrap();
@@ -158,7 +158,7 @@ mod tests {
             new_findings: vec![],
             fixed_findings: vec![],
             score: 93.0,
-            grade: "A-".to_string(),
+            grade: Grade::AMinus,
             score_delta: Some(0.7),
             total_findings: 85,
             elapsed_ms: 150,

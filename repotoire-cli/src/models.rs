@@ -20,13 +20,14 @@ use std::path::PathBuf;
 /// - title (what the issue is)
 pub fn deterministic_finding_id(detector: &str, file: &str, line: u32, _title: &str) -> String {
     // Note: postprocessing overwrites all IDs via finding_id() (#73).
-    // Cache invalidates on binary version change (#66), so DefaultHasher instability is fine.
+    // Uses FNV-1a for cross-toolchain stability (see finding_id).
     crate::detectors::base::finding_id(detector, file, line)
 }
 
 /// Severity levels for findings
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default,
+    clap::ValueEnum,
 )]
 #[serde(rename_all = "lowercase")]
 pub enum Severity {
@@ -46,6 +47,24 @@ impl std::fmt::Display for Severity {
             Severity::Medium => write!(f, "medium"),
             Severity::High => write!(f, "high"),
             Severity::Critical => write!(f, "critical"),
+        }
+    }
+}
+
+impl std::str::FromStr for Severity {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "critical" => Ok(Severity::Critical),
+            "high" => Ok(Severity::High),
+            "medium" => Ok(Severity::Medium),
+            "low" => Ok(Severity::Low),
+            "info" => Ok(Severity::Info),
+            _ => Err(anyhow::anyhow!(
+                "Unknown severity '{}'. Valid: critical, high, medium, low, info",
+                s
+            )),
         }
     }
 }
@@ -177,11 +196,81 @@ impl FindingsSummary {
     }
 }
 
+/// Letter grades for code health (13 levels: A+ through F).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default)]
+pub enum Grade {
+    #[default]
+    F,
+    #[serde(rename = "D-")]
+    DMinus,
+    D,
+    #[serde(rename = "D+")]
+    DPlus,
+    #[serde(rename = "C-")]
+    CMinus,
+    C,
+    #[serde(rename = "C+")]
+    CPlus,
+    #[serde(rename = "B-")]
+    BMinus,
+    B,
+    #[serde(rename = "B+")]
+    BPlus,
+    #[serde(rename = "A-")]
+    AMinus,
+    A,
+    #[serde(rename = "A+")]
+    APlus,
+}
+
+impl std::fmt::Display for Grade {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Grade::APlus => write!(f, "A+"),
+            Grade::A => write!(f, "A"),
+            Grade::AMinus => write!(f, "A-"),
+            Grade::BPlus => write!(f, "B+"),
+            Grade::B => write!(f, "B"),
+            Grade::BMinus => write!(f, "B-"),
+            Grade::CPlus => write!(f, "C+"),
+            Grade::C => write!(f, "C"),
+            Grade::CMinus => write!(f, "C-"),
+            Grade::DPlus => write!(f, "D+"),
+            Grade::D => write!(f, "D"),
+            Grade::DMinus => write!(f, "D-"),
+            Grade::F => write!(f, "F"),
+        }
+    }
+}
+
+impl std::str::FromStr for Grade {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "A+" => Ok(Grade::APlus),
+            "A" => Ok(Grade::A),
+            "A-" => Ok(Grade::AMinus),
+            "B+" => Ok(Grade::BPlus),
+            "B" => Ok(Grade::B),
+            "B-" => Ok(Grade::BMinus),
+            "C+" => Ok(Grade::CPlus),
+            "C" => Ok(Grade::C),
+            "C-" => Ok(Grade::CMinus),
+            "D+" => Ok(Grade::DPlus),
+            "D" => Ok(Grade::D),
+            "D-" => Ok(Grade::DMinus),
+            "F" => Ok(Grade::F),
+            _ => Err(anyhow::anyhow!("Unknown grade '{}'", s)),
+        }
+    }
+}
+
 /// Overall health report for a codebase
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HealthReport {
     pub overall_score: f64,
-    pub grade: String,
+    pub grade: Grade,
     pub structure_score: f64,
     pub quality_score: f64,
     pub architecture_score: Option<f64>,

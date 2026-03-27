@@ -81,7 +81,7 @@ pub fn compute_delta(
 mod tests {
     use super::*;
     use crate::engine::{AnalysisStats, ScoreResult};
-    use crate::models::Severity;
+    use crate::models::{Grade, Severity};
     use crate::scoring::ScoreBreakdown;
 
     fn make_finding(detector: &str, file: &str, line: u32) -> Finding {
@@ -100,7 +100,7 @@ mod tests {
             findings,
             score: ScoreResult {
                 overall: score,
-                grade: "B".to_string(),
+                grade: Grade::B,
                 breakdown: ScoreBreakdown::default(),
             },
             stats: AnalysisStats::default(),

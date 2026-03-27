@@ -50,21 +50,14 @@ pub fn run(
     index: Option<usize>,
     json: bool,
     top: Option<usize>,
-    severity: Option<String>,
+    severity: Option<Severity>,
     page: usize,
     per_page: usize,
 ) -> Result<()> {
     let mut findings = load_findings(path)?;
 
     // Filter by severity if specified
-    if let Some(min_sev) = &severity {
-        let min = match min_sev.to_lowercase().as_str() {
-            "critical" => Severity::Critical,
-            "high" => Severity::High,
-            "medium" => Severity::Medium,
-            "low" => Severity::Low,
-            _ => Severity::Info,
-        };
+    if let Some(min) = severity {
         findings.retain(|f| f.severity >= min);
     }
 

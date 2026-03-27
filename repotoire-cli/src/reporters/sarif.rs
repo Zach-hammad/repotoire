@@ -476,6 +476,7 @@ fn get_detector_tags(detector: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::Grade;
     use std::path::PathBuf;
 
     #[test]
@@ -570,7 +571,7 @@ mod tests {
         // Create a minimal report with a finding that has confidence
         let report = HealthReport {
             overall_score: 85.0,
-            grade: "B".to_string(),
+            grade: Grade::B,
             structure_score: 90.0,
             quality_score: 80.0,
             architecture_score: Some(85.0),

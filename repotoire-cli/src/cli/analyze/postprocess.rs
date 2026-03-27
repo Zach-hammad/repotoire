@@ -52,8 +52,8 @@ pub(super) fn apply_detector_overrides(
     for finding in findings.iter_mut() {
         let detector_name = crate::config::normalize_detector_name(&finding.detector);
         if let Some(config) = detector_configs.get(&detector_name) {
-            if let Some(ref sev) = config.severity {
-                finding.severity = parse_severity(sev);
+            if let Some(sev) = config.severity {
+                finding.severity = sev;
             }
         }
     }
@@ -87,17 +87,6 @@ pub(super) fn update_incremental_cache(
 
     if let Err(e) = incremental_cache.save_cache() {
         tracing::warn!("Failed to save incremental cache: {}", e);
-    }
-}
-
-/// Parse a severity string
-fn parse_severity(s: &str) -> Severity {
-    match s.to_lowercase().as_str() {
-        "critical" => Severity::Critical,
-        "high" => Severity::High,
-        "medium" => Severity::Medium,
-        "low" => Severity::Low,
-        _ => Severity::Info,
     }
 }
 

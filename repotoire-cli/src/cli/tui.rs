@@ -301,7 +301,7 @@ impl App {
         let finding_json = serde_json::json!({
             "index": index,
             "title": finding.title,
-            "severity": format!("{:?}", finding.severity),
+            "severity": finding.severity.to_string(),
             "description": finding.description,
             "suggested_fix": finding.suggested_fix,
             "affected_files": finding.affected_files.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),

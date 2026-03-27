@@ -51,7 +51,7 @@ mod tests {
 
     #[test]
     fn test_json_confidence_serialized() {
-        use crate::models::{Finding, FindingsSummary, Severity};
+        use crate::models::{Finding, FindingsSummary, Grade, Severity};
 
         let findings = vec![Finding {
             id: "conf-1".into(),
@@ -70,7 +70,7 @@ mod tests {
 
         let report = crate::models::HealthReport {
             overall_score: 75.0,
-            grade: "C".into(),
+            grade: Grade::C,
             structure_score: 70.0,
             quality_score: 70.0,
             architecture_score: Some(70.0),

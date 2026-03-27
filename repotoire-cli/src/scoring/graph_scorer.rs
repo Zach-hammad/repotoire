@@ -6,7 +6,7 @@
 use crate::config::ProjectConfig;
 use crate::detectors::api_surface::is_api_surface;
 use crate::graph::{GraphQuery, GraphQueryExt};
-use crate::models::{Finding, Severity};
+use crate::models::{Finding, Grade, Severity};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
 use tracing::{debug, info};
@@ -106,7 +106,7 @@ pub struct ScoreBreakdown {
     /// Overall health score (0-100+)
     pub overall_score: f64,
     /// Letter grade
-    pub grade: String,
+    pub grade: crate::models::Grade,
     /// Structure pillar breakdown
     pub structure: PillarBreakdown,
     /// Quality pillar breakdown  
@@ -728,40 +728,38 @@ impl<'a> GraphScorer<'a> {
     }
 
     /// Calculate letter grade
-    fn calculate_grade(&self, score: f64, _findings: &[Finding]) -> String {
+    fn calculate_grade(&self, score: f64, _findings: &[Finding]) -> Grade {
         // Grade is purely based on score - no caps
         // The score already reflects severity of findings
         // Capping based on criticals double-penalizes and punishes FPs in scripts/tests
 
-        let base_grade = if score >= 97.0 {
-            "A+"
+        if score >= 97.0 {
+            Grade::APlus
         } else if score >= 93.0 {
-            "A"
+            Grade::A
         } else if score >= 90.0 {
-            "A-"
+            Grade::AMinus
         } else if score >= 87.0 {
-            "B+"
+            Grade::BPlus
         } else if score >= 83.0 {
-            "B"
+            Grade::B
         } else if score >= 80.0 {
-            "B-"
+            Grade::BMinus
         } else if score >= 77.0 {
-            "C+"
+            Grade::CPlus
         } else if score >= 73.0 {
-            "C"
+            Grade::C
         } else if score >= 70.0 {
-            "C-"
+            Grade::CMinus
         } else if score >= 67.0 {
-            "D+"
+            Grade::DPlus
         } else if score >= 63.0 {
-            "D"
+            Grade::D
         } else if score >= 60.0 {
-            "D-"
+            Grade::DMinus
         } else {
-            "F"
-        };
-
-        base_grade.to_string()
+            Grade::F
+        }
     }
 
     /// Generate human-readable explanation of the score
@@ -872,9 +870,18 @@ mod tests {
         // Grade is now purely score-based (no caps)
         // With minimal findings on an empty graph, score should be high = A range
         assert!(
-            breakdown.grade.starts_with('A')
-                || breakdown.grade.starts_with('B')
-                || breakdown.grade.starts_with('C'),
+            matches!(
+                breakdown.grade,
+                Grade::APlus
+                    | Grade::A
+                    | Grade::AMinus
+                    | Grade::BPlus
+                    | Grade::B
+                    | Grade::BMinus
+                    | Grade::CPlus
+                    | Grade::C
+                    | Grade::CMinus
+            ),
             "Expected reasonable grade, got {}",
             breakdown.grade
         );

@@ -7,7 +7,7 @@
 //! - Findings grouped by severity with syntax-highlighted code
 //! - Responsive design for mobile and desktop
 
-use crate::models::{Finding, HealthReport, Severity};
+use crate::models::{Finding, Grade, HealthReport, Severity};
 use anyhow::Result;
 use chrono::Local;
 use std::collections::HashMap;
@@ -149,15 +149,20 @@ pub fn render_with_context(ctx: &ReportContext) -> Result<String> {
     html.push_str(&render_findings_with_snippets(report, &ctx.source_snippets));
 
     // README badge — URL-encode the grade for shields.io compatibility
-    let encoded_grade = report.grade
+    let grade_str = report.grade.to_string();
+    let encoded_grade = grade_str
         .replace('+', "%2B")
         .replace('-', "--")
         .replace(' ', "%20");
     let badge_url = format!(
         "https://img.shields.io/badge/repotoire-{}%20({:.0}%2F100)-{}",
         encoded_grade, report.overall_score,
-        match report.grade.chars().next().unwrap_or('F') {
-            'A' => "10b981", 'B' => "22c55e", 'C' => "eab308", 'D' => "f97316", _ => "ef4444",
+        match report.grade {
+            Grade::APlus | Grade::A | Grade::AMinus => "10b981",
+            Grade::BPlus | Grade::B | Grade::BMinus => "22c55e",
+            Grade::CPlus | Grade::C | Grade::CMinus => "eab308",
+            Grade::DPlus | Grade::D | Grade::DMinus => "f97316",
+            Grade::F => "ef4444",
         }
     );
     let badge_md = format!("[![Repotoire Grade]({})](https://repotoire.dev)", badge_url);
@@ -203,13 +208,12 @@ fn render_header(_report: &HealthReport) -> String {
 }
 
 fn render_grade_section(report: &HealthReport) -> String {
-    let description = match report.grade.as_str() {
-        "A" => "Excellent - Code is well-structured and maintainable",
-        "B" => "Good - Minor improvements recommended",
-        "C" => "Fair - Several issues should be addressed",
-        "D" => "Poor - Significant refactoring needed",
-        "F" => "Critical - Major technical debt present",
-        _ => "",
+    let description = match report.grade {
+        Grade::APlus | Grade::A | Grade::AMinus => "Excellent - Code is well-structured and maintainable",
+        Grade::BPlus | Grade::B | Grade::BMinus => "Good - Minor improvements recommended",
+        Grade::CPlus | Grade::C | Grade::CMinus => "Fair - Several issues should be addressed",
+        Grade::DPlus | Grade::D | Grade::DMinus => "Poor - Significant refactoring needed",
+        Grade::F => "Critical - Major technical debt present",
     };
 
     format!(
@@ -219,8 +223,19 @@ fn render_grade_section(report: &HealthReport) -> String {
     <p class="grade-description">{}</p>
 </div>
 "#,
-        report.grade, report.grade, report.overall_score, description
+        grade_letter(&report.grade), report.grade, report.overall_score, description
     )
+}
+
+/// Return the base letter of a grade for CSS class names (e.g. Grade::APlus -> "A")
+fn grade_letter(grade: &Grade) -> &'static str {
+    match grade {
+        Grade::APlus | Grade::A | Grade::AMinus => "A",
+        Grade::BPlus | Grade::B | Grade::BMinus => "B",
+        Grade::CPlus | Grade::C | Grade::CMinus => "C",
+        Grade::DPlus | Grade::D | Grade::DMinus => "D",
+        Grade::F => "F",
+    }
 }
 
 fn render_category_scores(report: &HealthReport) -> String {
@@ -883,7 +898,7 @@ mod tests {
         ReportContext {
             health: HealthReport {
                 overall_score: 85.0,
-                grade: "B".into(),
+                grade: Grade::B,
                 structure_score: 90.0,
                 quality_score: 80.0,
                 architecture_score: Some(85.0),

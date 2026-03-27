@@ -5,7 +5,7 @@
 use super::features::{FeatureExtractor, Features};
 use super::feedback::{FeedbackCollector, LabeledFinding};
 use super::model::FpClassifier;
-use crate::models::{Finding, Severity};
+use crate::models::Finding;
 use std::path::PathBuf;
 
 /// Training configuration
@@ -296,12 +296,7 @@ fn labeled_to_finding(labeled: &LabeledFinding) -> Finding {
     Finding {
         id: labeled.finding_id.clone(),
         detector: labeled.detector.clone(),
-        severity: match labeled.severity.to_lowercase().as_str() {
-            "critical" => Severity::Critical,
-            "high" => Severity::High,
-            "medium" => Severity::Medium,
-            _ => Severity::Low,
-        },
+        severity: labeled.severity,
         title: labeled.title.clone(),
         description: labeled.description.clone(),
         affected_files: vec![PathBuf::from(&labeled.file_path)],

@@ -103,7 +103,7 @@ mod tests {
         let ctx = ReportContext {
             health: HealthReport {
                 overall_score: 82.5,
-                grade: "B".into(),
+                grade: Grade::B,
                 structure_score: 85.0,
                 quality_score: 80.0,
                 architecture_score: Some(82.0),
@@ -150,7 +150,7 @@ mod tests {
         let ctx = ReportContext {
             health: HealthReport {
                 overall_score: 60.0,
-                grade: "D".into(),
+                grade: Grade::D,
                 structure_score: 70.0,
                 quality_score: 65.0,
                 architecture_score: Some(45.0),
@@ -179,7 +179,7 @@ mod tests {
         let ctx = ReportContext {
             health: HealthReport {
                 overall_score: 82.5,
-                grade: "B".into(),
+                grade: Grade::B,
                 structure_score: 85.0,
                 quality_score: 80.0,
                 architecture_score: Some(82.0),

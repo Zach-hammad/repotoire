@@ -19,17 +19,22 @@ fn main() -> Result<()> {
     #[cfg(feature = "dhat")]
     let _profiler = dhat::Profiler::new_heap();
 
-    // Initialize logging
+    // Parse CLI args first so we can use --log-level for tracing
+    let cli = repotoire::cli::Cli::parse();
+
+    // Initialize logging: --log-level flag, overridden by RUST_LOG env var
+    let default_filter = cli.log_level.as_filter_str();
     tracing_subscriber::registry()
-        .with(fmt::layer())
-        .with(EnvFilter::from_default_env())
+        .with(fmt::layer().with_writer(std::io::stderr))
+        .with(
+            EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| EnvFilter::new(default_filter)),
+        )
         .init();
 
     // Initialize telemetry (no-op if disabled)
     let telemetry = repotoire::telemetry::init()?;
 
-    // Parse CLI args and run
-    let cli = repotoire::cli::Cli::parse();
     let result = repotoire::cli::run(cli, telemetry);
 
     // Flush pending telemetry events before exit (up to 5s)

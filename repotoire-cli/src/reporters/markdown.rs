@@ -6,7 +6,7 @@
 //! - GitHub wikis
 //! - Documentation
 
-use crate::models::{Finding, HealthReport, Severity};
+use crate::models::{Finding, Grade, HealthReport, Severity};
 use anyhow::Result;
 use chrono::Local;
 
@@ -52,13 +52,12 @@ pub fn render(report: &HealthReport) -> Result<String> {
 }
 
 fn render_header(report: &HealthReport) -> String {
-    let grade_emoji = match report.grade.as_str() {
-        "A" => "🏆",
-        "B" => "⭐",
-        "C" => "⚠️",
-        "D" => "❌",
-        "F" => "💀",
-        _ => "❓",
+    let grade_emoji = match report.grade {
+        Grade::APlus | Grade::A | Grade::AMinus => "\u{1f3c6}",
+        Grade::BPlus | Grade::B | Grade::BMinus => "\u{2b50}",
+        Grade::CPlus | Grade::C | Grade::CMinus => "\u{26a0}\u{fe0f}",
+        Grade::DPlus | Grade::D | Grade::DMinus => "\u{274c}",
+        Grade::F => "\u{1f480}",
     };
 
     let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S");
@@ -87,13 +86,12 @@ fn render_toc() -> String {
 }
 
 fn render_summary(report: &HealthReport) -> String {
-    let assessment = match report.grade.as_str() {
-        "A" => "Excellent - Code is well-structured and maintainable",
-        "B" => "Good - Minor improvements recommended",
-        "C" => "Fair - Several issues should be addressed",
-        "D" => "Poor - Significant refactoring needed",
-        "F" => "Critical - Major technical debt present",
-        _ => "",
+    let assessment = match report.grade {
+        Grade::APlus | Grade::A | Grade::AMinus => "Excellent - Code is well-structured and maintainable",
+        Grade::BPlus | Grade::B | Grade::BMinus => "Good - Minor improvements recommended",
+        Grade::CPlus | Grade::C | Grade::CMinus => "Fair - Several issues should be addressed",
+        Grade::DPlus | Grade::D | Grade::DMinus => "Poor - Significant refactoring needed",
+        Grade::F => "Critical - Major technical debt present",
     };
 
     format!(

@@ -234,7 +234,7 @@ pub struct DetectorConfigOverride {
 
     /// Override the default severity (critical, high, medium, low, info)
     #[serde(default)]
-    pub severity: Option<String>,
+    pub severity: Option<crate::models::Severity>,
 
     /// Detector-specific threshold overrides
     /// Keys depend on the detector (e.g., method_count, loc, max_params)
@@ -405,11 +405,11 @@ impl ExcludeConfig {
 pub struct CliDefaults {
     /// Default output format (text, json, sarif, html, markdown)
     #[serde(default)]
-    pub format: Option<String>,
+    pub format: Option<crate::reporters::OutputFormat>,
 
     /// Default minimum severity filter
     #[serde(default)]
-    pub severity: Option<String>,
+    pub severity: Option<crate::models::Severity>,
 
     /// Default number of workers
     #[serde(default)]
@@ -437,7 +437,7 @@ pub struct CliDefaults {
 
     /// Fail-on severity threshold for CI
     #[serde(default)]
-    pub fail_on: Option<String>,
+    pub fail_on: Option<crate::models::Severity>,
 
     /// Minimum confidence threshold (0.0–1.0) — findings below this are hidden
     #[serde(default)]
@@ -575,13 +575,13 @@ impl ProjectConfig {
     }
 
     /// Severity override for a detector (if any)
-    pub fn severity_override(&self, name: &str) -> Option<&str> {
+    pub fn severity_override(&self, name: &str) -> Option<crate::models::Severity> {
         let normalized = normalize_detector_name(name);
 
         self.detectors
             .get(&normalized)
             .or_else(|| self.detectors.get(name))
-            .and_then(|c| c.severity.as_deref())
+            .and_then(|c| c.severity)
     }
 
     /// Threshold value for a detector

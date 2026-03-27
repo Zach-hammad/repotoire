@@ -25,7 +25,7 @@ use self::filter::WatchFilter;
 
 pub fn run(
     path: &Path,
-    severity: Option<&str>,
+    severity: Option<Severity>,
     all_detectors: bool,
     workers: usize,
     no_emoji: bool,
@@ -108,7 +108,7 @@ pub fn run(
         match engine.reanalyze(&changed) {
             WatchReanalysis::Delta(delta) => {
                 let delta = if let Some(sev) = severity {
-                    filter_delta_by_severity(delta, parse_severity(sev))
+                    filter_delta_by_severity(delta, sev)
                 } else {
                     delta
                 };
@@ -165,12 +165,3 @@ pub fn run(
     Ok(())
 }
 
-fn parse_severity(s: &str) -> Severity {
-    match s {
-        "critical" => Severity::Critical,
-        "high" => Severity::High,
-        "medium" => Severity::Medium,
-        "low" => Severity::Low,
-        _ => Severity::Low,
-    }
-}

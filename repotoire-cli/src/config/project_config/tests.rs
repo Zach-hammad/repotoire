@@ -120,7 +120,7 @@ skip_detectors = ["debug-code"]
     // Check detectors
     assert!(config.is_detector_enabled("god-class"));
     assert!(!config.is_detector_enabled("sql-injection"));
-    assert_eq!(config.severity_override("sql-injection"), Some("high"));
+    assert_eq!(config.severity_override("sql-injection"), Some(crate::models::Severity::High));
     assert_eq!(
         config.threshold_i64("god-class", "method_count"),
         Some(30)
@@ -136,7 +136,7 @@ skip_detectors = ["debug-code"]
     assert!(config.should_exclude(Path::new("generated/foo.py")));
 
     // Check defaults
-    assert_eq!(config.defaults.format, Some("json".to_string()));
+    assert_eq!(config.defaults.format, Some(crate::reporters::OutputFormat::Json));
     assert_eq!(config.defaults.workers, Some(4));
     assert!(config
         .defaults
@@ -333,13 +333,13 @@ fail_on = "medium"
 skip_detectors = ["dead-code", "unused-import"]
 "#;
     let config: ProjectConfig = toml::from_str(toml_str).expect("parse CLI defaults config");
-    assert_eq!(config.defaults.format, Some("sarif".to_string()));
-    assert_eq!(config.defaults.severity, Some("high".to_string()));
+    assert_eq!(config.defaults.format, Some(crate::reporters::OutputFormat::Sarif));
+    assert_eq!(config.defaults.severity, Some(crate::models::Severity::High));
     assert_eq!(config.defaults.workers, Some(16));
     assert_eq!(config.defaults.per_page, Some(50));
     assert_eq!(config.defaults.thorough, Some(true));
     assert_eq!(config.defaults.no_git, Some(false));
     assert_eq!(config.defaults.no_emoji, Some(true));
-    assert_eq!(config.defaults.fail_on, Some("medium".to_string()));
+    assert_eq!(config.defaults.fail_on, Some(crate::models::Severity::Medium));
     assert_eq!(config.defaults.skip_detectors.len(), 2);
 }

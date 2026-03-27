@@ -21,6 +21,37 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
+/// Telemetry management actions
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum TelemetryAction {
+    On,
+    Off,
+    Status,
+}
+
+/// Log verbosity levels
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum LogLevel {
+    Error,
+    Warn,
+    Info,
+    Debug,
+    Trace,
+}
+
+impl LogLevel {
+    /// Convert to a `tracing_subscriber::EnvFilter` directive string.
+    pub fn as_filter_str(self) -> &'static str {
+        match self {
+            LogLevel::Error => "error",
+            LogLevel::Warn => "warn",
+            LogLevel::Info => "info",
+            LogLevel::Debug => "debug",
+            LogLevel::Trace => "trace",
+        }
+    }
+}
+
 /// Parse and validate workers count (1-64)
 fn parse_workers(s: &str) -> Result<usize, String> {
     let n: usize = s
@@ -65,8 +96,8 @@ pub struct Cli {
     pub path: PathBuf,
 
     /// Log level (error, warn, info, debug, trace)
-    #[arg(long, global = true, default_value = "info", value_parser = ["error", "warn", "info", "debug", "trace"])]
-    pub log_level: String,
+    #[arg(long, global = true, default_value = "info")]
+    pub log_level: LogLevel,
 
     /// Number of parallel workers (1-64)
     #[arg(long, global = true, default_value = "8", value_parser = parse_workers)]
@@ -94,9 +125,9 @@ Examples:
   repotoire analyze . --fail-on high                 Exit code 1 if high+ findings (CI mode)
   repotoire analyze . --explain-score                Show full scoring breakdown")]
     Analyze {
-        /// Output format: text, json, sarif, html, markdown (or md)
-        #[arg(long, short = 'f', default_value = "text", value_parser = ["text", "json", "sarif", "html", "markdown", "md"])]
-        format: String,
+        /// Output format: text, json, sarif, html, markdown
+        #[arg(long, short = 'f', default_value = "text")]
+        format: crate::reporters::OutputFormat,
 
         /// Output file path (default: stdout, or auto-named for html/markdown)
         #[arg(long, short = 'o')]
@@ -108,8 +139,8 @@ Examples:
         json_sidecar: Option<PathBuf>,
 
         /// Minimum severity to report (critical, high, medium, low)
-        #[arg(long, value_parser = ["critical", "high", "medium", "low"])]
-        severity: Option<String>,
+        #[arg(long)]
+        severity: Option<crate::models::Severity>,
 
         /// Maximum findings to show
         #[arg(long)]
@@ -135,9 +166,9 @@ Examples:
         #[arg(long)]
         all_detectors: bool,
 
-        /// Control external tool execution: on (default, auto-discover), off (built-in only)
-        #[arg(long, default_value = "on", value_parser = ["on", "off"])]
-        external: String,
+        /// Disable external tool execution (built-in only)
+        #[arg(long)]
+        no_external: bool,
 
         /// Relaxed mode: filter to high/critical findings only (display filter, does not affect grade)
         #[arg(long)]
@@ -149,8 +180,8 @@ Examples:
 
         /// Exit with code 1 if findings at this severity or higher exist
         /// Values: critical, high, medium, low (default: none - always exit 0)
-        #[arg(long, value_parser = ["critical", "high", "medium", "low"])]
-        fail_on: Option<String>,
+        #[arg(long)]
+        fail_on: Option<crate::models::Severity>,
 
         /// Disable emoji in output (cleaner for CI logs)
         #[arg(long)]
@@ -211,12 +242,12 @@ Examples:
         base_ref: Option<String>,
 
         /// Output format: text, json, sarif
-        #[arg(long, short = 'f', default_value = "text", value_parser = ["text", "json", "sarif"])]
-        format: String,
+        #[arg(long, short = 'f', default_value = "text")]
+        format: crate::reporters::OutputFormat,
 
         /// Exit with code 1 if new findings at this severity or above
-        #[arg(long, value_parser = ["critical", "high", "medium", "low"])]
-        fail_on: Option<String>,
+        #[arg(long)]
+        fail_on: Option<crate::models::Severity>,
 
         /// Disable emoji in output
         #[arg(long)]
@@ -256,8 +287,8 @@ Examples:
         top: Option<usize>,
 
         /// Minimum severity to show (critical, high, medium, low)
-        #[arg(long, value_parser = ["critical", "high", "medium", "low"])]
-        severity: Option<String>,
+        #[arg(long)]
+        severity: Option<crate::models::Severity>,
 
         /// Page number (1-indexed)
         #[arg(long, default_value = "1")]
@@ -318,7 +349,7 @@ Examples:
 
         /// Output format (json, table)
         #[arg(long, default_value = "table")]
-        format: String,
+        format: crate::reporters::OutputFormat,
     },
 
     /// Show graph statistics (node counts, edge counts, language breakdown)
@@ -344,8 +375,8 @@ Examples:
     /// Uses debouncing to avoid re-running on every keystroke.
     Watch {
         /// Minimum severity to display: critical, high, medium, low
-        #[arg(long, value_parser = ["critical", "high", "medium", "low"])]
-        severity: Option<String>,
+        #[arg(long)]
+        severity: Option<crate::models::Severity>,
 
         /// Run all detectors including deep-scan (code smells, style, dead code)
         #[arg(long)]
@@ -410,8 +441,8 @@ Examples:
     /// View ecosystem benchmarks for your project
     Benchmark {
         /// Output format: text, json
-        #[arg(long, short = 'f', default_value = "text", value_parser = ["text", "json"])]
-        format: String,
+        #[arg(long, short = 'f', default_value = "text")]
+        format: crate::reporters::OutputFormat,
     },
 
     /// Show per-file technical debt risk scores (requires prior analysis)
@@ -454,7 +485,7 @@ pub enum ConfigAction {
     /// Manage telemetry settings (on, off, status)
     Telemetry {
         /// Action: on, off, status
-        action: String,
+        action: TelemetryAction,
     },
 }
 
@@ -518,7 +549,7 @@ pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> { // 
             skip_detector,
             thorough,
             all_detectors,
-            external: _,
+            no_external: _,
             relaxed,
             max_files,
             fail_on,
@@ -535,7 +566,7 @@ pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> { // 
             // Deprecation warning for --thorough
             if thorough {
                 eprintln!("⚠️  --thorough is deprecated. External tools now run by default when available.");
-                eprintln!("   Use --external=off to skip external tools. --thorough will be removed in a future release.");
+                eprintln!("   Use --no-external to skip external tools. --thorough will be removed in a future release.");
             }
 
             // Deprecation warning for --relaxed
@@ -547,7 +578,7 @@ pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> { // 
 
             // In relaxed mode, default to high severity unless explicitly specified
             let effective_severity = if relaxed && severity.is_none() {
-                Some("high".to_string())
+                Some(crate::models::Severity::High)
             } else {
                 severity
             };
@@ -605,7 +636,7 @@ pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> { // 
         }) => diff::run(
             &cli.path,
             base_ref,
-            &format,
+            format,
             fail_on,
             no_emoji,
             output.as_deref(),
@@ -655,7 +686,7 @@ pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> { // 
             &telemetry,
         ),
 
-        Some(Commands::Graph { query, format }) => graph::run(&cli.path, &query, &format),
+        Some(Commands::Graph { query, format }) => graph::run(&cli.path, &query, format),
 
         Some(Commands::Stats) => graph::stats(&cli.path),
 
@@ -664,7 +695,7 @@ pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> { // 
         Some(Commands::Doctor) => doctor::run(),
 
         Some(Commands::Watch { severity, all_detectors }) => {
-            watch::run(&cli.path, severity.as_deref(), all_detectors, cli.workers, false, false, &telemetry)
+            watch::run(&cli.path, severity, all_detectors, cli.workers, false, false, &telemetry)
         }
         Some(Commands::Calibrate) => run_calibrate(&cli.path),
         Some(Commands::Clean { dry_run }) => clean::run(&cli.path, dry_run),
@@ -748,7 +779,7 @@ pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> { // 
                         } else {
                             "false_positive".into()
                         },
-                        severity: format!("{:?}", finding.severity).to_lowercase(),
+                        severity: finding.severity.to_string(),
                         language: String::new(),
                         version: env!("CARGO_PKG_VERSION").to_string(),
                         ..Default::default()
@@ -797,7 +828,7 @@ pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> { // 
         }
 
         Some(Commands::Benchmark { format }) => {
-            benchmark::run(&cli.path, &format, &telemetry)
+            benchmark::run(&cli.path, format, &telemetry)
         }
 
         Some(Commands::Debt { filter, top }) => {
@@ -1013,18 +1044,15 @@ fn run_config_action(action: ConfigAction) -> anyhow::Result<()> {
         }
         ConfigAction::Show => show_config(),
         ConfigAction::Set { key, value } => set_config_value(&key, &value),
-        ConfigAction::Telemetry { action } => run_telemetry_action(&action),
+        ConfigAction::Telemetry { action } => run_telemetry_action(action),
     }
 }
 
-fn run_telemetry_action(action: &str) -> anyhow::Result<()> {
+fn run_telemetry_action(action: TelemetryAction) -> anyhow::Result<()> {
     match action {
-        "on" => set_telemetry_enabled(true),
-        "off" => set_telemetry_enabled(false),
-        "status" => show_telemetry_status(),
-        other => {
-            anyhow::bail!("Unknown telemetry action: '{}'. Use on, off, or status.", other);
-        }
+        TelemetryAction::On => set_telemetry_enabled(true),
+        TelemetryAction::Off => set_telemetry_enabled(false),
+        TelemetryAction::Status => show_telemetry_status(),
     }
 }
 
