@@ -1,0 +1,229 @@
+---
+title: "Circular Dependencies: What They Are, Why They're Dangerous, and How to Fix Them"
+description: "Circular dependencies silently rot your codebase. Learn what causes dependency cycles, why file-by-file linters can't detect them, and how graph algorithms like Tarjan's SCC find and fix them."
+date: "2026-03-23"
+author: "zach"
+tags: ["architecture", "circular-dependencies", "dependency-cycles", "code-quality"]
+---
+
+## The bug that doesn't look like a bug
+
+You're debugging a test that fails when run in isolation but passes in the full suite. Or a module that throws an undefined error on import, but only in production. Or a refactor that should be straightforward — move one function — but somehow breaks three unrelated modules.
+
+The root cause is often the same: circular dependencies.
+
+A circular dependency (also called a dependency cycle) occurs when two or more modules depend on each other, directly or indirectly. Module A imports Module B, which imports Module C, which imports Module A. Each import is valid on its own. No single file has a bug. But the cycle creates a system that's fragile, hard to test, and prone to failures that only manifest at runtime.
+
+Circular dependencies are one of the most common architectural problems in production codebases — and one of the hardest to detect with traditional tools.
+
+## What circular dependencies look like
+
+### Direct cycles
+
+The simplest case: two modules that import each other.
+
+```typescript
+// auth.ts
+import { getUserRole } from './user';
+export function checkPermission(userId: string) {
+  const role = getUserRole(userId);
+  return role === 'admin';
+}
+
+// user.ts
+import { checkPermission } from './auth';
+export function getUserRole(userId: string) { /* ... */ }
+export function deleteUser(requesterId: string, targetId: string) {
+  if (!checkPermission(requesterId)) throw new Error('Forbidden');
+  // ...
+}
+```
+
+Both files work fine in isolation. The types check. The logic is correct. But `auth` depends on `user` and `user` depends on `auth`. Depending on the runtime's module resolution order, one of these imports will resolve to an incomplete module — functions that are `undefined` at the time they're called.
+
+In Node.js, this manifests as the classic `TypeError: checkPermission is not a function`. In Python, it's `ImportError: cannot import name`. In Go, it's a compile error (the compiler rejects cycles outright). In Java, it compiles but creates initialization order bugs that surface as `NullPointerException` in production.
+
+### Indirect cycles
+
+Real-world cycles are rarely two files. They span 5, 10, or 20 modules, making them invisible during code review.
+
+```python
+# services/order.py
+from services.inventory import check_stock
+
+# services/inventory.py
+from services.warehouse import get_location
+
+# services/warehouse.py
+from services.shipping import calculate_route
+
+# services/shipping.py
+from services.order import get_order_details  # Completes the cycle
+```
+
+Each import is reasonable in isolation. A reviewer looking at any single PR wouldn't flag it. But the four modules form a cycle that means you can't test, deploy, or reason about any one of them independently.
+
+### Cycles through re-exports
+
+Barrel files (`index.ts` or `__init__.py`) are a common source of hidden cycles. When you re-export everything from a directory, you create implicit dependencies between modules that don't directly reference each other.
+
+```typescript
+// utils/index.ts
+export { formatDate } from './date';
+export { validateEmail } from './validation';
+export { hashPassword } from './crypto';
+
+// utils/validation.ts
+import { formatDate } from './index';  // Imports the barrel file
+```
+
+`validation.ts` imports from `index.ts`, which imports from `validation.ts`. Cycle. The developer thought they were importing from a different module. The barrel file hid the dependency.
+
+## Why circular dependencies are dangerous
+
+### Initialization order bugs
+
+Most module systems evaluate imports eagerly. When Module A imports Module B and Module B imports Module A, one of them will be partially initialized when the other tries to use it. Which one depends on which file the runtime happens to load first — an implementation detail that can change between environments, bundler versions, or test runners.
+
+These bugs are non-deterministic. They appear in CI but not locally. They appear in production but not staging. They appear when you change the import order in a seemingly unrelated file.
+
+### Testing becomes impossible
+
+If Module A depends on Module B which depends on Module A, you cannot test Module A in isolation. Mocking Module B requires understanding its dependency on Module A. Setting up a test for one module means setting up the entire cycle.
+
+This is why teams with circular dependencies tend to have either no unit tests (because they're too hard to write) or integration tests that test everything together (because isolation is impossible).
+
+### Refactoring paralysis
+
+Circular dependencies create a "everything depends on everything" structure where moving, renaming, or extracting a module requires touching every other module in the cycle. A refactor that should take an hour takes a week because you can't change one thing without changing five others.
+
+Martin Fowler [describes this](https://martinfowler.com/bliki/CyclicDependency.html) as one of the key indicators that a codebase has lost its modular structure. The modules exist syntactically (they're separate files) but not semantically (they can't function independently).
+
+### Build performance
+
+Build tools that support parallel compilation (Go, Rust, C++) use the dependency graph to determine what can be compiled concurrently. Cycles force sequential compilation of the entire cycle, because each module needs the others to be compiled first. In large codebases, breaking cycles can cut build times by 30-50%.
+
+## Why linters can't find them
+
+Here's the core problem: **linters analyze files one at a time.**
+
+When ESLint processes `auth.ts`, it sees `import { getUserRole } from './user'` and validates the import. When it processes `user.ts`, it sees `import { checkPermission } from './auth'` and validates that import too. Both are valid. There's no rule violation in either file.
+
+The cycle only becomes visible when you look at the **relationships between files** — the dependency graph. Detecting it requires building a graph where nodes are modules and edges are imports, then running a cycle-detection algorithm on the entire graph.
+
+Some tools attempt cycle detection with limited scope. [eslint-plugin-import](https://github.com/import-js/eslint-plugin-import/blob/main/docs/rules/no-cycle.md) has a `no-cycle` rule, but it works by recursively following imports from each file — an approach that's exponentially slow on large codebases and misses cycles that pass through non-JavaScript files. [Madge](https://github.com/pahen/madge) is better but limited to JavaScript/TypeScript.
+
+Proper cycle detection requires a purpose-built graph algorithm.
+
+## How graph analysis detects cycles: Tarjan's SCC
+
+The standard algorithm for finding all cycles in a directed graph is [Tarjan's strongly connected components (SCC) algorithm](https://en.wikipedia.org/wiki/Tarjan%27s_strongly_connected_components_algorithm), published by Robert Tarjan in 1972.
+
+A **strongly connected component** is a maximal set of nodes where every node is reachable from every other node. In dependency terms: a set of modules that all depend on each other, directly or indirectly. Every cycle in the graph is contained within an SCC.
+
+Tarjan's algorithm finds all SCCs in a single depth-first traversal — O(V + E) time, where V is the number of modules and E is the number of imports. It doesn't matter if the cycle spans 3 files or 30. It doesn't matter if cycles overlap or share modules. The algorithm finds them all in one pass.
+
+Here's the intuition: the algorithm maintains a stack of nodes and assigns each node two numbers — a discovery index (when it was first visited) and a low-link value (the lowest discovery index reachable from that node). When a node's low-link equals its discovery index, everything on the stack above it forms a strongly connected component.
+
+The result is a list of components, each containing the modules involved in a cycle. Components with more than one node represent dependency cycles.
+
+## How to fix circular dependencies
+
+### Extract the shared dependency
+
+Most cycles exist because two modules share a concept that hasn't been given its own module yet.
+
+```typescript
+// Before: auth ↔ user cycle
+// After: extract the shared concept
+
+// permissions.ts (new module — the shared dependency)
+export function checkPermission(role: string) {
+  return role === 'admin';
+}
+
+// auth.ts — depends on permissions, not user
+import { checkPermission } from './permissions';
+
+// user.ts — depends on permissions, not auth
+import { checkPermission } from './permissions';
+```
+
+The cycle is broken because both modules now depend on a third module instead of each other. This is the **dependency inversion principle** in action: depend on abstractions (the `permissions` module), not on concretions (each other).
+
+### Use dependency injection
+
+When Module A needs functionality from Module B but Module B also needs Module A, inject the dependency at runtime instead of import time.
+
+```python
+# Before: shipping imports order, order imports shipping
+# After: inject the dependency
+
+class ShippingService:
+    def __init__(self, get_order_fn):
+        self.get_order = get_order_fn
+
+    def calculate_route(self, order_id):
+        order = self.get_order(order_id)
+        # ...
+```
+
+The `ShippingService` no longer imports the order module. It receives the function it needs through its constructor. The cycle is broken at the module level.
+
+### Apply the acyclic dependencies principle (ADP)
+
+Robert C. Martin's [Acyclic Dependencies Principle](https://wiki.c2.com/?AcyclicDependenciesPrinciple) states that the dependency graph of packages must be a directed acyclic graph (DAG). When you detect a cycle, the fix is always one of:
+
+1. **Extract** the shared concept into a new module
+2. **Invert** the dependency using interfaces or callbacks
+3. **Merge** the modules if they're genuinely one concept split across files
+
+Option 3 is underappreciated. Sometimes two files form a cycle because they're actually one module that was split for organizational reasons. Merging them acknowledges the reality of their coupling.
+
+## Detecting cycles with Repotoire
+
+Repotoire builds the full dependency graph of your codebase using [tree-sitter](https://tree-sitter.github.io/tree-sitter/) parsers across 9 languages, then runs Tarjan's SCC algorithm to find all cycles.
+
+```bash
+cargo install repotoire
+repotoire analyze /path/to/your/repo
+```
+
+The output reports each cycle with the specific modules and the minimal set of edges that would break it:
+
+```
+What stands out:
+  HIGH    CircularDependency    3 dependency cycles detected
+    Cycle 1 (4 modules): order.py → inventory.py → warehouse.py → shipping.py → order.py
+      Break by removing: shipping.py → order.py
+    Cycle 2 (2 modules): auth.ts → user.ts → auth.ts
+      Break by removing: user.ts → auth.ts
+    Cycle 3 (7 modules): ...
+```
+
+Because Repotoire works across languages, it catches cycles that span your TypeScript frontend and your Python backend — something no single-language tool can detect.
+
+The cycle detection is part of Repotoire's Architecture scoring pillar (30% of the overall health score). A codebase with multiple dependency cycles will see a significant Architecture penalty, reflecting the real maintenance cost those cycles impose.
+
+## Prevention: catching cycles before they merge
+
+The best time to catch a circular dependency is before it lands in your main branch. Repotoire's [GitHub Action](https://github.com/Zach-hammad/repotoire-action) runs diff analysis on pull requests, comparing findings between your branch and main:
+
+```bash
+repotoire diff main --fail-on high
+```
+
+If a PR introduces a new dependency cycle, the check fails with the specific cycle and the files involved. The developer can fix it while the context is fresh — before the cycle becomes load-bearing code that's expensive to untangle.
+
+## The bottom line
+
+Circular dependencies are architecture bugs. They don't trigger compiler errors (in most languages), they don't fail linter checks, and they don't show up in code review. They show up as flaky tests, mysterious runtime errors, and refactors that take ten times longer than expected.
+
+Detecting them requires graph analysis — specifically, building the full dependency graph and running Tarjan's SCC algorithm. File-by-file tools can't do this by definition. You need a tool that sees the entire system.
+
+```bash
+cargo install repotoire
+repotoire analyze .
+```
+
+Run it on your codebase. If you've been working on it for more than a year, you almost certainly have cycles. Find them before they find you.
