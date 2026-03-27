@@ -1,0 +1,291 @@
+---
+title: "11 Rust CLI Tools Every Developer Should Know in 2026"
+description: "A curated list of Rust-powered CLI tools that are faster, simpler, and better than their predecessors. From ripgrep to Repotoire, these tools replace slow scripts with single-binary speed."
+date: "2026-03-19"
+author: "zach"
+tags: ["rust", "cli-tools", "developer-tools", "productivity"]
+---
+
+## Why Rust keeps winning the CLI
+
+Something happened over the last few years. The standard Unix toolkit — grep, find, cat, ls, du, top — started getting replaced. Not by rewrite-in-Go projects or Node.js scripts, but by Rust CLIs that are faster, more user-friendly, and trivially installable.
+
+The reason is structural. Rust gives CLI authors three things that are hard to get together in any other language:
+
+1. **Performance without a runtime.** No JVM startup, no GC pauses, no interpreter overhead. Rust CLIs launch in milliseconds and process data at memory-bandwidth speeds.
+2. **Single static binaries.** `cargo install tool` gives you one binary. No `pip install` dependency hell, no `npm install` pulling 300 packages, no Docker required. Copy the binary to a server and it works.
+3. **Cross-platform without compromise.** The same codebase compiles to Linux, macOS, and Windows. Most Rust CLIs support all three with a single CI pipeline.
+
+The result is a new generation of developer tools that are genuinely better than what they replace — not in some theoretical sense, but in the "I switched and never went back" sense.
+
+Here are 11 that have earned their place in my daily workflow.
+
+## 1. ripgrep — Search code at the speed of memory
+
+**Replaces:** grep, ag (The Silver Searcher), ack
+
+[ripgrep](https://github.com/BurntSushi/ripgrep) is the tool that proved Rust CLIs could be better, not just faster. Created by Andrew Gallup (BurntSushi), it respects `.gitignore` by default, searches recursively, skips binary files, and produces beautifully formatted output — all while being [consistently faster](https://blog.burntsushi.net/ripgrep/) than every alternative in benchmarks.
+
+The performance comes from Rust's regex engine, which uses finite automata instead of backtracking. This means ripgrep's performance is predictable: it doesn't suddenly slow down on pathological patterns the way PCRE-based tools can.
+
+```bash
+# Search for a pattern across your codebase
+rg "fn main" --type rust
+
+# Search with context
+rg "TODO|FIXME" -C 3
+
+# Count matches per file
+rg "import" --count --sort count
+```
+
+I use ripgrep dozens of times a day. I genuinely don't know how I worked before it existed.
+
+**Install:** `cargo install ripgrep` or download from [GitHub releases](https://github.com/BurntSushi/ripgrep/releases)
+
+## 2. fd — Find files without the mental gymnastics
+
+**Replaces:** find
+
+[fd](https://github.com/sharkdp/fd) replaces `find` with a command that you can actually remember without consulting the man page. Instead of `find . -name '*.rs' -type f`, you write `fd -e rs`.
+
+```bash
+# Find all Rust files
+fd -e rs
+
+# Find files matching a pattern
+fd "test.*\.py$"
+
+# Find and delete all .DS_Store files
+fd -H .DS_Store -x rm
+```
+
+It's 5-10x faster than `find` on large directory trees because it parallelizes the traversal and respects `.gitignore`. The colored output and smart defaults (ignores hidden files, follows symlinks sensibly) make it feel like `find` was designed in 2026 instead of 1971.
+
+**Install:** `cargo install fd-find` or download from [GitHub releases](https://github.com/sharkdp/fd/releases)
+
+## 3. bat — cat with syntax highlighting
+
+**Replaces:** cat, less
+
+[bat](https://github.com/sharkdp/bat) is `cat` with syntax highlighting, line numbers, git integration, and automatic paging. It uses the same syntax definitions as Sublime Text, so it highlights correctly for virtually every language.
+
+```bash
+# View a file with syntax highlighting
+bat src/main.rs
+
+# Show only lines 10-20
+bat src/main.rs -r 10:20
+
+# Use as a pager for other commands
+export MANPAGER="sh -c 'col -bx | bat -l man -p'"
+```
+
+The git integration is particularly useful — it shows a column indicating which lines have been added, modified, or deleted compared to HEAD. It's a small thing, but once you see it, plain `cat` feels incomplete.
+
+**Install:** `cargo install bat` or download from [GitHub releases](https://github.com/sharkdp/bat/releases)
+
+## 4. delta — Git diffs that are actually readable
+
+**Replaces:** diff, git's built-in diff
+
+[delta](https://github.com/dandavison/delta) transforms `git diff` output from a wall of green and red text into something you can actually parse visually. It adds syntax highlighting within diffs, line numbers, side-by-side mode, and word-level change highlighting.
+
+Configure it once in your `.gitconfig`:
+
+```gitconfig
+[core]
+    pager = delta
+
+[interactive]
+    diffFilter = delta --color-only
+
+[delta]
+    navigate = true
+    side-by-side = true
+    line-numbers = true
+```
+
+After setup, every `git diff`, `git log -p`, and `git show` automatically uses delta's rendering. The word-level highlighting — showing exactly which characters changed within a line — is the feature that made me never look back.
+
+**Install:** `cargo install git-delta` or download from [GitHub releases](https://github.com/dandavison/delta/releases)
+
+## 5. tokei — Count lines of code, correctly
+
+**Replaces:** cloc, sloccount, wc -l
+
+[tokei](https://github.com/XAMPPRocky/tokei) counts lines of code, comments, and blanks across your codebase. It supports over 200 languages and is about 10x faster than [cloc](https://github.com/AlDanial/cloc).
+
+```bash
+$ tokei
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ Language   Files  Lines    Code  Comments  Blanks
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ Rust         142  93471   78903      5812    8756
+ TypeScript    87  12340   10204       890    1246
+ TOML          12    834     712        52      70
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ Total        241 106645   89819      6754   10072
+```
+
+What makes tokei better than `cloc` isn't just speed — it's accuracy. It correctly handles multi-line comments, nested block comments, and language-specific edge cases that `cloc` frequently miscounts.
+
+**Install:** `cargo install tokei` or download from [GitHub releases](https://github.com/XAMPPRocky/tokei/releases)
+
+## 6. hyperfine — Benchmark anything from the command line
+
+**Replaces:** time, ad-hoc shell loops
+
+[hyperfine](https://github.com/sharkdp/hyperfine) is a command-line benchmarking tool that handles warmup runs, statistical analysis, and comparison between commands. Instead of running `time` three times and eyeballing the results, you get proper statistics.
+
+```bash
+# Benchmark a command
+hyperfine 'fd -e rs'
+
+# Compare two commands
+hyperfine 'grep -r pattern .' 'rg pattern'
+
+# With warmup runs
+hyperfine --warmup 3 'cargo test'
+```
+
+The output includes mean, min, max, standard deviation, and relative comparison when benchmarking multiple commands. It's the tool I reach for every time someone says "X is faster than Y" — run hyperfine and know for certain.
+
+**Install:** `cargo install hyperfine` or download from [GitHub releases](https://github.com/sharkdp/hyperfine/releases)
+
+## 7. dust — Disk usage that makes sense
+
+**Replaces:** du, ncdu
+
+[dust](https://github.com/bootandy/dust) shows disk usage as a visual tree. Instead of piping `du` through `sort` and `head`, you get an instant, color-coded visualization of what's eating your disk space.
+
+```bash
+# Show disk usage for current directory
+dust
+
+# Limit depth
+dust -d 3
+
+# Show only the top 10
+dust -n 10
+```
+
+The bar chart visualization makes it immediately obvious where the space is going. I use it weekly to find Docker images, build artifacts, and node_modules directories that have gotten out of hand.
+
+**Install:** `cargo install du-dust` or download from [GitHub releases](https://github.com/bootandy/dust/releases)
+
+## 8. bottom — System monitoring that doesn't feel like 1995
+
+**Replaces:** top, htop
+
+[bottom](https://github.com/ClementTsang/bottom) (invoked as `btm`) is a system monitor with CPU, memory, network, disk, temperature, and process graphs. It's responsive, keyboard-navigable, and actually pleasant to look at.
+
+```bash
+btm
+```
+
+What sets bottom apart from htop is the graphing. You get real-time sparklines for CPU and memory usage, network throughput graphs, and disk I/O — all in the terminal. The process filtering and sorting is fast enough that you can search through thousands of processes instantly.
+
+**Install:** `cargo install bottom` or download from [GitHub releases](https://github.com/ClementTsang/bottom/releases)
+
+## 9. starship — A shell prompt that's fast and informative
+
+**Replaces:** oh-my-zsh themes, powerline, custom PS1 hacks
+
+[starship](https://github.com/starship/starship) is a cross-shell prompt that shows git status, language versions, cloud context, and more — without the multi-second latency that plagues oh-my-zsh and powerline.
+
+```bash
+# Install and add to your shell config
+# For bash: eval "$(starship init bash)"
+# For zsh:  eval "$(starship init zsh)"
+# For fish: starship init fish | source
+```
+
+The key insight of starship is that it's a standalone binary, not a shell plugin. It doesn't slow down your shell startup. It doesn't conflict with other plugins. It works with bash, zsh, fish, PowerShell, and others with the same configuration. The default theme is genuinely good enough to use without customization, which is more than I can say for any previous prompt tool I've used.
+
+**Install:** `cargo install starship` or download from [GitHub releases](https://github.com/starship/starship/releases)
+
+## 10. zoxide — cd that learns your habits
+
+**Replaces:** cd, autojump, z
+
+[zoxide](https://github.com/ajeetdsouza/zoxide) tracks the directories you visit and lets you jump to them with partial matches. After using it for a day, it learns your most-visited paths.
+
+```bash
+# Jump to the best match for "repo"
+z repo
+
+# Interactive selection when multiple matches
+zi repo
+
+# It learns from your cd usage automatically
+cd /home/user/projects/some-long-path/deeply/nested
+# Later:
+z nested  # Takes you right back
+```
+
+The ranking algorithm uses "frecency" — a combination of frequency and recency. Directories you visit often and recently rank highest. It's the same concept that browser URL bars use, applied to filesystem navigation.
+
+**Install:** `cargo install zoxide` or download from [GitHub releases](https://github.com/ajeetdsouza/zoxide/releases)
+
+## 11. Repotoire — Graph-powered code analysis
+
+**Replaces:** nothing (this is a new category)
+
+[Repotoire](https://github.com/Zach-hammad/repotoire) doesn't replace an existing Unix tool — it fills a gap that hasn't had a good CLI solution. It analyzes your codebase as a dependency graph and finds architectural problems that linters can't detect: circular dependencies, architectural bottlenecks, god classes, hidden coupling, and dead code.
+
+```bash
+# Analyze your codebase
+repotoire analyze /path/to/your/repo
+
+# Output
+repotoire v0.5.1 — graph-powered code health
+
+Analyzing: /path/to/your/repo
+  Files: 847 | Languages: TypeScript, Python
+  Graph: 12,493 nodes, 31,207 edges
+  Detectors: 106 (73 default + 33 deep-scan)
+
+Health Score: 82/100 (B+)
+  Structure:    88/100
+  Quality:      79/100
+  Architecture: 78/100
+```
+
+Under the hood, it parses code with [tree-sitter](https://tree-sitter.github.io/tree-sitter/), builds an in-memory graph with [petgraph](https://docs.rs/petgraph/), and runs 106 pure Rust detectors in parallel via [rayon](https://docs.rs/rayon/). It supports 9 languages (Python, TypeScript, JavaScript, Rust, Go, Java, C#, C, C++), outputs in 5 formats (text, JSON, HTML, SARIF, Markdown), and the [GitHub Action](https://github.com/Zach-hammad/repotoire-action) integrates it into your PR workflow.
+
+The Rust advantage is clear here: building and analyzing a dependency graph with 30,000+ edges in under 2 seconds would be painful in Python or JavaScript. In Rust, it's just what the tool does.
+
+**Install:** `cargo install repotoire` or download from [GitHub releases](https://github.com/Zach-hammad/repotoire/releases)
+
+## The pattern
+
+Look at this list and a pattern emerges. Every tool shares the same properties:
+
+- **Single binary, no dependencies.** Download it, put it in your PATH, done.
+- **Fast by default.** No configuration needed to get good performance.
+- **Better defaults than the tool it replaces.** Respects `.gitignore`, uses color, provides sensible output formatting.
+- **Cross-platform.** Same tool on Linux, macOS, and Windows.
+
+This is what Rust brings to CLI tooling. Not just speed — though the speed is real and significant. It's the **deployment model**. A single static binary that works everywhere, with no runtime to install, no version conflicts, and no dependency management.
+
+The Unix philosophy of small, composable tools is alive and well. The tools just got a lot better.
+
+## Getting started
+
+If you want to start replacing your toolkit gradually, here's the order I'd suggest:
+
+1. **ripgrep** — You'll use it immediately and constantly
+2. **fd** — The next time you need `find`, use `fd` instead
+3. **bat** — Set `alias cat=bat` and forget about it
+4. **delta** — One `.gitconfig` change and all your diffs improve
+5. **zoxide** — Install it, use `cd` normally, and `z` will learn
+
+The rest (dust, bottom, tokei, hyperfine, starship, Repotoire) are tools you'll reach for in specific situations. But once you've used them, you won't go back.
+
+```bash
+# Install everything at once
+cargo install ripgrep fd-find bat git-delta tokei hyperfine du-dust bottom starship zoxide repotoire
+```
+
+That's 11 tools, installed with one command, producing 11 static binaries with zero shared dependencies. Try doing that with npm.
