@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use tower_lsp::lsp_types::{
     Diagnostic, DiagnosticSeverity, NumberOrString, Position, Range, Url,
@@ -41,7 +41,7 @@ pub fn finding_to_diagnostic(finding: &Finding) -> Diagnostic {
 
 /// Convert a file path to a URI. Handles relative paths by canonicalizing.
 /// Finding.affected_files may contain relative paths (e.g., "src/main.rs").
-pub fn path_to_uri(path: &PathBuf) -> Option<Url> {
+pub fn path_to_uri(path: &Path) -> Option<Url> {
     // Try as-is first (absolute paths)
     Url::from_file_path(path)
         .or_else(|_| {
@@ -54,15 +54,14 @@ pub fn path_to_uri(path: &PathBuf) -> Option<Url> {
 }
 
 /// Manages the diagnostic state: maps file URIs to their current diagnostics.
+#[derive(Default)]
 pub struct DiagnosticMap {
     map: HashMap<Url, Vec<(Finding, Diagnostic)>>,
 }
 
 impl DiagnosticMap {
     pub fn new() -> Self {
-        Self {
-            map: HashMap::new(),
-        }
+        Self::default()
     }
 
     /// Set all diagnostics from a full findings list (used on `ready` event).
@@ -90,7 +89,7 @@ impl DiagnosticMap {
     }
 
     /// Fingerprint a finding for matching — same key as compute_delta uses.
-    fn fingerprint(f: &Finding) -> (String, Option<std::path::PathBuf>, Option<u32>) {
+    fn fingerprint(f: &Finding) -> (String, Option<PathBuf>, Option<u32>) {
         (
             f.detector.clone(),
             f.affected_files.first().cloned(),

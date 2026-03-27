@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use tokio::sync::Mutex;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::notification::Progress;
 use tower_lsp::lsp_types::request::WorkDoneProgressCreate;
@@ -24,11 +23,16 @@ pub struct Backend {
     /// Use RwLock to avoid blocking reads during diagnostic publishing.
     diagnostics: Arc<tokio::sync::RwLock<DiagnosticMap>>,
     /// Write-heavy state (worker communication, debounce).
-    /// Separate from diagnostics to avoid contention.
-    worker_state: Arc<Mutex<WorkerState>>,
+    /// Uses std::sync::Mutex because all access is via spawn_blocking.
+    /// This avoids the mixed lock().await / blocking_lock() deadlock risk
+    /// that tokio::sync::Mutex would introduce.
+    worker_state: Arc<std::sync::Mutex<WorkerState>>,
     /// Debounce generation counter. Incremented on every save.
     /// The debounce task checks if the generation is still current after 200ms.
     debounce_generation: Arc<AtomicU64>,
+    /// Reader generation counter. Incremented on worker restart.
+    /// Events from old readers are discarded after a restart.
+    reader_generation: Arc<AtomicU64>,
 }
 
 struct WorkerState {
@@ -42,14 +46,15 @@ impl Backend {
     pub fn new(client: Client, worker: WorkerClient) -> Self {
         Self {
             client,
-            diagnostics: Arc::new(tokio::sync::RwLock::new(DiagnosticMap::new())),
-            worker_state: Arc::new(Mutex::new(WorkerState {
+            diagnostics: Arc::new(tokio::sync::RwLock::new(DiagnosticMap::default())),
+            worker_state: Arc::new(std::sync::Mutex::new(WorkerState {
                 worker,
                 latest_request_id: 0,
                 pending_files: HashSet::new(),
                 workspace_root: None,
             })),
             debounce_generation: Arc::new(AtomicU64::new(0)),
+            reader_generation: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -63,6 +68,7 @@ impl Backend {
         let client = self.client.clone();
         let diagnostics = self.diagnostics.clone();
         let worker_state = self.worker_state.clone();
+        let reader_generation = self.reader_generation.clone();
 
         tokio::spawn(async move {
             // Track whether the LSP progress token has been created yet.
@@ -79,19 +85,33 @@ impl Backend {
                 }
             };
 
+            // Track current reader generation to detect stale reads after restart
+            let mut current_gen = reader_generation.load(Ordering::SeqCst);
+
             loop {
                 // Read one event from the worker in a blocking thread.
                 let reader_clone = reader.clone();
+                let read_gen = current_gen;
                 let event = tokio::task::spawn_blocking(move || {
                     let mut r = reader_clone.lock().unwrap();
-                    WorkerClient::read_event_from(&mut r)
+                    (WorkerClient::read_event_from(&mut r), read_gen)
                 })
                 .await;
 
-                let event = match event {
-                    Ok(ev) => ev,
-                    Err(_) => None, // spawn_blocking panicked
+                let (event, event_gen) = match event {
+                    Ok((ev, gen)) => (ev, gen),
+                    Err(_) => (None, current_gen), // spawn_blocking panicked
                 };
+
+                // Discard events from a stale reader generation (pre-restart)
+                if event_gen != reader_generation.load(Ordering::SeqCst) {
+                    if event.is_some() {
+                        continue; // Stale event from old worker — discard
+                    }
+                    // EOF from old worker after restart — also discard, update gen
+                    current_gen = reader_generation.load(Ordering::SeqCst);
+                    continue;
+                }
 
                 let event = match event {
                     Some(ev) => ev,
@@ -105,27 +125,28 @@ impl Backend {
                             )
                             .await;
 
-                        // Check restart limit inside the blocking lock
-                        let ws = worker_state.clone();
+                        // Check restart limit and restart worker
                         let workspace_root = {
-                            let state = worker_state.lock().await;
+                            let state = worker_state.lock().unwrap();
                             state.workspace_root.clone()
                         };
-                        let should_restart = tokio::task::spawn_blocking(move || {
-                            let mut state = ws.blocking_lock();
+
+                        let ws = worker_state.clone();
+                        let can_restart = tokio::task::spawn_blocking(move || {
+                            let mut state = ws.lock().unwrap();
                             state.worker.should_restart()
                         })
                         .await
                         .unwrap_or(false);
 
-                        if should_restart {
+                        if can_restart {
                             // Sleep 2 seconds before respawning
                             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
                             // Respawn worker and re-send init, take the new reader
                             let ws = worker_state.clone();
                             let spawn_result = tokio::task::spawn_blocking(move || {
-                                let mut state = ws.blocking_lock();
+                                let mut state = ws.lock().unwrap();
                                 state.worker.kill();
                                 state.worker.spawn().and_then(|_| {
                                     state.worker.send_init(workspace_root.as_ref()).map(|_| ())
@@ -138,6 +159,8 @@ impl Backend {
                             match spawn_result {
                                 Ok(Ok(Some(new_reader))) => {
                                     tracing::info!("repotoire worker restarted successfully");
+                                    // Bump reader generation so in-flight reads from old pipe are discarded
+                                    current_gen = reader_generation.fetch_add(1, Ordering::SeqCst) + 1;
                                     *reader.lock().unwrap() = new_reader;
                                     // Reset progress token so it gets re-created on next progress event
                                     progress_token_created = false;
@@ -176,7 +199,7 @@ impl Backend {
                 // Stale response filtering: discard responses to outdated requests.
                 // Events with id: None are unsolicited (filesystem watcher) — never stale.
                 if let Some(event_id) = event.id() {
-                    let state = worker_state.lock().await;
+                    let state = worker_state.lock().unwrap();
                     if event_id < state.latest_request_id {
                         // Stale response — a newer analyze request has been issued since
                         // this event was generated. Discard to avoid overwriting fresher results.
@@ -389,7 +412,7 @@ impl LanguageServer for Backend {
         // Store workspace root
         if let Some(root) = params.root_uri {
             if let Ok(path) = root.to_file_path() {
-                self.worker_state.lock().await.workspace_root = Some(path);
+                self.worker_state.lock().unwrap().workspace_root = Some(path);
             }
         }
 
@@ -412,48 +435,39 @@ impl LanguageServer for Backend {
     }
 
     async fn initialized(&self, _: InitializedParams) {
-        // Spawn worker and send init with the workspace root from initialize()
-        let mut state = self.worker_state.lock().await;
-        let root = state.workspace_root.clone();
-        if let Err(e) = state.worker.spawn() {
-            drop(state);
-            self.client
-                .show_message(
-                    MessageType::ERROR,
-                    format!("Failed to spawn repotoire worker: {}", e),
-                )
-                .await;
-            return;
-        }
-        if let Err(e) = state.worker.send_init(root.as_ref()) {
-            drop(state);
-            self.client
-                .show_message(
-                    MessageType::ERROR,
-                    format!("Failed to initialize repotoire worker: {}", e),
-                )
-                .await;
-            return;
-        }
-        // Take the reader before dropping the lock — owned by the reader task
-        let reader = state.worker.take_reader();
-        drop(state);
+        // Spawn worker and send init with the workspace root from initialize().
+        // Lock is acquired and released within the block — never held across await.
+        let init_result: std::result::Result<Option<BufReader<std::process::ChildStdout>>, String> = {
+            let mut state = self.worker_state.lock().unwrap();
+            let root = state.workspace_root.clone();
+            if let Err(e) = state.worker.spawn() {
+                Err(format!("Failed to spawn repotoire worker: {}", e))
+            } else if let Err(e) = state.worker.send_init(root.as_ref()) {
+                Err(format!("Failed to initialize repotoire worker: {}", e))
+            } else {
+                Ok(state.worker.take_reader())
+            }
+        };
 
-        // Start reading worker events with the owned reader
-        self.start_worker_reader(reader);
+        match init_result {
+            Ok(reader) => self.start_worker_reader(reader),
+            Err(msg) => {
+                self.client.show_message(MessageType::ERROR, msg).await;
+            }
+        }
     }
 
     async fn shutdown(&self) -> Result<()> {
-        // Send shutdown — drop lock before sleeping so other handlers can proceed
+        // Send shutdown
         {
-            let mut state = self.worker_state.lock().await;
+            let mut state = self.worker_state.lock().unwrap();
             let _ = state.worker.send_shutdown();
         }
         // Give the worker 5 seconds to exit gracefully
         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
         // Force kill if still running
         {
-            let mut state = self.worker_state.lock().await;
+            let mut state = self.worker_state.lock().unwrap();
             state.worker.kill();
         }
         Ok(())
@@ -464,8 +478,7 @@ impl LanguageServer for Backend {
         if let Ok(path) = uri.to_file_path() {
             // Add file to pending set
             {
-                let mut state = self.worker_state.lock().await;
-                state.pending_files.insert(path);
+                self.worker_state.lock().unwrap().pending_files.insert(path);
             }
 
             // Increment debounce generation to cancel any in-flight debounce task
@@ -484,23 +497,20 @@ impl LanguageServer for Backend {
                     return; // A newer save arrived — let that task flush instead
                 }
 
-                // Flush pending files as one analyze command via spawn_blocking
+                // Flush pending files as one analyze command
                 let ws = worker_state.clone();
                 let result = tokio::task::spawn_blocking(move || {
-                    let mut state = ws.blocking_lock();
+                    let mut state = ws.lock().unwrap();
                     let files: Vec<PathBuf> = state.pending_files.drain().collect();
                     if files.is_empty() {
                         return None;
                     }
-                    state.worker.send_analyze(files).ok()
+                    let id = state.worker.send_analyze(files).ok()?;
+                    state.latest_request_id = id;
+                    Some(())
                 })
                 .await;
-
-                // Update latest_request_id with the id returned by send_analyze
-                if let Ok(Some(id)) = result {
-                    let mut state = worker_state.lock().await;
-                    state.latest_request_id = id;
-                }
+                let _ = result;
             });
         }
     }

@@ -46,13 +46,13 @@ impl WorkerHandler {
             }
         };
 
+        let start = std::time::Instant::now();
         match engine.initial_analyze() {
             Ok(result) => {
+                let elapsed_ms = start.elapsed().as_millis() as u64;
                 let score = result.score.overall;
                 let grade = result.score.grade.clone();
-                // Move findings out of result to avoid unnecessary clone
                 let findings = result.findings;
-                let elapsed_ms = 0; // TODO: track elapsed in initial_analyze
                 self.engine = Some(engine);
                 vec![Event::Ready {
                     id: Some(id),
@@ -122,9 +122,10 @@ impl WorkerHandler {
             }];
         };
 
+        let start = std::time::Instant::now();
         match engine.initial_analyze() {
             Ok(result) => {
-                // Move findings out — engine already stored its own clone in last_result
+                let elapsed_ms = start.elapsed().as_millis() as u64;
                 let score = result.score.overall;
                 let grade = result.score.grade.clone();
                 vec![Event::Ready {
@@ -132,7 +133,7 @@ impl WorkerHandler {
                     findings: result.findings,
                     score,
                     grade,
-                    elapsed_ms: 0,
+                    elapsed_ms,
                 }]
             }
             Err(e) => {

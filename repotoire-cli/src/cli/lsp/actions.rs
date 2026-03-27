@@ -25,10 +25,8 @@ fn comment_prefix(uri: &Url) -> &'static str {
         || path.ends_with(".kt")
     {
         "//"
-    } else if path.ends_with(".php") {
-        "//"
     } else {
-        "//" // default
+        "//" // default (includes .php and others)
     }
 }
 

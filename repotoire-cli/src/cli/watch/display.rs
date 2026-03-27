@@ -147,13 +147,17 @@ pub fn score_suffix(delta: &WatchDelta) -> String {
 }
 
 /// Check if a detector is AI-focused.
+/// Matches only the 6 specific AI detectors from the detector suite.
 pub fn is_ai_detector(name: &str) -> bool {
-    name.starts_with("AI")
-        || name.contains("Complexity")
-        || name.contains("Naming")
-        || name.contains("MissingTest")
-        || name.contains("Duplicate")
-        || name.contains("Boilerplate")
+    matches!(
+        name,
+        "AIBoilerplate"
+            | "AIChurn"
+            | "AIComplexitySpike"
+            | "AIDuplicateBlock"
+            | "AIMissingTests"
+            | "AINamingPattern"
+    )
 }
 
 /// Map severity to display icon.
@@ -174,13 +178,12 @@ pub fn severity_icon(severity: Severity, no_emoji: bool) -> &'static str {
 
 /// Filter a WatchDelta to only show findings at or above `min_severity`.
 pub fn filter_delta_by_severity(delta: WatchDelta, min_severity: Severity) -> WatchDelta {
-    // Severity discriminants: Info=0, Low=1, Medium=2, High=3, Critical=4
-    // Keep findings AT OR ABOVE min_severity
+    // Severity derives Ord with Info < Low < Medium < High < Critical
     WatchDelta {
         new_findings: delta.new_findings.into_iter()
-            .filter(|f| (f.severity as u8) >= (min_severity as u8)).collect(),
+            .filter(|f| f.severity >= min_severity).collect(),
         fixed_findings: delta.fixed_findings.into_iter()
-            .filter(|f| (f.severity as u8) >= (min_severity as u8)).collect(),
+            .filter(|f| f.severity >= min_severity).collect(),
         ..delta
     }
 }

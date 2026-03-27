@@ -338,10 +338,6 @@ Examples:
     ///
     /// Monitors your codebase for saves and runs detectors on changed files.
     /// Uses debouncing to avoid re-running on every keystroke.
-    /// Watch for file changes and re-analyze in real-time (debounced, incremental)
-    ///
-    /// Monitors your codebase for saves and runs detectors on changed files.
-    /// Uses debouncing to avoid re-running on every keystroke.
     Watch {
         /// Minimum severity to display: critical, high, medium, low
         #[arg(long, value_parser = ["critical", "high", "medium", "low"])]
