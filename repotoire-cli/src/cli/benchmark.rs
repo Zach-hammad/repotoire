@@ -45,11 +45,16 @@ pub fn run(path: &Path, format: crate::reporters::OutputFormat, telemetry: &crat
                 trend: None,
             };
 
+            // Load score history for trend display
+            let cache_dir = crate::cache::cache_dir(path);
+            let repo_state = crate::telemetry::cache::TelemetryRepoState::load_or_default(&cache_dir);
+            let score_history = &repo_state.score_history;
+
             match format {
                 crate::reporters::OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&ctx)?),
                 _ => println!(
                     "{}",
-                    crate::telemetry::display::format_ecosystem_context(&ctx)
+                    crate::telemetry::display::format_benchmark_full(&ctx, &data, Some(score_history))
                 ),
             }
         }

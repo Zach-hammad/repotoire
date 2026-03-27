@@ -876,19 +876,19 @@ fn display_fallback_suggestion(term: &Term, finding: &Finding) -> Result<()> {
 
     // Show the detector's own suggestion if available
     if let Some(ref suggested) = finding.suggested_fix {
-        term.write_line(&format!("{}", style("Detector suggestion:").bold()))?;
+        term.write_line(&format!("{}", style("Suggested fix:").bold()))?;
         for line in suggested.lines() {
             term.write_line(&format!("   {}", line))?;
         }
         term.write_line("")?;
+    } else {
+        // Only show description if there's no suggestion (avoids redundancy)
+        term.write_line(&format!("{}", style("Description:").bold()))?;
+        for line in finding.description.lines().take(10) {
+            term.write_line(&format!("   {}", line))?;
+        }
+        term.write_line("")?;
     }
-
-    // Show description
-    term.write_line(&format!("{}", style("Description:").bold()))?;
-    for line in finding.description.lines().take(10) {
-        term.write_line(&format!("   {}", line))?;
-    }
-    term.write_line("")?;
 
     // Show why it matters
     if let Some(ref why) = finding.why_it_matters {

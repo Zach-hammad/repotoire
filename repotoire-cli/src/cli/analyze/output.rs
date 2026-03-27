@@ -153,8 +153,9 @@ pub(crate) fn format_and_output(
     // Cache results
     cache_results(repotoire_dir, report, all_findings)?;
 
-    // Show pagination info (suppress for machine-readable formats)
-    let quiet_mode = matches!(format, OutputFormat::Json | OutputFormat::Sarif);
+    // Show pagination info (suppress for machine-readable and file-based formats)
+    let quiet_mode = matches!(format, OutputFormat::Json | OutputFormat::Sarif | OutputFormat::Html | OutputFormat::Markdown)
+        || output_path.is_some();
     if let Some((current_page, total_pages, per_page, total)) =
         pagination_info.filter(|_| !quiet_mode)
     {

@@ -58,7 +58,7 @@ pub fn format_ecosystem_context(ctx: &EcosystemContext) -> String {
     let pct = (ctx.score_percentile.round() as u64).clamp(1, 99);
 
     // Add "early data" qualifier for small samples
-    let qualifier = if ctx.sample_size < 20 { " (early data)" } else { "" };
+    let qualifier = if ctx.sample_size < 50 { " (early data — limited sample)" } else { "" };
 
     let score_line = format!(
         "  Score:         better than {}% of {}{}",
@@ -305,6 +305,7 @@ mod tests {
         };
         let output = format_ecosystem_context(&ctx);
         assert!(output.contains("early data"), "Small samples should show early data qualifier");
+        assert!(output.contains("limited sample"), "Small samples should show limited sample note");
         assert!(output.contains("better than 95%"), "Should show clamped percentile");
     }
 

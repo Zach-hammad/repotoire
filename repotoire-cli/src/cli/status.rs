@@ -21,11 +21,14 @@ pub fn run(path: &Path) -> Result<()> {
     println!("  Cache: {}", style(cache_dir.display()).dim());
     println!();
 
-    // Check for database
-    if db_path.exists() {
-        println!("  {} Graph database exists", style("[OK]").green());
+    // Check analysis state — use findings cache as the primary indicator
+    let has_findings = findings_path.exists();
+    let has_db = db_path.exists();
 
-        // Try to get stats from cached JSON (faster than loading graph)
+    if has_findings || has_db {
+        println!("  {} Analysis data found", style("[OK]").green());
+
+        // Try to get stats from cached JSON
         let stats_path = crate::cache::graph_stats_path(&repo_path);
         if let Ok(stats) = std::fs::read_to_string(&stats_path)
             .ok()
@@ -52,17 +55,7 @@ pub fn run(path: &Path) -> Result<()> {
                 style(class_count).cyan()
             );
         }
-    } else {
-        println!(
-            "  {} No analysis yet. Run {}",
-            style("[--]").dim(),
-            style("repotoire analyze").cyan()
-        );
-    }
 
-    // Check for cached findings
-    if findings_path.exists() {
-        println!("  {} Findings cached", style("[OK]").green());
         if let Some(findings) = super::analyze::output::load_cached_findings_from(&findings_path) {
             use crate::models::Severity;
             let total = findings.len();
@@ -75,6 +68,12 @@ pub fn run(path: &Path) -> Result<()> {
                 style(high).yellow()
             );
         }
+    } else {
+        println!(
+            "  {} No analysis yet. Run {}",
+            style("[--]").dim(),
+            style("repotoire analyze").cyan()
+        );
     }
 
     // Check for API keys

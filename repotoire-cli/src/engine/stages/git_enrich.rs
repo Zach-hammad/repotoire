@@ -91,7 +91,7 @@ pub fn git_enrich_stage(input: &mut GitEnrichInput) -> Result<GitEnrichOutput> {
         &input.co_change_config,
     )
     .unwrap_or_else(|e| {
-        tracing::warn!("Co-change analysis failed: {e}");
+        tracing::debug!("Co-change analysis skipped: {e}");
         CoChangeMatrix::empty()
     });
 

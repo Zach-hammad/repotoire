@@ -80,15 +80,17 @@ and architectural issues that traditional linters miss.\n\n\
 100% LOCAL by default — No account needed. No data leaves your machine unless you opt in.\n\n\
 Run without a subcommand to analyze the current directory:\n  \
 repotoire .\n\n\
-Supported languages: Python, TypeScript, JavaScript, Rust, Go, Java, C#, C, C++",
+Full graph analysis (tree-sitter): Python, TypeScript, JavaScript, Rust, Go, Java, C#, C, C++\n\
+Security/quality scanning: Ruby, PHP, Kotlin, Swift (regex-based detectors)",
     after_help = "\
 Examples:
   repotoire .                          Analyze current directory
   repotoire analyze . --format json    JSON output for scripting
+  repotoire analyze . --fail-on high   CI mode: exit 1 on high+ findings
   repotoire findings --severity high   Show only high+ findings
-  repotoire graph . functions          List all functions in the graph
+  repotoire graph functions            List all functions in the graph
 
-Documentation: https://github.com/repotoire/repotoire"
+Documentation: https://github.com/Zach-hammad/repotoire"
 )]
 pub struct Cli {
     /// Path to repository (default: current directory)
@@ -96,7 +98,7 @@ pub struct Cli {
     pub path: PathBuf,
 
     /// Log level (error, warn, info, debug, trace)
-    #[arg(long, global = true, default_value = "info")]
+    #[arg(long, global = true, default_value = "warn")]
     pub log_level: LogLevel,
 
     /// Number of parallel workers (1-64)
@@ -336,13 +338,13 @@ Examples:
     /// Query the code knowledge graph (functions, classes, files, calls, imports)
     #[command(after_help = "\
 Examples:
-  repotoire graph . functions                        List all functions in the graph
-  repotoire graph . classes                          List all classes
-  repotoire graph . files                            List all parsed files
-  repotoire graph . calls                            Show function call relationships
-  repotoire graph . imports                          Show import relationships
-  repotoire graph . stats                            Show graph node/edge counts
-  repotoire graph . functions --format json           JSON output for scripting")]
+  repotoire graph functions                          List all functions in the graph
+  repotoire graph classes                            List all classes
+  repotoire graph files                              List all parsed files
+  repotoire graph calls                              Show function call relationships
+  repotoire graph imports                            Show import relationships
+  repotoire graph stats                              Show graph node/edge counts
+  repotoire graph functions --format json            JSON output for scripting")]
     Graph {
         /// Query keyword: functions, classes, files, calls, imports, stats
         query: String,
@@ -365,10 +367,6 @@ Examples:
     /// Check environment setup (API keys, dependencies, config)
     Doctor,
 
-    /// Watch for file changes and re-analyze in real-time (debounced, incremental)
-    ///
-    /// Monitors your codebase for saves and runs detectors on changed files.
-    /// Uses debouncing to avoid re-running on every keystroke.
     /// Watch for file changes and re-analyze in real-time (debounced, incremental)
     ///
     /// Monitors your codebase for saves and runs detectors on changed files.
@@ -1124,17 +1122,15 @@ fn show_config() -> anyhow::Result<()> {
     };
     println!("  Project: ./repotoire.toml {}", proj_status);
     println!();
-    println!("🤖 AI Backend: {}", config.ai_backend());
     if config.use_ollama() {
+        println!("🤖 AI Backend: ollama");
         println!("  Ollama URL:   {}", config.ollama_url());
         println!("  Ollama Model: {}", config.ollama_model());
+    } else if config.has_ai_key() {
+        println!("🤖 AI Backend: {}", config.ai_backend());
+        println!("  API key: ✓ configured");
     } else {
-        let key_status = if config.has_ai_key() {
-            "✓ configured"
-        } else {
-            "✗ not set"
-        };
-        println!("  ANTHROPIC_API_KEY: {}", key_status);
+        println!("🤖 AI Backend: none (optional — set an API key for AI fixes)");
     }
     Ok(())
 }

@@ -18,6 +18,8 @@ pub(crate) mod graph;
 pub(crate) mod output;
 pub(crate) mod postprocess;
 use output::{cache_results, check_fail_threshold, format_and_output};
+#[allow(unused_imports)] // used in compute_language_stats via trait method dispatch
+use crate::graph::traits::GraphQueryExt as _;
 use crate::reporters;
 
 use anyhow::Result;
@@ -103,6 +105,11 @@ pub fn run_engine(
     };
     let result = engine.analyze(&config)?;
 
+    // Guard: empty repository — show a helpful message instead of a misleading 100/100 A+
+    if result.stats.files_analyzed == 0 && result.findings.is_empty() {
+        return handle_empty_repo(&output, quiet_mode, start_time);
+    }
+
     let mode_label = match &result.stats.mode {
         crate::engine::AnalysisMode::Cold => "cold",
         crate::engine::AnalysisMode::Incremental { files_changed } => {
@@ -159,22 +166,8 @@ pub fn run_engine(
         paginated_findings.len(),
     )?;
 
-    // Compute language stats from findings (reused by display + telemetry)
-    let lang_loc_precomputed = {
-        let mut lang_loc: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
-        for f in all_findings {
-            if let Some(file) = f.affected_files.first() {
-                let ext = std::path::Path::new(file)
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .unwrap_or("");
-                if let Some(lang) = crate::parsers::language_for_extension(ext) {
-                    *lang_loc.entry(lang.to_lowercase()).or_insert(0) += 1;
-                }
-            }
-        }
-        lang_loc
-    };
+    // Compute language stats from parsed files (NOT findings, which change with --severity)
+    let lang_loc_precomputed = compute_language_stats(&engine, all_findings);
     let precomputed_primary_language = lang_loc_precomputed.iter()
         .max_by_key(|(_, count)| *count)
         .map(|(lang, _)| lang.to_lowercase())
@@ -274,6 +267,85 @@ fn emit_optional_output(
 // ============================================================================
 // Internal helpers
 // ============================================================================
+
+/// Handle the empty-repo case: show a helpful message instead of a misleading A+ score.
+fn handle_empty_repo(
+    output: &crate::engine::OutputOptions,
+    quiet_mode: bool,
+    start_time: Instant,
+) -> Result<()> {
+    if !quiet_mode {
+        eprintln!();
+        eprintln!(
+            "{}  No source files found to analyze.",
+            if output.no_emoji { "" } else { "📭" }
+        );
+        eprintln!(
+            "   Supported languages: Python, TypeScript, JavaScript, Rust, Go, Java, C#, C, C++\n   \
+             Plus regex-scanned: Ruby, PHP, Kotlin, Swift\n"
+        );
+        let elapsed = start_time.elapsed();
+        let icon_done = if output.no_emoji { "" } else { "✨ " };
+        eprintln!("{}Done in {:.2}s", style(icon_done).bold(), elapsed.as_secs_f64());
+    }
+    // For JSON/SARIF, still output valid empty structure
+    if matches!(output.format, reporters::OutputFormat::Json | reporters::OutputFormat::Sarif) {
+        let empty_report = crate::models::HealthReport {
+            overall_score: 0.0,
+            grade: crate::models::Grade::F,
+            structure_score: 0.0,
+            quality_score: 0.0,
+            architecture_score: None,
+            findings: vec![],
+            findings_summary: crate::models::FindingsSummary::from_findings(&[]),
+            total_files: 0,
+            total_functions: 0,
+            total_classes: 0,
+            total_loc: 0,
+        };
+        let output_str = reporters::report_with_format(&empty_report, output.format)?;
+        println!("{}", output_str);
+    }
+    Ok(())
+}
+
+/// Compute language stats from parsed graph files (stable across --severity filters).
+/// Falls back to findings-based detection if the graph is unavailable.
+fn compute_language_stats(
+    engine: &crate::engine::AnalysisEngine,
+    findings: &[crate::models::Finding],
+) -> std::collections::HashMap<String, u64> {
+    let mut lang_loc: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+    // Primary: use graph files for stable language detection
+    if let Some(graph) = engine.graph_arc() {
+        for file_node in graph.get_files() {
+            let i = graph.interner();
+            let file_path = file_node.path(i);
+            let ext = std::path::Path::new(file_path)
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("");
+            if let Some(lang) = crate::parsers::language_for_extension(ext) {
+                *lang_loc.entry(lang.to_lowercase()).or_insert(0) += 1;
+            }
+        }
+    }
+    // Fallback: use findings if graph is not available
+    if lang_loc.is_empty() {
+        for f in findings {
+            if let Some(file) = f.affected_files.first() {
+                let ext = std::path::Path::new(file)
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("");
+                if let Some(lang) = crate::parsers::language_for_extension(ext) {
+                    *lang_loc.entry(lang.to_lowercase()).or_insert(0) += 1;
+                }
+            }
+        }
+    }
+    lang_loc
+}
 
 /// Intermediate result from `prepare_report()`, carrying all the data the
 /// caller needs for display, caching, and telemetry.
@@ -414,8 +486,10 @@ fn format_and_display_report(
             // Cache results
             cache_results(repotoire_dir, report, all_findings)?;
 
-            // Show pagination info (text only)
-            if let Some((current_page, total_pages, per_page, total)) = pagination_info {
+            // Show pagination info (text terminal only — suppress for HTML and file output)
+            let suppress_pagination = format_enum == reporters::OutputFormat::Html
+                || output.output_path.is_some();
+            if let Some((current_page, total_pages, per_page, total)) = pagination_info.filter(|_| !suppress_pagination) {
                 let page_icon = if output.no_emoji { "" } else { "\u{1f4d1} " };
                 println!(
                     "\n{}Showing page {} of {} ({} findings per page, {} total)",

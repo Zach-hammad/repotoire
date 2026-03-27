@@ -180,6 +180,9 @@ pub fn postprocess_findings(
     // Step 4: De-duplicate overlapping dead-code style findings (#50)
     dedupe_dead_code_overlap(findings);
 
+    // Step 4.5: Deduplicate exact-match findings (same detector, title, file, line)
+    deduplicate_findings(findings);
+
     // Step 5: Escalate compound smells (multiple issues in same location)
     crate::scoring::escalate_compound_smells(findings);
 
@@ -639,16 +642,19 @@ fn filter_inline_suppressed(findings: &mut Vec<Finding>) {
                 continue;
             }
 
+            // Scan a window around line_start: 3 lines before through 3 lines after.
+            // This handles suppression comments placed before doc comments, on the
+            // function signature, or between decorators/attributes and the definition.
             let line_idx = line_start.saturating_sub(1); // 0-indexed
-            let line = lines.get(line_idx).map(|s| s.as_str()).unwrap_or("");
-            let prev_line = if line_idx > 0 {
-                lines.get(line_idx - 1).map(|s| s.as_str())
-            } else {
-                None
-            };
+            let scan_start = line_idx.saturating_sub(3);
+            let scan_end = (line_idx + 3).min(lines.len().saturating_sub(1));
 
-            if crate::detectors::is_line_suppressed_for(line, prev_line, &f.detector) {
-                return false; // Suppressed
+            for i in scan_start..=scan_end {
+                let line = lines.get(i).map(|s| s.as_str()).unwrap_or("");
+                let prev = if i > 0 { lines.get(i - 1).map(|s| s.as_str()) } else { None };
+                if crate::detectors::is_line_suppressed_for(line, prev, &f.detector) {
+                    return false; // Suppressed
+                }
             }
         }
         true
@@ -660,6 +666,22 @@ fn filter_inline_suppressed(findings: &mut Vec<Finding>) {
             "Inline suppression filtered {} findings",
             removed
         );
+    }
+}
+
+/// Deduplicate findings with identical detector, title, file, and line_start.
+fn deduplicate_findings(findings: &mut Vec<Finding>) {
+    use std::collections::HashSet;
+    let before = findings.len();
+    let mut seen = HashSet::new();
+    findings.retain(|f| {
+        let file = f.affected_files.first().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
+        let key = (f.detector.clone(), f.title.clone(), file, f.line_start);
+        seen.insert(key)
+    });
+    let removed = before - findings.len();
+    if removed > 0 {
+        tracing::debug!("Deduplicated {} findings", removed);
     }
 }
 

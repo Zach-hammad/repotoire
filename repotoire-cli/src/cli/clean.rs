@@ -24,6 +24,11 @@ pub fn run(path: &Path, dry_run: bool) -> Result<()> {
         if entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false)
             && entry.file_name() == ".repotoire"
         {
+            // Skip test fixture directories — those are intentionally present
+            let path_str = entry.path().to_string_lossy();
+            if path_str.contains("tests/fixtures") || path_str.contains("test_fixtures") {
+                continue;
+            }
             to_remove.push(("Legacy".to_string(), entry.path().to_path_buf()));
         }
     }

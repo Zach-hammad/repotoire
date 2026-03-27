@@ -325,7 +325,7 @@ pub fn compute_from_repo(repo_path: &std::path::Path, config: &CoChangeConfig) -
         .collect();
 
     if commits.len() <= 1 {
-        tracing::warn!(
+        tracing::debug!(
             "Co-change analysis requires git history depth > 1. Weighted analyses will be empty."
         );
         return Ok(CoChangeMatrix::empty());

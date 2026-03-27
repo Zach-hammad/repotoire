@@ -13,7 +13,7 @@ cargo install repotoire
 repotoire analyze .
 ```
 
-No API keys. No Docker. No cloud account. **Pure Rust, ~24MB binary.**
+No API keys. No Docker. No cloud account. **Pure Rust, single binary.**
 
 ---
 
@@ -116,8 +116,8 @@ repotoire analyze . --format markdown
 # CI: fail if high-severity findings exist
 repotoire analyze . --fail-on high
 
-# Skip slow parts for huge repos
-repotoire analyze . --lite
+# Limit files for huge repos
+repotoire analyze . --max-files 1000
 
 # Interactive findings browser
 repotoire findings -i
@@ -312,7 +312,7 @@ Source Files ──▶ Tree-sitter ──▶ Knowledge Graph ──▶ 106 Detec
 | Taint analysis | ✅ (SSA) | ✅ | ✅ |
 | Circular deps | ✅ | ✅ | ❌ |
 | AI fixes (BYOK) | ✅ | ❌ | ❌ |
-| Binary size | ~24MB | ~1GB | ~50MB |
+| Binary size | ~30MB | ~1GB | ~50MB |
 | Free | ✅ | Limited | Limited |
 
 ## License
@@ -324,7 +324,4 @@ Apache-2.0 — see [LICENSE](LICENSE)
 ```bash
 cargo install repotoire && repotoire analyze .
 ```
-# test
-
-
 

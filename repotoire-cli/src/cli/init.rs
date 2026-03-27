@@ -88,8 +88,7 @@ pub fn run(path: &Path) -> Result<()> {
         "\n{} Repository initialized!\n",
         style("[DONE]").green().bold()
     );
-    println!("Cache stored in: {}", style(cache_dir.display()).dim());
-    println!("\nNext steps:");
+    println!("Next steps:");
     println!("  {} Run analysis", style("repotoire analyze .").cyan());
     println!(
         "  {} View findings interactively",

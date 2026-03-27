@@ -9,7 +9,7 @@ pub fn run() -> Result<()> {
 
     // Check 1: Tree-sitter parsers actually load
     match check_tree_sitter() {
-        Ok(langs) => println!("✓ Tree-sitter parsers: {} languages available", langs),
+        Ok(langs) => println!("✓ Tree-sitter parsers: {} languages (+ 4 regex-scanned: Ruby, PHP, Kotlin, Swift)", langs),
         Err(e) => {
             println!("✗ Tree-sitter parsers: {}", e);
             issues += 1;
