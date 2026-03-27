@@ -1,0 +1,198 @@
+---
+title: "How to Actually Measure Technical Debt"
+description: "Stop arguing about technical debt and start measuring it. Here's how to combine cyclomatic complexity, coupling, cohesion, and graph-based metrics into a score that tracks real structural decay."
+date: "2026-03-21"
+author: "zach"
+tags: ["technical-debt", "code-quality", "metrics", "architecture"]
+---
+
+## The problem with "technical debt"
+
+Every engineering team talks about technical debt. Few can answer the question: **how much do we have?**
+
+The term was coined by Ward Cunningham in [his 1992 OOPSLA report](https://c2.com/doc/oopsla92.html) as a metaphor: shipping imperfect code is like taking on debt. The interest is the extra effort future changes require. The metaphor is useful for communicating with non-technical stakeholders, but it breaks down when you try to use it for engineering decisions.
+
+"We have a lot of technical debt" is not actionable. Neither is "we need to pay down technical debt." These statements don't tell you where the debt is, how fast it's growing, or which pieces are worth addressing first.
+
+To make technical debt useful as an engineering concept, you need to measure it. Not perfectly — perfection isn't the goal. But concretely enough to track trends, compare options, and prioritize work.
+
+## Metrics that capture real debt
+
+Technical debt manifests in specific, measurable ways. No single metric captures all of it, but a well-chosen set covers the major categories.
+
+### Cyclomatic complexity
+
+[Cyclomatic complexity](https://en.wikipedia.org/wiki/Cyclomatic_complexity), introduced by Thomas McCabe in 1976, measures the number of independent paths through a function. Every `if`, `for`, `while`, `case`, and `catch` adds a path. A function with complexity 1 has no branches. A function with complexity 25 has 25 independent paths — 25 things that can go wrong, 25 test cases needed for full coverage.
+
+The metric is simple to compute and correlates well with defect density. Research by [Basili and Perricone (1984)](https://ieeexplore.ieee.org/document/1702388) found that modules with complexity above 10 had significantly higher defect rates. The [NIST 500-235 report](https://www.nist.gov/publications/structured-testing-testing-methodology-using-cyclomatic-complexity-metric) recommends keeping complexity below 10 per function.
+
+Cyclomatic complexity is a good starting point, but it only measures **local** complexity — how complex an individual function is. It doesn't tell you how that function fits into the system.
+
+### Coupling (afferent and efferent)
+
+Coupling measures how connected a module is to the rest of the system.
+
+- **Afferent coupling (Ca)**: How many other modules depend on this one (fan-in)
+- **Efferent coupling (Ce)**: How many other modules this one depends on (fan-out)
+
+Robert C. Martin's [Instability metric](https://en.wikipedia.org/wiki/Software_package_metrics) combines them: `I = Ce / (Ca + Ce)`. A module with `I = 0` is maximally stable (everything depends on it, it depends on nothing). A module with `I = 1` is maximally unstable (it depends on everything, nothing depends on it).
+
+The debt signal is in the extremes. A module with high fan-in (Ca = 40) and high fan-out (Ce = 15) is dangerous — it's heavily depended upon but also depends on many things. Changes to it affect 40 consumers, and changes in any of its 15 dependencies might break it. This is a [god class](https://refactoring.guru/smells/large-class) in graph terms.
+
+Computing coupling requires the full dependency graph. A linter processing one file can count its own imports (Ce) but can't count how many other files import it (Ca) without seeing the entire codebase.
+
+### Cohesion
+
+Cohesion measures whether a module's internal elements belong together. High cohesion means a module does one thing well. Low cohesion means it's a grab-bag of unrelated functionality.
+
+The [Lack of Cohesion of Methods (LCOM)](https://en.wikipedia.org/wiki/Cohesion_(computer_science)#Lack_of_Cohesion_of_Methods) metric, introduced by Chidamber and Kemerer in their influential [1994 paper](https://ieeexplore.ieee.org/document/295895), quantifies this by examining which methods share instance variables. If a class has two groups of methods that use completely separate sets of fields, it's really two classes forced into one.
+
+Low cohesion is debt because it makes the module harder to understand, test, and change. When you modify the billing logic in a module that also handles authentication, you risk breaking auth — even though the two concerns shouldn't be related.
+
+### Code churn
+
+Churn measures how frequently code changes. High churn in a file that's also highly complex is a strong debt signal — you're frequently modifying something that's hard to modify safely.
+
+Michael Feathers [popularized this approach](https://www.agileconnection.com/article/getting-empirical-about-refactoring) by plotting files on a complexity-vs-churn matrix. Files in the high-complexity, high-churn quadrant are your highest-priority debt targets: they're both expensive to change and changed often.
+
+Computing churn requires git history analysis. You need to count the number of commits touching each file, weighted by recency (a file that churned heavily last month is more concerning than one that churned a year ago).
+
+### Duplication
+
+Duplicated code is the most literal form of debt: every copy is a liability. When the original has a bug, every copy has the same bug, and you need to find and fix all of them.
+
+Simple text-based duplicate detection (comparing lines) misses the most common forms of duplication in real codebases. AI-generated code, for instance, produces near-duplicates where variable names differ but the structure is identical. Detecting these requires AST-level comparison — parsing the code into its syntax tree and comparing tree shapes rather than text.
+
+## Why simple metrics aren't enough
+
+Each metric above captures a real aspect of technical debt. But used individually, they're misleading.
+
+A function with cyclomatic complexity 15 might be perfectly fine if it's a well-tested parser with clear structure. A module with fan-in of 50 might be a stable utility that hasn't changed in a year. High churn on a configuration file is expected, not debt.
+
+The problem is **context**. Metrics need to be interpreted relative to the module's role in the system, its change history, and its relationships with other modules. A complexity of 15 in a module that sits at the center of the dependency graph and changes every sprint is much more concerning than the same complexity in a leaf module that hasn't been touched in six months.
+
+This is where graph-based metrics become essential.
+
+## Graph-based metrics: seeing structural debt
+
+Traditional metrics measure properties of individual files. Graph-based metrics measure properties of the **relationships between files** — the architecture.
+
+### Betweenness centrality
+
+[Betweenness centrality](https://en.wikipedia.org/wiki/Betweenness_centrality) measures how often a module sits on the shortest path between other modules. A module with high betweenness is a bottleneck — information, control flow, and dependencies all pass through it.
+
+A bottleneck with high complexity is severe debt: it's hard to change, and changing it affects everything downstream. A bottleneck with low test coverage is critical debt: it's a single point of failure with no safety net.
+
+### PageRank
+
+Google's [PageRank algorithm](https://en.wikipedia.org/wiki/PageRank), applied to code, measures a module's influence based on not just how many modules depend on it, but how important those dependent modules are. A utility function imported by your core business logic has higher PageRank than one imported only by tests.
+
+Modules with high PageRank and high complexity are your highest-leverage debt targets. Improving them has outsized impact on system health because their quality (or lack thereof) radiates through the dependency graph.
+
+### Community detection
+
+The [Louvain algorithm](https://en.wikipedia.org/wiki/Louvain_method) partitions the dependency graph into communities — clusters of modules that are more connected to each other than to the rest of the system. These communities often correspond to natural boundaries in your architecture (the auth system, the billing system, the API layer).
+
+Debt shows up when community boundaries don't match your directory structure. If modules in `auth/` cluster with modules in `billing/` rather than with each other, it means your billing system has become tightly coupled to your auth system in ways your directory structure doesn't reflect. The code is lying about its organization.
+
+### Temporal coupling (co-change analysis)
+
+Two files that always change in the same commit are temporally coupled — they depend on each other in ways the import graph doesn't show. Maybe they both read from the same config. Maybe they both implement halves of the same protocol. Maybe one was copy-pasted from the other and they've been diverging.
+
+Co-change analysis builds a matrix of file pairs weighted by how often they change together, with exponential decay so recent coupling matters more than historical coupling. Files with high co-change frequency but no import relationship indicate hidden dependencies — debt that's invisible to any tool that only looks at the code itself.
+
+## Turning metrics into a score
+
+Individual metrics are useful for diagnosis but hard to act on. What engineering leaders and teams need is a single score that answers: **is this codebase getting better or worse?**
+
+Repotoire computes a health score from 0-100 using a three-pillar model:
+
+- **Structure (40%)**: Dependency graph health — cycles, coupling, fan-in/fan-out, bottlenecks
+- **Quality (30%)**: Code-level metrics — complexity, duplication, dead code, naming consistency
+- **Architecture (30%)**: System-level patterns — community structure, cohesion, modularity, single points of failure
+
+The weights reflect research on what actually predicts maintenance cost. Architectural problems (structural debt) are weighted highest because they're the most expensive to fix and the most likely to compound. A codebase with clean individual files but a tangled dependency graph will still be expensive to maintain.
+
+Each pillar aggregates multiple detector findings. Findings have severity levels (Critical, High, Medium, Low) with flat penalty weights: Critical = 5 points, High = 2, Medium = 0.5, Low = 0.1. Graph-derived bonuses reward positive patterns: high modularity, clean dependency structure, good test coverage of high-PageRank modules.
+
+The result is a grade from A+ to F that you can track over time. More importantly, the breakdown tells you **why** the score is what it is and **where** to focus improvement efforts.
+
+## Tracking debt over time
+
+A single measurement tells you where you are. A series of measurements tells you where you're headed.
+
+The most valuable use of technical debt measurement is tracking the trend. Is the score going up or down? Which pillar is driving the change? Which specific findings are new since last sprint?
+
+Repotoire's diff mode compares findings between two points in time:
+
+```bash
+repotoire diff main
+```
+
+This shows what changed since your branch diverged from main — new findings, resolved findings, and the net score impact. Running this in CI on every PR gives you a continuous signal: is this PR making the codebase healthier or adding debt?
+
+The score delta is more actionable than the absolute score. A codebase with a score of 65 (C) that's trending upward at +2 points per sprint is in better shape than one with a score of 80 (B) that's trending downward at -3 points per sprint.
+
+## Practical implementation
+
+Here's how to start measuring technical debt in your codebase today:
+
+### Step 1: Baseline
+
+Run a full analysis to establish where you are.
+
+```bash
+cargo install repotoire
+repotoire analyze /path/to/your/repo
+```
+
+Record the overall score and the per-pillar breakdown. This is your baseline.
+
+### Step 2: Identify high-impact targets
+
+Look at the findings sorted by impact. Repotoire's "Quick wins" section shows which fixes resolve the most findings with the least effort. A single refactor that breaks a dependency cycle spanning 7 modules might improve your Architecture score by 10 points.
+
+### Step 3: Integrate into CI
+
+Add debt measurement to your pull request workflow. The [Repotoire GitHub Action](https://github.com/Zach-hammad/repotoire-action) runs diff analysis on every PR and posts a comment with the score impact:
+
+```yaml
+- uses: Zach-hammad/repotoire-action@v1
+  with:
+    fail-on: high
+```
+
+PRs that introduce new High or Critical findings fail the check. This prevents debt from accumulating silently.
+
+### Step 4: Track the trend
+
+Review the score weekly or per-sprint. The trend matters more than the absolute number. If you're consistently improving by 1-2 points per sprint, you're paying down debt faster than you're accumulating it.
+
+### Step 5: Set a floor
+
+Decide on a minimum acceptable score and enforce it. A team that agrees "we don't ship below 70" has a concrete, measurable standard that's harder to argue with than "we should improve code quality."
+
+## What research says
+
+The empirical evidence supports graph-based metrics as predictors of maintenance cost:
+
+- Zimmermann and Nagappan's [study at Microsoft](https://www.microsoft.com/en-us/research/publication/predicting-defects-using-network-analysis-on-dependency-graphs/) found that dependency graph metrics predicted post-release defects more accurately than traditional code metrics (complexity, coverage, churn) alone.
+- The [2024 DORA report](https://dora.dev/research/) shows that teams with higher code quality metrics (including architectural health) deploy more frequently with lower failure rates.
+- Tornhill's [research on code health](https://codescene.com/blog/measuring-code-health) demonstrates that hotspot analysis (combining complexity with churn) identifies the 5% of files responsible for 70% of defects.
+
+The pattern is consistent: **structural metrics predict maintenance cost better than file-level metrics alone**. Measuring individual file complexity is useful. Measuring how those files interact is essential.
+
+## Stop arguing, start measuring
+
+Technical debt is a real engineering problem with real costs. But treating it as a vague concept — "we have too much debt" — ensures it never gets prioritized against features.
+
+Measuring debt concretely changes the conversation. Instead of "we need a refactoring sprint," you can say "our Architecture score dropped 8 points this quarter because we introduced 4 new dependency cycles, and fixing the largest one would recover 5 of those points in a single PR."
+
+That's a conversation that leads to action.
+
+```bash
+cargo install repotoire
+repotoire analyze .
+```
+
+Start with a baseline. Track the trend. Fix the highest-impact items first. Repeat.
