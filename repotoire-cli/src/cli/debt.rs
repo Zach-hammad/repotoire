@@ -2,12 +2,12 @@
 
 use anyhow::{Context, Result};
 use console::style;
+use std::collections::HashMap;
 use std::path::Path;
 
 use crate::classifier::debt::{compute_debt, DebtWeights};
 use crate::graph::{CodeGraph, GraphQuery};
 use crate::models::Finding;
-use std::collections::HashMap;
 
 /// Load findings from the cached analysis results.
 fn load_findings(path: &Path) -> Result<Vec<Finding>> {
@@ -61,7 +61,7 @@ pub fn run(path: &Path, path_filter: Option<&str>, top_n: usize) -> Result<()> {
     let findings = load_findings(&repo_path)?;
     let graph = load_graph(&repo_path)?;
 
-    let git_churn: HashMap<String, (f64, usize, f64)> = HashMap::new(); // TODO: populate from git history
+    let git_churn = compute_churn_for_debt(&repo_path);
     let weights = DebtWeights::default();
     let mut debts = compute_debt(&findings, &graph as &dyn GraphQuery, &git_churn, &weights);
 
@@ -113,4 +113,70 @@ pub fn run(path: &Path, path_filter: Option<&str>, top_n: usize) -> Result<()> {
     println!("  Showing top {} files by debt risk score", debts.len());
 
     Ok(())
+}
+
+/// Compute per-file churn data for debt scoring from git history.
+///
+/// Returns `(churn_score, author_count, age_days)` per file path.
+/// Uses the fast 90-day/500-commit window from `compute_file_churn`,
+/// then enriches with author counts from `get_recent_commits`.
+/// Returns an empty map if git is unavailable.
+fn compute_churn_for_debt(repo_path: &Path) -> HashMap<String, (f64, usize, f64)> {
+    use std::collections::HashSet;
+
+    let history = match crate::git::history::GitHistory::open(repo_path) {
+        Ok(h) => h,
+        Err(_) => return HashMap::new(),
+    };
+
+    let since = chrono::Utc::now() - chrono::Duration::days(90);
+    let commits = match history.get_recent_commits(500, Some(since)) {
+        Ok(c) => c,
+        Err(_) => return HashMap::new(),
+    };
+
+    // Accumulate per-file: commit count, unique authors, most recent timestamp
+    struct ChurnAccum {
+        commits: u32,
+        authors: HashSet<String>,
+        latest_ts: Option<chrono::DateTime<chrono::Utc>>,
+    }
+
+    let mut accum: HashMap<String, ChurnAccum> = HashMap::new();
+
+    for commit in &commits {
+        let ts = chrono::DateTime::parse_from_rfc3339(&commit.timestamp)
+            .map(|dt| dt.with_timezone(&chrono::Utc))
+            .ok();
+
+        for file in &commit.files_changed {
+            let entry = accum.entry(file.clone()).or_insert_with(|| ChurnAccum {
+                commits: 0,
+                authors: HashSet::new(),
+                latest_ts: None,
+            });
+            entry.commits += 1;
+            entry.authors.insert(commit.author.clone());
+            if let Some(t) = ts {
+                entry.latest_ts = Some(match entry.latest_ts {
+                    Some(prev) if prev > t => prev,
+                    _ => t,
+                });
+            }
+        }
+    }
+
+    let now = chrono::Utc::now();
+    accum
+        .into_iter()
+        .map(|(path, a)| {
+            let churn_score = (a.commits as f64).min(100.0);
+            let author_count = a.authors.len();
+            let age_days = a
+                .latest_ts
+                .map(|ts| (now - ts).num_days().max(0) as f64)
+                .unwrap_or(365.0);
+            (path, (churn_score, author_count, age_days))
+        })
+        .collect()
 }

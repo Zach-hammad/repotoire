@@ -121,7 +121,6 @@ Examples:
   repotoire analyze . --format sarif -o results.sarif.json   SARIF for GitHub Code Scanning
   repotoire analyze . --format html -o report.html   Standalone HTML report
   repotoire analyze . --severity high                Only show high/critical findings
-  repotoire analyze . --since main                   Only files changed since main branch
   repotoire analyze . --fail-on high                 Exit code 1 if high+ findings (CI mode)
   repotoire analyze . --explain-score                Show full scoring breakdown")]
     Analyze {
@@ -195,8 +194,9 @@ Examples:
         #[arg(long)]
         verify: bool,
 
-        /// Only analyze files changed since this commit/branch/tag
-        #[arg(long)]
+        /// [DEPRECATED] Use `repotoire diff <ref>` instead. Incremental mode automatically
+        /// skips unchanged files. This flag is a no-op and will be removed in a future release.
+        #[arg(long, hide = true)]
         since: Option<String>,
 
         /// Sort findings by actionability score instead of severity
@@ -556,7 +556,7 @@ pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> { // 
             no_emoji,
             explain_score,
             verify,
-            since: _, // TODO: wire --since into AnalysisConfig for incremental-by-ref
+            since,
             rank,
             export_training,
             timings,
@@ -574,6 +574,13 @@ pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> { // 
                 eprintln!("\x1b[33mWarning: --relaxed is deprecated and will be removed in a future version.\x1b[0m");
                 eprintln!("\x1b[33m         The default output already shows what matters.\x1b[0m");
                 eprintln!("\x1b[33m         Use --severity high for explicit filtering.\x1b[0m");
+            }
+
+            // Deprecation warning for --since
+            if since.is_some() {
+                eprintln!("\x1b[33mWarning: --since is deprecated and will be removed in a future version.\x1b[0m");
+                eprintln!("\x1b[33m         Incremental mode automatically skips unchanged files.\x1b[0m");
+                eprintln!("\x1b[33m         Use `repotoire diff <ref>` to compare against a branch/tag.\x1b[0m");
             }
 
             // In relaxed mode, default to high severity unless explicitly specified
