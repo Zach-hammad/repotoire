@@ -1,0 +1,62 @@
+//! Security detectors — vulnerabilities, injection, auth, crypto.
+//!
+//! 28 detectors covering OWASP Top 10, taint analysis, and framework-specific security.
+
+mod cleartext_credentials;
+mod command_injection;
+mod cors_misconfig;
+mod dep_audit;
+mod django_security;
+mod eval_detector;
+mod express_security;
+mod gh_actions;
+mod hardcoded_ips;
+mod insecure_cookie;
+mod insecure_crypto;
+mod insecure_deserialize;
+mod insecure_random;
+mod insecure_tls;
+mod jwt_weak;
+mod log_injection;
+mod nosql_injection;
+mod path_traversal;
+mod pickle_detector;
+mod prototype_pollution;
+mod react_hooks;
+mod regex_dos;
+mod secrets;
+pub mod sql_injection;
+mod ssrf;
+pub mod taint;
+mod unsafe_template;
+mod xss;
+mod xxe;
+
+pub use cleartext_credentials::CleartextCredentialsDetector;
+pub use command_injection::CommandInjectionDetector;
+pub use cors_misconfig::CorsMisconfigDetector;
+pub use dep_audit::DepAuditDetector;
+pub use django_security::DjangoSecurityDetector;
+pub use eval_detector::EvalDetector;
+pub use express_security::ExpressSecurityDetector;
+pub use gh_actions::GHActionsInjectionDetector;
+pub use hardcoded_ips::HardcodedIpsDetector;
+pub use insecure_cookie::InsecureCookieDetector;
+pub use insecure_crypto::InsecureCryptoDetector;
+pub use insecure_deserialize::InsecureDeserializeDetector;
+pub use insecure_random::InsecureRandomDetector;
+pub use insecure_tls::InsecureTlsDetector;
+pub use jwt_weak::JwtWeakDetector;
+pub use log_injection::LogInjectionDetector;
+pub use nosql_injection::NosqlInjectionDetector;
+pub use path_traversal::PathTraversalDetector;
+pub use pickle_detector::PickleDeserializationDetector;
+pub use prototype_pollution::PrototypePollutionDetector;
+pub use react_hooks::ReactHooksDetector;
+pub use regex_dos::RegexDosDetector;
+pub use secrets::SecretDetector;
+pub use sql_injection::SQLInjectionDetector;
+pub use ssrf::SsrfDetector;
+pub use unsafe_template::UnsafeTemplateDetector;
+pub use xss::XssDetector;
+pub use xxe::XxeDetector;

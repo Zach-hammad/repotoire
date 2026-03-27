@@ -47,7 +47,7 @@ jobs:
           if [ "${{ runner.os }}" = "Windows" ]; then
             cargo build --release --target ${{ matrix.target }} --no-default-features
           else
-            cargo build --release --target ${{ matrix.target }}
+            cargo build --release --features jemalloc --target ${{ matrix.target }}
           fi
         shell: bash
 

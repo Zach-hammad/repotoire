@@ -37,7 +37,7 @@ jobs:
         run: make -C benchmark setup
 
       - name: Build repotoire
-        run: cd repotoire-cli && cargo build --release
+        run: cd repotoire-cli && cargo build --release --features jemalloc
 
       - name: Run analysis on benchmark projects
         run: make -C benchmark run

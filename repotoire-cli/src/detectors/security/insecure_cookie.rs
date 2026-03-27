@@ -1,0 +1,377 @@
+//! Insecure Cookie Detector
+//!
+//! Graph-enhanced detection of insecure cookies:
+//! - Identify session/auth cookies (higher severity)
+//! - Check for SameSite attribute
+//! - Use graph to find cookie-setting functions in auth flows
+
+use crate::detectors::base::{Detector, DetectorConfig};
+use crate::graph::GraphQueryExt;
+use crate::models::{deterministic_finding_id, Finding, Severity};
+use anyhow::Result;
+use regex::Regex;
+use std::path::PathBuf;
+use std::sync::LazyLock;
+use tracing::info;
+
+static COOKIE_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(
+            r"(?i)(\.set_cookie\s*\(|response\.set_cookie\s*\(|res\.cookie\s*\(|response\.cookie\s*\(|setcookie\s*\()",
+        )
+        .expect("valid regex")
+    });
+
+pub struct InsecureCookieDetector {
+    #[allow(dead_code)] // Part of detector pattern, used for file scanning
+    repository_path: PathBuf,
+    max_findings: usize,
+}
+
+impl InsecureCookieDetector {
+    crate::detectors::detector_new!(50);
+
+    /// Check if this is a sensitive cookie (session, auth, etc.)
+    fn is_sensitive_cookie(line: &str, surrounding: &str) -> (bool, String) {
+        let combined = format!("{} {}", line, surrounding).to_lowercase();
+
+        if combined.contains("session") {
+            return (true, "session".to_string());
+        }
+        if combined.contains("auth") || combined.contains("token") {
+            return (true, "authentication".to_string());
+        }
+        if combined.contains("jwt") || combined.contains("bearer") {
+            return (true, "JWT/bearer token".to_string());
+        }
+        if combined.contains("csrf") || combined.contains("xsrf") {
+            return (true, "CSRF token".to_string());
+        }
+        if combined.contains("remember") || combined.contains("login") {
+            return (true, "remember-me/login".to_string());
+        }
+        if combined.contains("user") || combined.contains("account") {
+            return (true, "user data".to_string());
+        }
+
+        (false, "general".to_string())
+    }
+
+    /// Check cookie flags in surrounding context
+    fn check_cookie_flags(lines: &[&str], cookie_line: usize) -> CookieFlags {
+        let start = cookie_line.saturating_sub(3);
+        let end = (cookie_line + 15).min(lines.len());
+        let context = lines[start..end].join(" ").to_lowercase();
+
+        CookieFlags {
+            has_httponly: context.contains("httponly"),
+            has_secure: context.contains("secure") && !context.contains("insecure"),
+            has_samesite: context.contains("samesite"),
+            samesite_value: if context.contains("samesite=strict")
+                || context.contains("samesite='strict'")
+            {
+                Some("Strict".to_string())
+            } else if context.contains("samesite=lax") || context.contains("samesite='lax'") {
+                Some("Lax".to_string())
+            } else if context.contains("samesite=none") || context.contains("samesite='none'") {
+                Some("None".to_string())
+            } else {
+                None
+            },
+        }
+    }
+
+}
+
+struct CookieFlags {
+    has_httponly: bool,
+    has_secure: bool,
+    has_samesite: bool,
+    samesite_value: Option<String>,
+}
+
+impl Detector for InsecureCookieDetector {
+    fn name(&self) -> &'static str {
+        "insecure-cookie"
+    }
+    fn description(&self) -> &'static str {
+        "Detects cookies without security flags"
+    }
+
+    fn bypass_postprocessor(&self) -> bool {
+        true
+    }
+
+    fn requires_graph(&self) -> bool {
+        false
+    }
+
+    fn file_extensions(&self) -> &'static [&'static str] {
+        &["py", "js", "ts", "jsx", "tsx", "rb", "php", "java"]
+    }
+
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
+        let files = &ctx.as_file_provider();
+        let mut findings = vec![];
+
+        for path in files.files_with_extensions(&["py", "js", "ts", "php", "rb", "java", "go"]) {
+            if findings.len() >= self.max_findings {
+                break;
+            }
+
+            let path_str = path.to_string_lossy().to_string();
+
+            // Skip test files
+            if crate::detectors::base::is_test_path(&path_str) {
+                continue;
+            }
+
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+
+            // Cheap pre-filter: skip files without cookie-setting patterns
+            // to avoid expensive masked_content() tree-sitter parsing
+            let raw = match files.content(path) {
+                Some(c) => c,
+                None => continue,
+            };
+            if !raw.contains("set_cookie") && !raw.contains("setCookie")
+                && !raw.contains("setcookie") && !raw.contains(".cookie(")
+                && !raw.contains("res.cookie")
+            {
+                continue;
+            }
+
+            if let Some(content) = files.masked_content(path) {
+                let lines: Vec<&str> = content.lines().collect();
+
+                for (i, line) in lines.iter().enumerate() {
+                    let prev_line = if i > 0 { Some(lines[i - 1]) } else { None };
+                    if crate::detectors::is_line_suppressed(line, prev_line) {
+                        continue;
+                    }
+
+                    if COOKIE_PATTERN.is_match(line) {
+                        let start = i.saturating_sub(5);
+                        let end = (i + 5).min(lines.len());
+                        let surrounding = lines[start..end].join(" ");
+
+                        let (is_sensitive, cookie_type) =
+                            Self::is_sensitive_cookie(line, &surrounding);
+                        let flags = Self::check_cookie_flags(&lines, i);
+                        let containing_func =
+                            graph.find_function_at(&path_str, (i + 1) as u32).map(|f| f.node_name(crate::graph::interner::global_interner()).to_string());
+
+                        // Collect missing flags
+                        let mut missing = Vec::new();
+                        if !flags.has_httponly {
+                            missing.push("HttpOnly");
+                        }
+                        if !flags.has_secure {
+                            missing.push("Secure");
+                        }
+                        if !flags.has_samesite {
+                            missing.push("SameSite");
+                        }
+
+                        if missing.is_empty() {
+                            continue;
+                        }
+
+                        // Calculate severity
+                        let severity = if is_sensitive && !flags.has_httponly {
+                            Severity::Critical // Session cookie without HttpOnly = XSS can steal it
+                        } else if is_sensitive {
+                            Severity::High
+                        } else if !flags.has_httponly {
+                            Severity::Medium
+                        } else {
+                            Severity::Low
+                        };
+
+                        // Build notes
+                        let mut notes = Vec::new();
+                        if is_sensitive {
+                            notes.push(format!("🔐 {} cookie - high value target", cookie_type));
+                        }
+                        notes.push(format!("❌ Missing: {}", missing.join(", ")));
+                        if let Some(ss) = &flags.samesite_value {
+                            notes.push(format!("✓ SameSite={}", ss));
+                            if ss == "None" && !flags.has_secure {
+                                notes.push("⚠️ SameSite=None requires Secure flag!".to_string());
+                            }
+                        }
+                        if let Some(func) = containing_func {
+                            notes.push(format!("📦 In function: `{}`", func));
+                        }
+
+                        let context_notes = format!("\n\n**Analysis:**\n{}", notes.join("\n"));
+
+                        // Build language-specific fix
+                        let ext_str = ext;
+                        let suggestion = match ext_str {
+                            "py" => "```python\n\
+                                 response.set_cookie(\n\
+                                     'cookie_name',\n\
+                                     value,\n\
+                                     httponly=True,   # Prevents JavaScript access\n\
+                                     secure=True,     # HTTPS only\n\
+                                     samesite='Lax'   # CSRF protection\n\
+                                 )\n\
+                                 ```"
+                            .to_string(),
+                            "js" | "ts" => "```javascript\n\
+                                 res.cookie('cookie_name', value, {\n\
+                                     httpOnly: true,  // Prevents JavaScript access\n\
+                                     secure: true,    // HTTPS only\n\
+                                     sameSite: 'lax'  // CSRF protection\n\
+                                 });\n\
+                                 ```"
+                            .to_string(),
+                            "php" => "```php\n\
+                                 setcookie('cookie_name', $value, [\n\
+                                     'httponly' => true,\n\
+                                     'secure' => true,\n\
+                                     'samesite' => 'Lax'\n\
+                                 ]);\n\
+                                 ```"
+                            .to_string(),
+                            _ => "Add httponly, secure, and samesite flags.".to_string(),
+                        };
+
+                        findings.push(Finding {
+                            id: String::new(),
+                            detector: "InsecureCookieDetector".to_string(),
+                            severity,
+                            title: format!("Cookie missing {} flag{}",
+                                missing[0],
+                                if missing.len() > 1 { "s" } else { "" }
+                            ),
+                            description: format!(
+                                "Cookie is missing security flags that protect against common attacks.{}",
+                                context_notes
+                            ),
+                            affected_files: vec![path.to_path_buf()],
+                            line_start: Some((i + 1) as u32),
+                            line_end: Some((i + 1) as u32),
+                            suggested_fix: Some(suggestion),
+                            estimated_effort: Some("5 minutes".to_string()),
+                            category: Some("security".to_string()),
+                            cwe_id: Some(if !flags.has_httponly {
+                                "CWE-1004".to_string()  // Sensitive Cookie Without HttpOnly
+                            } else {
+                                "CWE-614".to_string()   // Sensitive Cookie Without Secure
+                            }),
+                            why_it_matters: Some(
+                                "• **HttpOnly** prevents XSS attacks from stealing cookies via JavaScript\n\
+                                 • **Secure** ensures cookies are only sent over HTTPS\n\
+                                 • **SameSite** prevents CSRF attacks by controlling cross-site requests".to_string()
+                            ),
+                            ..Default::default()
+                        });
+                    }
+                }
+            }
+        }
+
+        info!(
+            "InsecureCookieDetector found {} findings (graph-aware)",
+            findings.len()
+        );
+        Ok(findings)
+    }
+}
+
+
+impl crate::detectors::RegisteredDetector for InsecureCookieDetector {
+    fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
+        std::sync::Arc::new(Self::new(init.repo_path))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::builder::GraphBuilder;
+
+    #[test]
+    fn test_detects_insecure_cookie() {
+        let store = GraphBuilder::new().freeze();
+        let detector = InsecureCookieDetector::new("/mock/repo");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
+            ("app.py", "from flask import make_response\n\ndef set_session(user_id):\n    resp = make_response(\"OK\")\n    resp.set_cookie('session_id', user_id)\n    return resp\n"),
+        ]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
+        assert!(!findings.is_empty(), "Should detect cookie without security flags");
+        assert!(
+            findings.iter().any(|f| f.title.contains("HttpOnly") || f.title.contains("Secure") || f.title.contains("SameSite")),
+            "Finding should mention missing flag. Titles: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_secure_cookie() {
+        let store = GraphBuilder::new().freeze();
+        let detector = InsecureCookieDetector::new("/mock/repo");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
+            ("app.py", "from flask import make_response\n\ndef set_session(user_id):\n    resp = make_response(\"OK\")\n    resp.set_cookie('session_id', user_id, httponly=True, secure=True, samesite='Lax')\n    return resp\n"),
+        ]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
+        assert!(findings.is_empty(), "Should not detect anything for secure cookie. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_no_finding_for_enum_cookie_value() {
+        let store = GraphBuilder::new().freeze();
+        let detector = InsecureCookieDetector::new("/mock/repo");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
+            ("params.py", "from enum import Enum\n\nclass ParamTypes(Enum):\n    query = \"query\"\n    header = \"header\"\n    cookie = \"cookie\"\n"),
+        ]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
+        assert!(
+            findings.is_empty(),
+            "Should not flag enum values containing 'cookie'. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_cookie_class_field() {
+        let store = GraphBuilder::new().freeze();
+        let detector = InsecureCookieDetector::new("/mock/repo");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
+            ("models.py", "class SecurityScheme:\n    cookie = \"apiKeyCookie\"\n    header = \"apiKeyHeader\"\n"),
+        ]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
+        assert!(
+            findings.is_empty(),
+            "Should not flag class field assignments. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_cookie_attribute_access() {
+        let store = GraphBuilder::new().freeze();
+        let detector = InsecureCookieDetector::new("/mock/repo");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
+            ("response.py", "def set_cookie(self, key, value):\n    self.cookies[key] = value\n    self.cookies[key][\"secure\"] = True\n    self.cookies[key][\"httponly\"] = True\n"),
+        ]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
+        assert!(findings.is_empty(), "Should not flag self.cookies[] attribute access. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_no_finding_for_multiline_set_cookie_with_flags() {
+        let store = GraphBuilder::new().freeze();
+        let detector = InsecureCookieDetector::new("/mock/repo");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
+            ("middleware.py", "def process_response(self, request, response):\n    response.set_cookie(\n        settings.SESSION_COOKIE_NAME,\n        request.session.session_key,\n        max_age=max_age,\n        expires=expires,\n        domain=settings.SESSION_COOKIE_DOMAIN,\n        path=settings.SESSION_COOKIE_PATH,\n        secure=settings.SESSION_COOKIE_SECURE or None,\n        httponly=settings.SESSION_COOKIE_HTTPONLY or None,\n        samesite=settings.SESSION_COOKIE_SAMESITE,\n    )\n"),
+        ]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
+        assert!(findings.is_empty(), "Should detect flags in multi-line set_cookie() call. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+    }
+}

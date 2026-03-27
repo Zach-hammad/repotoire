@@ -1,0 +1,844 @@
+//! Data Clumps Detector
+//!
+//! Graph-aware detection of parameter groups that appear together across functions.
+//! Uses function parameter data from the graph to identify missing abstractions.
+//!
+//! Enhanced with call graph analysis:
+//! - Higher severity if functions with same params CALL each other (strong coupling)
+//! - Lower severity if functions are in different modules with no call relationship
+//! - Identifies refactoring opportunities where params travel through call chains
+
+use crate::detectors::base::{Detector, DetectorConfig};
+use crate::graph::GraphQueryExt;
+use crate::models::{Finding, Severity};
+use anyhow::Result;
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
+use tracing::{debug, info};
+
+/// Thresholds for data clumps detection
+#[derive(Debug, Clone)]
+pub struct DataClumpsThresholds {
+    /// Minimum parameters to form a clump
+    pub min_params: usize,
+    /// Minimum functions sharing the clump
+    pub min_occurrences: usize,
+}
+
+impl Default for DataClumpsThresholds {
+    fn default() -> Self {
+        Self {
+            min_params: 4,
+            min_occurrences: 5,
+        }
+    }
+}
+
+/// Framework convention parameter patterns to skip (forwarding/middleware signatures).
+/// If the clump's param names are a subset of any pattern, it is not reported.
+const FRAMEWORK_CONVENTIONS: &[&[&str]] = &[
+    &["req", "res", "next"],
+    &["ctx", "w", "r"],
+    &["self", "other"],
+    &["request", "response"],
+    &["app", "req", "res"],
+    &["t", "ctx"],
+    &["db", "ctx"],
+    &["conn", "ctx"],
+];
+
+/// Known parameter patterns and suggested names
+fn suggest_struct_name(params: &[String]) -> String {
+    let param_set: HashSet<&str> = params.iter().map(|s| s.as_str()).collect();
+
+    // Check known patterns
+    let patterns: &[(&[&str], &str)] = &[
+        (&["x", "y"], "Point"),
+        (&["x", "y", "z"], "Point3D"),
+        (&["width", "height"], "Size"),
+        (&["start", "end"], "Range"),
+        (&["min", "max"], "Range"),
+        (&["host", "port"], "Address"),
+        (&["first_name", "last_name"], "Name"),
+        (&["first_name", "last_name", "email"], "PersonInfo"),
+        (&["latitude", "longitude"], "Coordinates"),
+        (&["lat", "lng"], "Coordinates"),
+        (&["red", "green", "blue"], "RGB"),
+        (&["r", "g", "b"], "RGB"),
+        (&["username", "password"], "Credentials"),
+        (&["user", "password"], "Credentials"),
+        (&["path", "filename"], "FilePath"),
+        (&["name", "email"], "Contact"),
+        (&["start_date", "end_date"], "DateRange"),
+        (&["created_at", "updated_at"], "Timestamps"),
+    ];
+
+    for (pattern_params, name) in patterns {
+        let pattern_set: HashSet<&str> = pattern_params.iter().copied().collect();
+        if pattern_set.is_subset(&param_set) {
+            return name.to_string();
+        }
+    }
+
+    // Generate from first param
+    if let Some(first) = params.first() {
+        let base: String = first
+            .split('_')
+            .map(|w| {
+                let mut c = w.chars();
+                match c.next() {
+                    None => String::new(),
+                    Some(f) => f.to_uppercase().chain(c).collect(),
+                }
+            })
+            .collect();
+        return format!("{}Params", base);
+    }
+
+    "ParamGroup".to_string()
+}
+
+pub struct DataClumpsDetector {
+    config: DetectorConfig,
+    thresholds: DataClumpsThresholds,
+}
+
+impl DataClumpsDetector {
+    pub fn new() -> Self {
+        Self {
+            config: DetectorConfig::new(),
+            thresholds: DataClumpsThresholds::default(),
+        }
+    }
+
+    pub fn with_config(config: DetectorConfig) -> Self {
+        let thresholds = DataClumpsThresholds {
+            min_params: config.get_option_or("min_params", 4),
+            min_occurrences: config.get_option_or("min_occurrences", 5),
+        };
+        Self { config, thresholds }
+    }
+
+    /// Returns true if the given param names match (are a subset of) a framework convention pattern.
+    fn is_framework_convention(params: &[String]) -> bool {
+        let param_set: HashSet<&str> = params.iter().map(|s| s.as_str()).collect();
+        for pattern in FRAMEWORK_CONVENTIONS {
+            let pattern_set: HashSet<&str> = pattern.iter().copied().collect();
+            if param_set.is_subset(&pattern_set) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Extract parameter names from function's parameter property
+    fn extract_params(&self, func: &crate::graph::CodeNode, graph: &dyn crate::graph::GraphQuery) -> Vec<String> {
+        // Try to get params from extra_props side table
+        let i = graph.interner();
+        if let Some(params_key) = graph.extra_props(func.qualified_name).and_then(|ep| ep.params) {
+            let params_str = i.resolve(params_key);
+            return params_str
+                .split(',')
+                .map(|p| p.trim().to_lowercase())
+                .filter(|p| !p.is_empty() && !p.starts_with('_') && p != "self" && p != "this")
+                .collect();
+        }
+
+        // Try param_count to see if function has parameters
+        if func.param_count > 0 && (func.param_count as usize) >= self.thresholds.min_params {
+            // We know it has params but can't extract names
+            // Return empty - will need parser enhancement
+        }
+
+        vec![]
+    }
+
+    /// Find parameter clumps across functions using an inverted index.
+    ///
+    /// Instead of generating all C(N,k) parameter combinations (exponential),
+    /// uses an inverted-index approach inspired by SourcererCC (arXiv:1512.06448):
+    /// 1. Map each param → set of functions
+    /// 2. For each pair sharing ≥1 param, compute intersection
+    /// 3. Group by intersection, filter by min_occurrences
+    fn find_clumps(&self, graph: &dyn crate::graph::GraphQuery) -> Vec<DataClump> {
+        let i = graph.interner();
+        let functions = graph.get_functions_shared();
+
+        // Step 1: Extract params for qualifying functions
+        let mut func_data: Vec<(FuncInfo, HashSet<String>)> = Vec::new();
+        for func in functions.iter() {
+            let params = self.extract_params(func, graph);
+            if params.len() < self.thresholds.min_params {
+                continue;
+            }
+            func_data.push((
+                FuncInfo {
+                    name: func.node_name(i).to_string(),
+                    qualified_name: func.qn(i).to_string(),
+                    file: func.path(i).to_string(),
+                    line: func.line_start,
+                },
+                params.into_iter().collect(),
+            ));
+        }
+
+        debug!(
+            "DataClumps: {} functions with {}+ params",
+            func_data.len(),
+            self.thresholds.min_params
+        );
+
+        if func_data.len() < self.thresholds.min_occurrences {
+            return vec![];
+        }
+
+        // Step 2: Build inverted index: param → Vec<func_index>
+        let mut param_index: HashMap<&str, Vec<usize>> = HashMap::new();
+        for (idx, (_, params)) in func_data.iter().enumerate() {
+            for param in params {
+                param_index.entry(param.as_str()).or_default().push(idx);
+            }
+        }
+
+        // Step 3: For candidate pairs (sharing ≥1 param), compute intersection
+        let mut seen_pairs: HashSet<(usize, usize)> = HashSet::new();
+        let mut clump_map: HashMap<Vec<String>, HashSet<usize>> = HashMap::new();
+
+        for indices in param_index.values() {
+            if indices.len() < 2 {
+                continue;
+            }
+            for (i_pos, &i) in indices.iter().enumerate() {
+                for &j in &indices[i_pos + 1..] {
+                    let key = if i < j { (i, j) } else { (j, i) };
+                    if !seen_pairs.insert(key) {
+                        continue;
+                    }
+
+                    // Compute param intersection for this pair
+                    let mut shared: Vec<String> = func_data[key.0]
+                        .1
+                        .intersection(&func_data[key.1].1)
+                        .cloned()
+                        .collect();
+
+                    if shared.len() >= self.thresholds.min_params {
+                        shared.sort();
+                        let entry = clump_map.entry(shared).or_default();
+                        entry.insert(key.0);
+                        entry.insert(key.1);
+                    }
+                }
+            }
+        }
+
+        // Step 4: Pre-build callees lookup for functions in clumps
+        let funcs_in_clumps: HashSet<usize> = clump_map
+            .values()
+            .flat_map(|indices| indices.iter().copied())
+            .collect();
+
+        let callees_map: HashMap<&str, HashSet<String>> = funcs_in_clumps
+            .iter()
+            .map(|&idx| {
+                let qn = func_data[idx].0.qualified_name.as_str();
+                let callees: HashSet<String> = graph
+                    .get_callees(qn)
+                    .iter()
+                    .map(|c| c.qn(i).to_string())
+                    .collect();
+                (qn, callees)
+            })
+            .collect();
+
+        // Step 5: Filter by min_occurrences, skip framework conventions, analyze call relationships
+        let mut clumps: Vec<DataClump> = clump_map
+            .into_iter()
+            .filter(|(params, func_indices)| {
+                func_indices.len() >= self.thresholds.min_occurrences
+                    && !Self::is_framework_convention(params)
+            })
+            .map(|(params, func_indices)| {
+                let funcs: Vec<FuncInfo> = func_indices
+                    .iter()
+                    .map(|&idx| func_data[idx].0.clone())
+                    .collect();
+                let (call_count, is_chain) =
+                    self.analyze_call_relationships_cached(&callees_map, &funcs);
+                DataClump {
+                    params,
+                    funcs,
+                    call_relationships: call_count,
+                    is_call_chain: is_chain,
+                }
+            })
+            .collect();
+
+        // Remove subsets
+        clumps = self.remove_subsets(clumps);
+
+        // Sort by call relationships first (stronger signal), then by function count
+        clumps.sort_by(|a, b| {
+            b.call_relationships
+                .cmp(&a.call_relationships)
+                .then(b.funcs.len().cmp(&a.funcs.len()))
+        });
+
+        clumps
+    }
+
+    /// Analyze call relationships using pre-built callees lookup table.
+    ///
+    /// Instead of calling `graph.get_callees()` per function per clump (thousands
+    /// of queries), uses a pre-built HashMap for O(1) lookups.
+    fn analyze_call_relationships_cached(
+        &self,
+        callees_map: &HashMap<&str, HashSet<String>>,
+        funcs: &[FuncInfo],
+    ) -> (usize, bool) {
+        let func_qns: HashSet<&str> = funcs.iter().map(|f| f.qualified_name.as_str()).collect();
+        let mut call_count = 0;
+        let mut has_chain = false;
+
+        for func in funcs {
+            if let Some(callees) = callees_map.get(func.qualified_name.as_str()) {
+                for callee_qn in callees {
+                    if func_qns.contains(callee_qn.as_str()) {
+                        call_count += 1;
+
+                        // Check if callee also calls another function in the clump (chain)
+                        if let Some(callee_callees) = callees_map.get(callee_qn.as_str()) {
+                            for cc_qn in callee_callees {
+                                if func_qns.contains(cc_qn.as_str())
+                                    && *cc_qn != func.qualified_name
+                                {
+                                    has_chain = true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        (call_count, has_chain)
+    }
+
+    /// Remove clumps whose parameter set is a strict subset of another clump that has an equal or
+    /// greater occurrence count (function count). For example, if `(a, b, c)` appears in 5
+    /// functions and `(a, b, c, d)` also appears in 5 functions, only `(a, b, c, d)` is kept.
+    fn remove_subsets(&self, mut clumps: Vec<DataClump>) -> Vec<DataClump> {
+        // Sort largest param set first so supersets are processed before subsets
+        clumps.sort_by(|a, b| b.params.len().cmp(&a.params.len()));
+
+        let mut result: Vec<DataClump> = Vec::new();
+
+        for clump in clumps {
+            let param_set: HashSet<&String> = clump.params.iter().collect();
+
+            let is_subset = result.iter().any(|existing: &DataClump| {
+                let existing_params: HashSet<&String> = existing.params.iter().collect();
+                // Strict subset of params (fewer params, all contained) AND
+                // the superset has equal or more occurrences
+                param_set.len() < existing_params.len()
+                    && param_set.is_subset(&existing_params)
+                    && existing.funcs.len() >= clump.funcs.len()
+            });
+
+            if !is_subset {
+                result.push(clump);
+            }
+        }
+
+        result
+    }
+
+    /// Calculate severity based on function count and call relationships
+    fn calculate_severity(&self, clump: &DataClump) -> Severity {
+        let func_count = clump.funcs.len();
+        let call_rels = clump.call_relationships;
+
+        // Base severity from function count
+        let base = if func_count >= 6 {
+            Severity::High
+        } else if func_count >= 4 {
+            Severity::Medium
+        } else {
+            Severity::Low
+        };
+
+        // Upgrade severity if there are call relationships (stronger signal)
+        // Functions that call each other with the same params = definite refactor target
+        if clump.is_call_chain {
+            // Params traveling through a call chain = HIGH priority
+            return match base {
+                Severity::Low => Severity::Medium,
+                Severity::Medium => Severity::High,
+                _ => Severity::High,
+            };
+        }
+
+        if call_rels >= 3 {
+            // Many mutual calls = boost severity
+            return match base {
+                Severity::Low => Severity::Medium,
+                _ => base,
+            };
+        }
+
+        base
+    }
+}
+
+struct DataClump {
+    params: Vec<String>,
+    funcs: Vec<FuncInfo>,
+    /// Number of call relationships between functions in this clump
+    call_relationships: usize,
+    /// Whether functions form a call chain (A->B->C all have same params)
+    is_call_chain: bool,
+}
+
+#[derive(Clone)]
+struct FuncInfo {
+    name: String,
+    qualified_name: String,
+    file: String,
+    line: u32,
+}
+
+/// Generate combinations of k items (kept for tests only)
+#[cfg(test)]
+fn combinations(items: &[String], k: usize) -> Vec<Vec<String>> {
+    if k > items.len() {
+        return vec![];
+    }
+    if k == items.len() {
+        return vec![items.to_vec()];
+    }
+    if k == 0 {
+        return vec![vec![]];
+    }
+
+    let mut result = Vec::new();
+    let mut indices: Vec<usize> = (0..k).collect();
+    let n = items.len();
+
+    loop {
+        result.push(indices.iter().map(|&i| items[i].clone()).collect());
+
+        let mut i = k;
+        while i > 0 {
+            i -= 1;
+            if indices[i] < n - k + i {
+                break;
+            }
+        }
+
+        if i == 0 && indices[0] >= n - k {
+            break;
+        }
+
+        indices[i] += 1;
+        for j in (i + 1)..k {
+            indices[j] = indices[j - 1] + 1;
+        }
+    }
+
+    result
+}
+
+impl Default for DataClumpsDetector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Detector for DataClumpsDetector {
+    fn name(&self) -> &'static str {
+        "DataClumpsDetector"
+    }
+
+    fn description(&self) -> &'static str {
+        "Detects parameter groups that appear together across functions"
+    }
+
+    fn category(&self) -> &'static str {
+        "code_smell"
+    }
+
+    fn config(&self) -> Option<&DetectorConfig> {
+        Some(&self.config)
+    }
+
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
+        let mut findings = Vec::new();
+
+        let clumps = self.find_clumps(graph);
+
+        for clump in clumps {
+            let severity = self.calculate_severity(&clump);
+            let struct_name = suggest_struct_name(&clump.params);
+            let params_str = clump.params.join(", ");
+
+            let func_list: String = clump
+                .funcs
+                .iter()
+                .take(5)
+                .map(|f| format!("  - {} ({}:{})", f.name, f.file, f.line))
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            let more_note = if clump.funcs.len() > 5 {
+                format!("\n  ... and {} more functions", clump.funcs.len() - 5)
+            } else {
+                String::new()
+            };
+
+            // Add call relationship info if present
+            let call_info = if clump.is_call_chain {
+                "\n\n⚠️ **Call chain detected**: These parameters travel through a call chain, \
+                 making refactoring especially valuable."
+                    .to_string()
+            } else if clump.call_relationships > 0 {
+                format!(
+                    "\n\n📞 **{} call relationships** found between these functions.",
+                    clump.call_relationships
+                )
+            } else {
+                String::new()
+            };
+
+            let mut files: Vec<PathBuf> = clump
+                .funcs
+                .iter()
+                .map(|f| PathBuf::from(&f.file))
+                .collect::<HashSet<_>>()
+                .into_iter()
+                .collect();
+            files.sort();
+
+            findings.push(Finding {
+                id: String::new(),
+                detector: "DataClumpsDetector".to_string(),
+                severity,
+                title: format!("Data clump: ({})", params_str),
+                description: format!(
+                    "Parameters **({})** appear together in **{} functions**.\n\n\
+                     This suggests a missing abstraction - consider extracting a `{}` struct.\n\n\
+                     **Affected functions:**\n{}{}{}",
+                    params_str,
+                    clump.funcs.len(),
+                    struct_name,
+                    func_list,
+                    more_note,
+                    call_info
+                ),
+                affected_files: files,
+                line_start: clump.funcs.first().map(|f| f.line),
+                line_end: None,
+                suggested_fix: Some(format!(
+                    "Extract parameters into a struct:\n\n\
+                     ```rust\n\
+                     struct {} {{\n\
+                     {}\n\
+                     }}\n\
+                     ```\n\n\
+                     Then refactor functions to accept `{}` instead of {} separate parameters.{}",
+                    struct_name,
+                    clump.params.iter().map(|p| format!("    {}: Type,", p)).collect::<Vec<_>>().join("\n"),
+                    struct_name,
+                    clump.params.len(),
+                    if clump.is_call_chain {
+                        "\n\nSince these functions call each other, the refactoring can be done incrementally."
+                    } else { "" }
+                )),
+                estimated_effort: Some(if clump.funcs.len() >= 6 || clump.is_call_chain {
+                    "Large (2-4 hours)".to_string()
+                } else {
+                    "Medium (1-2 hours)".to_string()
+                }),
+                category: Some("code_smell".to_string()),
+                cwe_id: None,
+                why_it_matters: Some(
+                    "Data clumps indicate missing abstractions. Grouping related parameters \
+                     into a struct improves readability, type safety, and makes changes easier."
+                        .to_string()
+                ),
+                ..Default::default()
+            });
+        }
+
+        info!(
+            "DataClumpsDetector found {} findings (graph-aware)",
+            findings.len()
+        );
+        Ok(findings)
+    }
+}
+
+impl crate::detectors::RegisteredDetector for DataClumpsDetector {
+    fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
+        std::sync::Arc::new(Self::with_config(init.config_for("DataClumpsDetector")))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_suggest_struct_name() {
+        assert_eq!(
+            suggest_struct_name(&["x".to_string(), "y".to_string()]),
+            "Point"
+        );
+        assert_eq!(
+            suggest_struct_name(&["host".to_string(), "port".to_string()]),
+            "Address"
+        );
+        assert_eq!(
+            suggest_struct_name(&["foo".to_string(), "bar".to_string(), "baz".to_string()]),
+            "FooParams"
+        );
+    }
+
+    #[test]
+    fn test_combinations() {
+        let items = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+        let combos = combinations(&items, 2);
+        assert_eq!(combos.len(), 3); // ab, ac, bc
+    }
+
+    #[test]
+    fn test_severity() {
+        let detector = DataClumpsDetector::new();
+
+        // Test base severity from function count
+        let clump_3 = DataClump {
+            params: vec!["a".to_string(), "b".to_string(), "c".to_string()],
+            funcs: vec![
+                FuncInfo {
+                    name: "f1".to_string(),
+                    qualified_name: "mod::f1".to_string(),
+                    file: "a.rs".to_string(),
+                    line: 1,
+                },
+                FuncInfo {
+                    name: "f2".to_string(),
+                    qualified_name: "mod::f2".to_string(),
+                    file: "a.rs".to_string(),
+                    line: 10,
+                },
+                FuncInfo {
+                    name: "f3".to_string(),
+                    qualified_name: "mod::f3".to_string(),
+                    file: "a.rs".to_string(),
+                    line: 20,
+                },
+            ],
+            call_relationships: 0,
+            is_call_chain: false,
+        };
+        assert_eq!(detector.calculate_severity(&clump_3), Severity::Low);
+
+        let clump_4 = DataClump {
+            params: vec!["a".to_string(), "b".to_string(), "c".to_string()],
+            funcs: vec![
+                FuncInfo {
+                    name: "f1".to_string(),
+                    qualified_name: "mod::f1".to_string(),
+                    file: "a.rs".to_string(),
+                    line: 1,
+                },
+                FuncInfo {
+                    name: "f2".to_string(),
+                    qualified_name: "mod::f2".to_string(),
+                    file: "a.rs".to_string(),
+                    line: 10,
+                },
+                FuncInfo {
+                    name: "f3".to_string(),
+                    qualified_name: "mod::f3".to_string(),
+                    file: "a.rs".to_string(),
+                    line: 20,
+                },
+                FuncInfo {
+                    name: "f4".to_string(),
+                    qualified_name: "mod::f4".to_string(),
+                    file: "a.rs".to_string(),
+                    line: 30,
+                },
+            ],
+            call_relationships: 0,
+            is_call_chain: false,
+        };
+        assert_eq!(detector.calculate_severity(&clump_4), Severity::Medium);
+
+        let clump_6 = DataClump {
+            params: vec!["a".to_string(), "b".to_string(), "c".to_string()],
+            funcs: vec![
+                FuncInfo {
+                    name: "f1".to_string(),
+                    qualified_name: "mod::f1".to_string(),
+                    file: "a.rs".to_string(),
+                    line: 1,
+                },
+                FuncInfo {
+                    name: "f2".to_string(),
+                    qualified_name: "mod::f2".to_string(),
+                    file: "a.rs".to_string(),
+                    line: 10,
+                },
+                FuncInfo {
+                    name: "f3".to_string(),
+                    qualified_name: "mod::f3".to_string(),
+                    file: "a.rs".to_string(),
+                    line: 20,
+                },
+                FuncInfo {
+                    name: "f4".to_string(),
+                    qualified_name: "mod::f4".to_string(),
+                    file: "a.rs".to_string(),
+                    line: 30,
+                },
+                FuncInfo {
+                    name: "f5".to_string(),
+                    qualified_name: "mod::f5".to_string(),
+                    file: "a.rs".to_string(),
+                    line: 40,
+                },
+                FuncInfo {
+                    name: "f6".to_string(),
+                    qualified_name: "mod::f6".to_string(),
+                    file: "a.rs".to_string(),
+                    line: 50,
+                },
+            ],
+            call_relationships: 0,
+            is_call_chain: false,
+        };
+        assert_eq!(detector.calculate_severity(&clump_6), Severity::High);
+
+        // Test call chain boost
+        let clump_chain = DataClump {
+            params: vec!["a".to_string(), "b".to_string(), "c".to_string()],
+            funcs: vec![
+                FuncInfo {
+                    name: "f1".to_string(),
+                    qualified_name: "mod::f1".to_string(),
+                    file: "a.rs".to_string(),
+                    line: 1,
+                },
+                FuncInfo {
+                    name: "f2".to_string(),
+                    qualified_name: "mod::f2".to_string(),
+                    file: "a.rs".to_string(),
+                    line: 10,
+                },
+                FuncInfo {
+                    name: "f3".to_string(),
+                    qualified_name: "mod::f3".to_string(),
+                    file: "a.rs".to_string(),
+                    line: 20,
+                },
+            ],
+            call_relationships: 2,
+            is_call_chain: true, // Call chain boosts Low -> Medium
+        };
+        assert_eq!(detector.calculate_severity(&clump_chain), Severity::Medium);
+    }
+
+    #[test]
+    fn test_framework_convention_skipped() {
+        // (req, res, next) is a known Express.js middleware signature — must be skipped
+        assert!(DataClumpsDetector::is_framework_convention(&[
+            "req".to_string(),
+            "res".to_string(),
+            "next".to_string(),
+        ]));
+
+        // (ctx, w, r) is a known HTTP handler signature — must be skipped
+        assert!(DataClumpsDetector::is_framework_convention(&[
+            "ctx".to_string(),
+            "w".to_string(),
+            "r".to_string(),
+        ]));
+
+        // A subset of a framework convention also matches
+        assert!(DataClumpsDetector::is_framework_convention(&[
+            "req".to_string(),
+            "res".to_string(),
+        ]));
+
+        // An arbitrary param set is NOT a framework convention
+        assert!(!DataClumpsDetector::is_framework_convention(&[
+            "user_id".to_string(),
+            "email".to_string(),
+            "name".to_string(),
+        ]));
+    }
+
+    #[test]
+    fn test_subset_deduplication() {
+        let detector = DataClumpsDetector::new();
+
+        let make_funcs = |n: usize| -> Vec<FuncInfo> {
+            (1..=n)
+                .map(|i| FuncInfo {
+                    name: format!("f{}", i),
+                    qualified_name: format!("mod::f{}", i),
+                    file: "a.rs".to_string(),
+                    line: i as u32,
+                })
+                .collect()
+        };
+
+        // (a, b, c, d) with 5 occurrences
+        let superset = DataClump {
+            params: vec![
+                "a".to_string(),
+                "b".to_string(),
+                "c".to_string(),
+                "d".to_string(),
+            ],
+            funcs: make_funcs(5),
+            call_relationships: 0,
+            is_call_chain: false,
+        };
+
+        // (a, b, c) with 5 occurrences — strict subset, same occurrence count → should be removed
+        let subset = DataClump {
+            params: vec!["a".to_string(), "b".to_string(), "c".to_string()],
+            funcs: make_funcs(5),
+            call_relationships: 0,
+            is_call_chain: false,
+        };
+
+        let result = detector.remove_subsets(vec![superset, subset]);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].params.len(), 4, "only the superset should remain");
+
+        // (a, b, c) with MORE occurrences than the superset → should NOT be removed
+        let subset_more_occ = DataClump {
+            params: vec!["a".to_string(), "b".to_string(), "c".to_string()],
+            funcs: make_funcs(8),
+            call_relationships: 0,
+            is_call_chain: false,
+        };
+        let superset2 = DataClump {
+            params: vec![
+                "a".to_string(),
+                "b".to_string(),
+                "c".to_string(),
+                "d".to_string(),
+            ],
+            funcs: make_funcs(5),
+            call_relationships: 0,
+            is_call_chain: false,
+        };
+        let result2 = detector.remove_subsets(vec![superset2, subset_more_occ]);
+        assert_eq!(result2.len(), 2, "subset with more occurrences should be kept");
+    }
+}

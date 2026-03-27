@@ -27,12 +27,6 @@ pub struct CodeGraph {
     indexes: GraphIndexes,
 }
 
-// SAFETY: CodeGraph is immutable after construction. All fields are Send + Sync.
-// StableGraph, HashMap, and GraphIndexes are all Send + Sync when their
-// element types are (CodeNode is Copy, NodeIndex is Copy, etc.).
-unsafe impl Send for CodeGraph {}
-unsafe impl Sync for CodeGraph {}
-
 /// Empty slice constant for returning `&[]` from adjacency lookups.
 const EMPTY_NODE_SLICE: &[NodeIndex] = &[];
 

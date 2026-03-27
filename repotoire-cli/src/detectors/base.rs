@@ -8,17 +8,24 @@
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
-
 /// Generate a deterministic finding ID from detector name, file path, and line number (#73).
 /// This enables proper dedup in incremental cache — Uuid::new_v4() creates new IDs each run.
+///
+/// Uses FNV-1a (64-bit) for cross-toolchain stability. `DefaultHasher` is explicitly
+/// not guaranteed stable across Rust versions, which would silently invalidate the
+/// incremental cache on toolchain upgrades.
 pub fn finding_id(detector: &str, file: &str, line: u32) -> String {
-    let mut hasher = DefaultHasher::new();
-    detector.hash(&mut hasher);
-    file.hash(&mut hasher);
-    line.hash(&mut hasher);
-    format!("{:016x}", hasher.finish())
+    let mut h: u64 = 0xcbf29ce484222325; // FNV offset basis
+    for b in detector.as_bytes().iter()
+        .chain(&[0xff]) // separator
+        .chain(file.as_bytes().iter())
+        .chain(&[0xff])
+        .chain(&line.to_le_bytes())
+    {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x100000001b3); // FNV prime
+    }
+    format!("{:016x}", h)
 }
 use std::collections::HashMap;
 

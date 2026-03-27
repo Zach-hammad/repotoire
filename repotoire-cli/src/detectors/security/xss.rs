@@ -1,0 +1,363 @@
+//! XSS Detection
+
+use crate::detectors::base::{is_test_file, Detector, DetectorConfig};
+use crate::detectors::taint::{TaintAnalysisResult, TaintAnalyzer, TaintCategory};
+use crate::models::{deterministic_finding_id, Finding, Severity};
+use anyhow::Result;
+use regex::Regex;
+use std::path::PathBuf;
+use std::sync::LazyLock;
+
+static XSS_PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(innerHTML|outerHTML|document\.write|dangerouslySetInnerHTML|v-html|ng-bind-html|\[innerHTML\])").expect("valid regex"));
+
+pub struct XssDetector {
+    repository_path: PathBuf,
+    max_findings: usize,
+    taint_analyzer: TaintAnalyzer,
+    precomputed_cross: std::sync::OnceLock<Vec<crate::detectors::taint::TaintPath>>,
+    precomputed_intra: std::sync::OnceLock<Vec<crate::detectors::taint::TaintPath>>,
+}
+
+impl XssDetector {
+    pub fn new(repository_path: impl Into<PathBuf>) -> Self {
+        Self {
+            repository_path: repository_path.into(),
+            max_findings: 50,
+            taint_analyzer: TaintAnalyzer::new(),
+            precomputed_cross: std::sync::OnceLock::new(),
+            precomputed_intra: std::sync::OnceLock::new(),
+        }
+    }
+}
+
+impl Detector for XssDetector {
+    fn name(&self) -> &'static str {
+        "xss"
+    }
+    fn description(&self) -> &'static str {
+        "Detects XSS vulnerabilities"
+    }
+
+    fn bypass_postprocessor(&self) -> bool {
+        true
+    }
+
+    crate::detectors::impl_taint_precompute!();
+
+    fn taint_category(&self) -> Option<crate::detectors::taint::TaintCategory> {
+        Some(TaintCategory::Xss)
+    }
+
+    fn file_extensions(&self) -> &'static [&'static str] {
+        &["py", "js", "ts", "jsx", "tsx", "rb", "php", "java"]
+    }
+
+    fn content_requirements(&self) -> crate::detectors::detector_context::ContentFlags {
+        crate::detectors::detector_context::ContentFlags::HAS_TEMPLATE
+    }
+
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
+        let files = &ctx.as_file_provider();
+        let mut findings = vec![];
+
+        // Run taint analysis for XSS (precomputed or fallback)
+        let mut taint_paths = if let Some(cross) = self.precomputed_cross.get() {
+            cross.clone()
+        } else {
+            self.taint_analyzer.trace_taint(graph, TaintCategory::Xss)
+        };
+        let intra_paths = if let Some(intra) = self.precomputed_intra.get() {
+            intra.clone()
+        } else {
+            crate::detectors::taint::run_intra_function_taint(
+                &self.taint_analyzer,
+                graph,
+                TaintCategory::Xss,
+                &self.repository_path,
+            )
+        };
+        taint_paths.extend(intra_paths);
+        let taint_result = TaintAnalysisResult::from_paths(taint_paths);
+
+        for path in files.files_with_extensions(&["js", "ts", "jsx", "tsx", "vue", "html", "php"]) {
+            if findings.len() >= self.max_findings {
+                break;
+            }
+
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+
+            // Skip test files - they often have test fixtures with XSS patterns
+            if is_test_file(path) {
+                continue;
+            }
+
+            // Skip non-served static HTML files (mockups, specs, design docs, fixtures)
+            let path_str_lower = path.to_string_lossy().to_lowercase();
+            if ext == "html"
+                && (path_str_lower.contains("/mockup")
+                    || path_str_lower.contains("/mock-")
+                    || path_str_lower.contains("/specs/")
+                    || path_str_lower.contains("/spec/")
+                    || path_str_lower.contains("/fixture")
+                    || path_str_lower.contains("/example")
+                    || path_str_lower.contains("/demo")
+                    || path_str_lower.contains("/design/")
+                    || path_str_lower.contains("/prototype")
+                    || path_str_lower.contains("/wireframe")
+                    || path_str_lower.contains("/static/"))
+            {
+                continue;
+            }
+
+            // For HTML files, check if data comes from hardcoded arrays (not user input)
+            // If the file contains no form inputs, fetch calls, or URL params, it's static
+            if ext == "html" {
+                if let Some(content) = files.content(path) {
+                    let has_dynamic_input = content.contains("fetch(")
+                        || content.contains("XMLHttpRequest")
+                        || content.contains("location.search")
+                        || content.contains("location.hash")
+                        || content.contains("document.cookie")
+                        || content.contains("window.name")
+                        || content.contains("postMessage");
+                    if !has_dynamic_input {
+                        continue; // Pure static HTML with hardcoded data
+                    }
+                }
+            }
+
+            // Skip framework internals (React/Vue/Angular core SSR code)
+            if path_str_lower.contains("fizzconfig")  // React SSR core
+                || path_str_lower.contains("server/react")
+                || path_str_lower.contains("dom-bindings")  // React DOM bindings
+                || path_str_lower.contains("/packages/react-dom/")
+                || path_str_lower.contains("/packages/vue/")
+                || path_str_lower.contains("/packages/angular/")
+            {
+                continue;
+            }
+
+            if let Some(content) = files.content(path) {
+                let file_str = path.to_string_lossy();
+                let lines: Vec<&str> = content.lines().collect();
+
+                for (i, line) in lines.iter().enumerate() {
+                    let prev_line = if i > 0 { Some(lines[i - 1]) } else { None };
+                    if crate::detectors::is_line_suppressed(line, prev_line) {
+                        continue;
+                    }
+
+                    if XSS_PATTERN.is_match(line) {
+                        // Word-boundary checks to avoid FPs like inputStream, maxInput (#24)
+                        let line_lower = line.to_lowercase();
+                        let has_user_input = line_lower.contains("req.")
+                            || line_lower.contains("props.")
+                            || line_lower.contains("req.params")
+                            || line_lower.contains("req.query")
+                            || line_lower.contains(".params[")
+                            || line_lower.contains(".query[")
+                            || line_lower.contains("user_input")
+                            || line_lower.contains("userinput")
+                            || line_lower.contains("form_data")
+                            || line_lower.contains("formdata")
+                            || line_lower.contains("request.body")
+                            || line_lower.contains("request.query");
+
+                        let line_num = (i + 1) as u32;
+
+                        // Check taint analysis for this location
+                        let matching_taint = taint_result.paths.iter().find(|p| {
+                            (p.sink_file == file_str || p.source_file == file_str)
+                                && (p.sink_line == line_num || p.source_line == line_num)
+                        });
+
+                        // Adjust severity based on taint analysis
+                        let (severity, description) = match matching_taint {
+                            Some(taint_path) if taint_path.is_sanitized => {
+                                // Sanitizer found - lower severity
+                                (Severity::Low, format!(
+                                    "Direct HTML injection can lead to XSS attacks.\n\n\
+                                     **Taint Analysis Note**: A sanitizer function (`{}`) was found \
+                                     in the data flow path, which may mitigate this vulnerability.",
+                                    taint_path.sanitizer.as_deref().unwrap_or("unknown")
+                                ))
+                            }
+                            Some(taint_path) => {
+                                // Unsanitized taint path - critical
+                                (Severity::Critical, format!(
+                                    "Direct HTML injection can lead to XSS attacks.\n\n\
+                                     **Taint Analysis Confirmed**: Data flow analysis traced a path \
+                                     from user input to this XSS sink without sanitization:\n\n\
+                                     `{}`",
+                                    taint_path.path_string()
+                                ))
+                            }
+                            None => {
+                                // No taint path - use pattern-based severity
+                                let sev = if has_user_input {
+                                    Severity::Critical
+                                } else {
+                                    Severity::Medium
+                                };
+                                (
+                                    sev,
+                                    "Direct HTML injection can lead to XSS attacks.".to_string(),
+                                )
+                            }
+                        };
+
+                        findings.push(Finding {
+                            id: String::new(),
+                            detector: "XssDetector".to_string(),
+                            severity,
+                            title: "Potential XSS vulnerability".to_string(),
+                            description,
+                            affected_files: vec![path.to_path_buf()],
+                            line_start: Some(line_num),
+                            line_end: Some(line_num),
+                            suggested_fix: Some(
+                                "Sanitize input or use textContent instead.".to_string(),
+                            ),
+                            estimated_effort: Some("30 minutes".to_string()),
+                            category: Some("security".to_string()),
+                            cwe_id: Some("CWE-79".to_string()),
+                            why_it_matters: Some(
+                                "XSS allows attackers to execute scripts in users' browsers."
+                                    .to_string(),
+                            ),
+                            ..Default::default()
+                        });
+                    }
+                }
+            }
+        }
+
+        // Filter out Low severity (sanitized) findings
+        findings.retain(|f| f.severity != Severity::Low);
+
+        Ok(findings)
+    }
+}
+
+
+impl crate::detectors::RegisteredDetector for XssDetector {
+    fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
+        std::sync::Arc::new(Self::new(init.repo_path))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::detectors::base::Detector;
+    use crate::graph::builder::GraphBuilder;
+
+    #[test]
+    fn test_detects_innerhtml_with_user_input() {
+        let store = GraphBuilder::new().freeze();
+        let detector = XssDetector::new("/mock/repo");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
+            ("vuln.js", "function renderContent(user_input) {\n    document.getElementById(\"output\").innerHTML = user_input;\n}\n"),
+        ]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
+        assert!(
+            !findings.is_empty(),
+            "Should detect innerHTML assignment with user input"
+        );
+        assert!(
+            findings.iter().any(|f| f.title.contains("XSS")),
+            "Finding should mention XSS. Titles: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+        assert!(
+            findings.iter().any(|f| f.cwe_id.as_deref() == Some("CWE-79")),
+            "Finding should have CWE-79"
+        );
+    }
+
+    #[test]
+    fn test_no_findings_for_textcontent() {
+        let store = GraphBuilder::new().freeze();
+        let detector = XssDetector::new("/mock/repo");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
+            ("safe.js", "function renderContent(data) {\n    document.getElementById(\"output\").textContent = data;\n}\n"),
+        ]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
+        assert!(
+            findings.is_empty(),
+            "Using textContent should have no XSS findings, but got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_detects_document_write_in_js() {
+        let store = GraphBuilder::new().freeze();
+        let detector = XssDetector::new("/mock/repo");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
+            ("handler.js", "function showMessage(req) {\n    const msg = req.query.message;\n    document.write(req.query.message);\n}\n"),
+        ]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
+        assert!(
+            !findings.is_empty(),
+            "Should detect document.write with user input from req.query"
+        );
+        assert!(
+            findings.iter().any(|f| f.cwe_id.as_deref() == Some("CWE-79")),
+            "Finding should have CWE-79"
+        );
+    }
+
+    #[test]
+    fn test_detects_dangerously_set_innerhtml_in_tsx() {
+        let store = GraphBuilder::new().freeze();
+        let detector = XssDetector::new("/mock/repo");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
+            ("component.tsx", "function UserProfile(props) {\n    return <div dangerouslySetInnerHTML={{ __html: props.bio }} />;\n}\n"),
+        ]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
+        assert!(
+            !findings.is_empty(),
+            "Should detect dangerouslySetInnerHTML with props in TSX"
+        );
+        assert!(
+            findings.iter().any(|f| f.severity == Severity::Critical),
+            "Should be Critical severity when user input (props.) is present"
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_innerhtml_in_comment() {
+        let store = GraphBuilder::new().freeze();
+        let detector = XssDetector::new("/mock/repo");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
+            ("safe.js", "function render() {\n    // Never use innerHTML with user input\n    document.getElementById(\"out\").textContent = \"safe\";\n}\n"),
+        ]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
+        // The comment mentions innerHTML but has no user input pattern on that line,
+        // so it should either be empty or at most Medium (no user input marker).
+        // Since there's no actual user input keyword on the comment line, it won't be Critical.
+        let critical = findings.iter().filter(|f| f.severity == Severity::Critical).count();
+        assert_eq!(
+            critical, 0,
+            "innerHTML in a comment should not produce Critical findings"
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_innerhtml_in_string_literal() {
+        let store = GraphBuilder::new().freeze();
+        let detector = XssDetector::new("/mock/repo");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
+            ("safe.js", "function getDocs() {\n    const help = \"Use textContent instead of innerHTML for safety\";\n    return help;\n}\n"),
+        ]);
+        let findings = detector.detect(&ctx).expect("detection should succeed");
+        // innerHTML appears inside a string literal, no actual DOM API call
+        let critical = findings.iter().filter(|f| f.severity == Severity::Critical).count();
+        assert_eq!(
+            critical, 0,
+            "innerHTML mentioned in a string literal should not produce Critical findings"
+        );
+    }
+}

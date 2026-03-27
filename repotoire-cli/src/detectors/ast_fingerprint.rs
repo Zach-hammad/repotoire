@@ -45,7 +45,7 @@ pub struct FunctionFingerprints {
     /// All identifier names in the function body.
     pub identifiers: Vec<String>,
     /// Detected boilerplate patterns.
-    pub patterns: Vec<super::ai_boilerplate::BoilerplatePattern>,
+    pub patterns: Vec<crate::detectors::ai::ai_boilerplate::BoilerplatePattern>,
 }
 
 // ---------------------------------------------------------------------------
@@ -510,8 +510,8 @@ fn collect_identifiers(node: Node, source: &str, out: &mut Vec<String>) {
 pub fn detect_patterns(
     content: &str,
     lang: Language,
-) -> Vec<super::ai_boilerplate::BoilerplatePattern> {
-    use super::ai_boilerplate::BoilerplatePattern;
+) -> Vec<crate::detectors::ai::ai_boilerplate::BoilerplatePattern> {
+    use crate::detectors::ai::ai_boilerplate::BoilerplatePattern;
 
     let tree = match parse_root(content, lang) {
         Some(t) => t,
@@ -851,8 +851,8 @@ pub fn collect_all_features(
 pub fn detect_patterns_from_data(
     node_kinds: &HashSet<String>,
     content: &str,
-) -> Vec<super::ai_boilerplate::BoilerplatePattern> {
-    use super::ai_boilerplate::BoilerplatePattern;
+) -> Vec<crate::detectors::ai::ai_boilerplate::BoilerplatePattern> {
+    use crate::detectors::ai::ai_boilerplate::BoilerplatePattern;
 
     let content_lower = content.to_lowercase();
     let mut patterns = Vec::new();
@@ -946,7 +946,7 @@ pub struct BoilerplateFingerprint {
     /// Structural AST kinds (for MinHash/LSH clustering).
     pub structural_kinds: HashSet<String>,
     /// Detected boilerplate patterns.
-    pub patterns: Vec<super::ai_boilerplate::BoilerplatePattern>,
+    pub patterns: Vec<crate::detectors::ai::ai_boilerplate::BoilerplatePattern>,
 }
 
 /// Parse functions and compute ONLY structural fingerprints (for AIBoilerplate).
@@ -1081,8 +1081,8 @@ fn collect_structural_only(
 fn detect_patterns_from_flags(
     flags: &PatternFlags,
     body: &str,
-) -> Vec<super::ai_boilerplate::BoilerplatePattern> {
-    use super::ai_boilerplate::BoilerplatePattern;
+) -> Vec<crate::detectors::ai::ai_boilerplate::BoilerplatePattern> {
+    use crate::detectors::ai::ai_boilerplate::BoilerplatePattern;
 
     let content_lower = body.to_lowercase();
     let mut patterns = Vec::new();
@@ -1464,7 +1464,7 @@ except Exception as e:
 "#;
         let patterns = detect_patterns(code, Language::Python);
         assert!(
-            patterns.contains(&super::super::ai_boilerplate::BoilerplatePattern::TryExcept),
+            patterns.contains(&crate::detectors::ai::ai_boilerplate::BoilerplatePattern::TryExcept),
             "Should detect TryExcept pattern. Got: {:?}",
             patterns
         );

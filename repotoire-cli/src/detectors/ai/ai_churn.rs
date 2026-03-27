@@ -1,0 +1,857 @@
+//! AI Churn Pattern Detector
+//!
+//! Detects code with high modification frequency shortly after creation - a pattern
+//! commonly seen with AI-generated code that gets quickly revised or corrected.
+//!
+//! The detector uses git blame + diff to analyze function-level changes and identify:
+//! - Functions created and modified within 48 hours ("fix velocity")
+//! - High churn ratio (lines_modified / lines_original) in first week
+//! - Rapid iterative corrections typical of AI-generated code
+//!
+//! Key detection signal: time_to_first_fix < 48h AND modifications >= 3 → HIGH
+
+#![allow(dead_code)] // Module under development - structs/helpers used in tests only
+
+use crate::detectors::base::{Detector, DetectorConfig};
+use crate::graph::GraphQueryExt;
+use crate::models::{Finding, Severity};
+use anyhow::Result;
+use chrono::{DateTime, Duration, Utc};
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
+use tracing::{debug, info, warn};
+
+/// Time thresholds in hours
+const CRITICAL_FIX_VELOCITY_HOURS: i64 = 24;
+const HIGH_FIX_VELOCITY_HOURS: i64 = 48;
+const MEDIUM_FIX_VELOCITY_HOURS: i64 = 72;
+
+/// Modification count thresholds
+const CRITICAL_MOD_COUNT: usize = 5;
+const HIGH_MOD_COUNT: usize = 3;
+
+/// Churn ratio thresholds (applied to effective_churn_ratio, not raw)
+const CRITICAL_CHURN_RATIO: f64 = 1.5;
+const HIGH_CHURN_RATIO: f64 = 0.8;
+const MEDIUM_CHURN_RATIO: f64 = 0.8;
+
+/// Minimum score to create a finding (filters out noise)
+const MIN_CHURN_SCORE: f64 = 1.2;
+
+/// When lines_added / lines_deleted exceeds this ratio, apply a discount
+/// to the churn score because the changes represent feature growth, not fix-up.
+const NET_POSITIVE_DISCOUNT_THRESHOLD: f64 = 3.0;
+
+/// Analysis window in days
+const DEFAULT_ANALYSIS_WINDOW_DAYS: i64 = 90;
+
+/// Minimum function size to analyze
+const DEFAULT_MIN_FUNCTION_LINES: usize = 5;
+
+/// A single modification record
+#[derive(Debug, Clone)]
+pub struct Modification {
+    pub timestamp: DateTime<Utc>,
+    pub commit_sha: String,
+    pub lines_added: usize,
+    pub lines_deleted: usize,
+}
+
+/// Track churn statistics for a function
+#[derive(Debug, Clone)]
+pub struct FunctionChurnRecord {
+    pub qualified_name: String,
+    pub file_path: String,
+    pub function_name: String,
+    pub created_at: Option<DateTime<Utc>>,
+    pub creation_commit: String,
+    pub lines_original: usize,
+    pub first_modification_at: Option<DateTime<Utc>>,
+    pub first_modification_commit: String,
+    pub modifications: Vec<Modification>,
+}
+
+impl FunctionChurnRecord {
+    /// Time between creation and first modification
+    pub fn time_to_first_fix(&self) -> Option<Duration> {
+        match (&self.created_at, &self.first_modification_at) {
+            (Some(created), Some(first_mod)) => Some(*first_mod - *created),
+            _ => None,
+        }
+    }
+
+    /// Time to first fix in hours
+    pub fn time_to_first_fix_hours(&self) -> Option<f64> {
+        self.time_to_first_fix()
+            .map(|d| d.num_seconds() as f64 / 3600.0)
+    }
+
+    /// Count modifications within first week of creation
+    pub fn modifications_first_week(&self) -> usize {
+        let Some(created_at) = self.created_at else {
+            return 0;
+        };
+        let week_cutoff = created_at + Duration::days(7);
+        self.modifications
+            .iter()
+            .filter(|m| m.timestamp <= week_cutoff)
+            .count()
+    }
+
+    /// Total lines changed (added + deleted) in first week
+    pub fn lines_changed_first_week(&self) -> usize {
+        let Some(created_at) = self.created_at else {
+            return 0;
+        };
+        let week_cutoff = created_at + Duration::days(7);
+        self.modifications
+            .iter()
+            .filter(|m| m.timestamp <= week_cutoff)
+            .map(|m| m.lines_added + m.lines_deleted)
+            .sum()
+    }
+
+    /// Ratio of lines changed to original lines in first week (raw, undiscounted)
+    pub fn churn_ratio(&self) -> f64 {
+        if self.lines_original == 0 {
+            return 0.0;
+        }
+        self.lines_changed_first_week() as f64 / self.lines_original as f64
+    }
+
+    /// Ratio of total lines_added to total lines_deleted across first-week modifications.
+    /// A high ratio (e.g., > 3.0) indicates feature growth rather than fix-up churn.
+    pub fn net_positive_ratio(&self) -> f64 {
+        let Some(created_at) = self.created_at else {
+            return 1.0;
+        };
+        let week_cutoff = created_at + Duration::days(7);
+        let (total_added, total_deleted): (usize, usize) = self
+            .modifications
+            .iter()
+            .filter(|m| m.timestamp <= week_cutoff)
+            .fold((0, 0), |(a, d), m| (a + m.lines_added, d + m.lines_deleted));
+
+        if total_deleted == 0 {
+            return f64::MAX; // Pure additions — maximally net-positive
+        }
+        total_added as f64 / total_deleted as f64
+    }
+
+    /// Effective churn ratio: the raw churn_ratio discounted when the changes are
+    /// net-positive (lines_added >> lines_deleted). Feature growth should not
+    /// inflate the churn score.
+    pub fn effective_churn_ratio(&self) -> f64 {
+        let raw = self.churn_ratio();
+        let npr = self.net_positive_ratio();
+
+        if npr > NET_POSITIVE_DISCOUNT_THRESHOLD {
+            // The more net-positive, the steeper the discount.
+            // discount = 1 / (1 + ln(npr / threshold))
+            // e.g., npr=6, threshold=3 => discount ≈ 0.59
+            let discount = 1.0 / (1.0 + (npr / NET_POSITIVE_DISCOUNT_THRESHOLD).ln());
+            raw * discount
+        } else {
+            raw
+        }
+    }
+
+    /// Key signal: fixed within 48h AND multiple modifications
+    pub fn is_high_velocity_fix(&self) -> bool {
+        let Some(ttf_hours) = self.time_to_first_fix_hours() else {
+            return false;
+        };
+        ttf_hours < HIGH_FIX_VELOCITY_HOURS as f64 && self.modifications.len() >= 2
+    }
+
+    /// Combined score indicating AI churn pattern (0-1)
+    pub fn ai_churn_score(&self) -> f64 {
+        let mut score = 0.0;
+
+        // Fast fix velocity is strong signal
+        if let Some(ttf_hours) = self.time_to_first_fix_hours() {
+            if ttf_hours < CRITICAL_FIX_VELOCITY_HOURS as f64 {
+                score += 0.4;
+            } else if ttf_hours < HIGH_FIX_VELOCITY_HOURS as f64 {
+                score += 0.25;
+            } else if ttf_hours < MEDIUM_FIX_VELOCITY_HOURS as f64 {
+                score += 0.1;
+            }
+        }
+
+        // Multiple early modifications
+        let mods = self.modifications.len();
+        if mods >= 4 {
+            score += 0.3;
+        } else if mods >= 2 {
+            score += 0.2;
+        } else if mods >= 1 {
+            score += 0.1;
+        }
+
+        // High churn ratio — use effective (net-positive discounted) ratio
+        let churn = self.effective_churn_ratio();
+        if churn > 1.0 {
+            score += 0.3;
+        } else if churn > 0.5 {
+            score += 0.2;
+        } else if churn > 0.3 {
+            score += 0.1;
+        }
+
+        f64::min(score, 1.0)
+    }
+}
+
+/// Detects AI-generated code patterns through fix velocity and churn analysis
+pub struct AIChurnDetector {
+    config: DetectorConfig,
+    analysis_window_days: i64,
+    min_function_lines: usize,
+}
+
+impl AIChurnDetector {
+    /// Create a new detector with default settings
+    pub fn new() -> Self {
+        Self {
+            config: DetectorConfig::new(),
+            analysis_window_days: DEFAULT_ANALYSIS_WINDOW_DAYS,
+            min_function_lines: DEFAULT_MIN_FUNCTION_LINES,
+        }
+    }
+
+    /// Create with custom config
+    pub fn with_config(config: DetectorConfig) -> Self {
+        Self {
+            analysis_window_days: config
+                .get_option_or("analysis_window_days", DEFAULT_ANALYSIS_WINDOW_DAYS),
+            min_function_lines: config
+                .get_option_or("min_function_lines", DEFAULT_MIN_FUNCTION_LINES),
+            config,
+        }
+    }
+
+    /// Calculate severity based on fix velocity and churn metrics.
+    /// Uses effective_churn_ratio which discounts net-positive (feature growth) patterns.
+    fn calculate_severity(&self, record: &FunctionChurnRecord) -> Severity {
+        let ttf_hours = record.time_to_first_fix_hours();
+        let mods = record.modifications.len();
+        let churn = record.effective_churn_ratio();
+
+        // CRITICAL conditions
+        if churn > CRITICAL_CHURN_RATIO {
+            return Severity::Critical;
+        }
+        if let Some(ttf) = ttf_hours {
+            if ttf < CRITICAL_FIX_VELOCITY_HOURS as f64 && mods >= CRITICAL_MOD_COUNT {
+                return Severity::Critical;
+            }
+        }
+
+        // HIGH conditions (key signal)
+        if let Some(ttf) = ttf_hours {
+            if ttf < HIGH_FIX_VELOCITY_HOURS as f64 && mods >= HIGH_MOD_COUNT {
+                return Severity::High;
+            }
+        }
+        if churn > HIGH_CHURN_RATIO {
+            return Severity::High;
+        }
+
+        // MEDIUM conditions
+        if let Some(ttf) = ttf_hours {
+            if ttf < MEDIUM_FIX_VELOCITY_HOURS as f64 && mods >= 2 {
+                return Severity::Medium;
+            }
+        }
+        if churn > MEDIUM_CHURN_RATIO {
+            return Severity::Medium;
+        }
+
+        // LOW - only if significant modification count
+        if mods >= 4 {
+            return Severity::Low;
+        }
+
+        Severity::Info
+    }
+
+    /// Create a finding for a high-churn function
+    fn create_finding(&self, record: &FunctionChurnRecord) -> Option<Finding> {
+        // Skip if score too low (noise filter)
+        if record.ai_churn_score() < MIN_CHURN_SCORE {
+            return None;
+        }
+
+        let severity = self.calculate_severity(record);
+        if severity == Severity::Info {
+            return None;
+        }
+
+        let ttf_hours = record.time_to_first_fix_hours();
+        let ttf_str = ttf_hours
+            .map(|h| format!("{:.1} hours", h))
+            .unwrap_or_else(|| "N/A".to_string());
+
+        let created_str = record
+            .created_at
+            .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
+            .unwrap_or_else(|| "Unknown".to_string());
+
+        let mut description = format!(
+            "Function `{}` in `{}` shows signs of rapid post-creation revision.\n\n\
+             **Fix Velocity Metrics:**\n\
+             - Created: {} (commit `{}`)\n\
+             - Time to first fix: **{}**\n\
+             - Total modifications in first week: **{}**\n\n\
+             **Churn Analysis:**\n\
+             - Original size: {} lines\n\
+             - Lines changed in first week: {}\n\
+             - Churn ratio: **{:.2}** ({:.0}% of original code)\n\
+             - AI churn score: {:.2}",
+            record.function_name,
+            record.file_path,
+            created_str,
+            record.creation_commit,
+            ttf_str,
+            record.modifications_first_week(),
+            record.lines_original,
+            record.lines_changed_first_week(),
+            record.churn_ratio(),
+            record.churn_ratio() * 100.0,
+            record.ai_churn_score(),
+        );
+
+        if record.is_high_velocity_fix() {
+            description.push_str(
+                "\n\n⚠️ **High fix velocity detected**: This function was modified within 48 hours of creation \
+                 with multiple follow-up changes - a pattern strongly associated with AI-generated code \
+                 that required human correction.",
+            );
+        }
+
+        if record.effective_churn_ratio() > CRITICAL_CHURN_RATIO {
+            description.push_str(
+                "\n\n⚠️ **Critical churn ratio**: More code was changed than originally written, \
+                 indicating significant rewriting was needed.",
+            );
+        }
+
+        // Modification timeline
+        if !record.modifications.is_empty() {
+            description.push_str("\n\n**Modification Timeline:**");
+            for (i, m) in record.modifications.iter().take(5).enumerate() {
+                let time_str = m.timestamp.format("%Y-%m-%d %H:%M").to_string();
+                description.push_str(&format!(
+                    "\n- {}: commit `{}` (+{} lines)",
+                    time_str, m.commit_sha, m.lines_added
+                ));
+                if i == 4 && record.modifications.len() > 5 {
+                    description.push_str(&format!(
+                        "\n- ... and {} more modifications",
+                        record.modifications.len() - 5
+                    ));
+                }
+            }
+        }
+
+        let suggested_fix = match severity {
+            Severity::Critical => {
+                "This function shows strong signs of AI-generated code that required extensive correction. \
+                 Consider:\n\
+                 1. **Review thoroughly** for hidden bugs or incomplete logic\n\
+                 2. **Add comprehensive tests** - the rapid changes suggest edge cases may be missed\n\
+                 3. **Document the logic** - ensure the team understands what this code does\n\
+                 4. **Consider rewriting** if the churn continues".to_string()
+            }
+            Severity::High => {
+                "Review this function for correctness issues. Consider:\n\
+                 1. Adding unit tests with edge cases\n\
+                 2. Reviewing for logical errors\n\
+                 3. Ensuring proper error handling".to_string()
+            }
+            _ => {
+                "Monitor this function for continued churn. Consider adding tests \
+                 to stabilize the implementation.".to_string()
+            }
+        };
+
+        let estimated_effort = if matches!(severity, Severity::Low | Severity::Medium) {
+            "Small (2-4 hours)"
+        } else {
+            "Medium (1-2 days)"
+        };
+
+        Some(Finding {
+            id: String::new(),
+            detector: "AIChurnDetector".to_string(),
+            severity,
+            title: format!("AI churn pattern in `{}`", record.function_name),
+            description,
+            affected_files: vec![PathBuf::from(&record.file_path)],
+            line_start: None,
+            line_end: None,
+            suggested_fix: Some(suggested_fix),
+            estimated_effort: Some(estimated_effort.to_string()),
+            category: Some("ai_churn".to_string()),
+            cwe_id: None,
+            why_it_matters: Some(
+                "Code that requires rapid fixing after creation often indicates AI-generated content \
+                 that wasn't fully understood or tested before commit. This pattern is associated with \
+                 hidden bugs, incomplete error handling, and logic that may not be fully correct."
+                    .to_string(),
+            ),
+            ..Default::default()
+        })
+    }
+}
+
+impl Default for AIChurnDetector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Detector for AIChurnDetector {
+    fn name(&self) -> &'static str {
+        "AIChurnDetector"
+    }
+
+    fn description(&self) -> &'static str {
+        "Detects AI-generated code patterns through fix velocity and churn analysis"
+    }
+
+    fn category(&self) -> &'static str {
+        "ai_generated"
+    }
+
+    fn requires_graph(&self) -> bool {
+        true
+    }
+
+    fn config(&self) -> Option<&DetectorConfig> {
+        Some(&self.config)
+    }
+
+    fn file_extensions(&self) -> &'static [&'static str] {
+        &["py", "js", "ts", "jsx", "tsx", "java", "go", "rs", "c", "cpp", "cs"]
+    }
+
+    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+        let graph = ctx.graph;
+        let files = &ctx.as_file_provider();
+        let i = graph.interner();
+        use crate::detectors::base::is_test_path;
+        use crate::git::history::GitHistory;
+
+        let repo_path = files.repo_path();
+
+        // Graceful degradation: if no git repo, return empty
+        let git_history = match GitHistory::new(repo_path) {
+            Ok(h) => h,
+            Err(e) => {
+                warn!("AIChurnDetector: Cannot open git repository at {:?}: {}. Returning empty results.", repo_path, e);
+                return Ok(vec![]);
+            }
+        };
+
+        // ── Phase 1: file_cb ONLY revwalk (zero content decompression) ──
+        info!("AIChurnDetector: Phase 1 — file churn counts (file_cb only, 500 commits)");
+        let churn_counts = match git_history.get_file_churn_counts(500) {
+            Ok(data) => data,
+            Err(e) => {
+                warn!("AIChurnDetector: Failed to get churn counts: {}. Falling back.", e);
+                return self.detect_without_git_history(graph);
+            }
+        };
+
+        // Filter to high-churn files (commit_count > 5)
+        let high_churn_files: HashSet<String> = churn_counts
+            .into_iter()
+            .filter(|(_, count)| *count > 5)
+            .map(|(path, _)| path)
+            .collect();
+
+        debug!(
+            "AIChurnDetector: {} high-churn files (commit_count > 5)",
+            high_churn_files.len()
+        );
+
+        if high_churn_files.is_empty() {
+            info!("AIChurnDetector: No high-churn files found");
+            return Ok(vec![]);
+        }
+
+        // ── Phase 2: multi-pathspec + hunk_cb for high-churn files only ──
+        // Only decompresses content for the ~100 high-churn files (vs ~3,400 before).
+        // Early cutoff stops when commits are older than the analysis window.
+        let analysis_cutoff = Utc::now() - Duration::days(self.analysis_window_days);
+        info!(
+            "AIChurnDetector: Phase 2 — hunk extraction for {} high-churn files (pathspec-filtered)",
+            high_churn_files.len()
+        );
+        let file_commit_cache = match git_history.get_hunks_for_paths(
+            &high_churn_files,
+            500,
+            100,
+            Some(analysis_cutoff),
+        ) {
+            Ok(data) => data,
+            Err(e) => {
+                warn!("AIChurnDetector: Failed to get hunk data: {}. Falling back.", e);
+                return self.detect_without_git_history(graph);
+            }
+        };
+
+        // ── Phase 3: file-scoped function queries (avoids 71k function iteration) ──
+        // Instead of graph.get_functions() (ALL functions), query only functions in
+        // the ~100 high-churn files via get_functions_in_file() (O(1) DashMap index).
+        let repo_path_str = repo_path.to_string_lossy();
+        let mut findings = Vec::new();
+        let mut total_functions = 0usize;
+
+        for relative_path in &high_churn_files {
+            if findings.len() >= 50 {
+                debug!("AIChurnDetector: Reached 50-finding cap, stopping");
+                break;
+            }
+
+            let cached = match file_commit_cache.get(relative_path.as_str()) {
+                Some(c) => c,
+                None => continue,
+            };
+
+            // Reconstruct absolute path for graph query
+            let abs_path = format!("{}/{}", repo_path_str.trim_end_matches('/'), relative_path);
+            let funcs_in_file = graph.get_functions_in_file(&abs_path);
+            total_functions += funcs_in_file.len();
+
+            for func in &funcs_in_file {
+                if findings.len() >= 50 {
+                    break;
+                }
+
+                if is_test_path(func.path(i)) || func.loc() < self.min_function_lines as u32 {
+                    continue;
+                }
+
+                let line_start = func.line_start;
+                let line_end = func.line_end;
+                if line_start == 0 || line_end == 0 {
+                    continue;
+                }
+
+                // Filter commits by hunk overlap and compute function-level line counts.
+                let mut func_commits: Vec<(&crate::git::history::CommitInfo, usize, usize)> = Vec::new();
+                for (info, hunks) in cached {
+                    let mut func_ins = 0usize;
+                    let mut func_del = 0usize;
+                    let mut overlaps = false;
+
+                    for hunk in hunks {
+                        if hunk.new_start <= line_end && hunk.new_end >= line_start {
+                            overlaps = true;
+                            func_ins += hunk.insertions;
+                            func_del += hunk.deletions;
+                        }
+                    }
+
+                    if overlaps {
+                        func_commits.push((info, func_ins, func_del));
+                    }
+                }
+
+                // Cap and need at least 2 commits (creation + modification)
+                func_commits.truncate(50);
+                if func_commits.len() < 2 {
+                    continue;
+                }
+
+                // Commits are sorted newest-first. The last one is the creation commit.
+                let (creation_commit, _, _) = func_commits.last().expect("has >= 2 elements");
+                let created_at = chrono::DateTime::parse_from_rfc3339(&creation_commit.timestamp)
+                    .ok()
+                    .map(|dt| dt.with_timezone(&Utc));
+
+                // Filter to commits within the analysis window
+                if let Some(created) = created_at {
+                    if created < analysis_cutoff {
+                        continue;
+                    }
+                }
+
+                // Build modifications from all commits except the creation commit,
+                // using function-level insertion/deletion counts
+                let mut modifications = Vec::new();
+                for &(commit, func_ins, func_del) in func_commits.iter().take(func_commits.len() - 1) {
+                    let ts = chrono::DateTime::parse_from_rfc3339(&commit.timestamp)
+                        .ok()
+                        .map(|dt| dt.with_timezone(&Utc));
+
+                    if let Some(timestamp) = ts {
+                        modifications.push(Modification {
+                            timestamp,
+                            commit_sha: commit.hash.clone(),
+                            lines_added: func_ins,
+                            lines_deleted: func_del,
+                        });
+                    }
+                }
+
+                if modifications.is_empty() {
+                    continue;
+                }
+
+                // Sort modifications oldest-first for consistent analysis
+                modifications.sort_by_key(|m| m.timestamp);
+
+                let first_mod = modifications.first().map(|m| m.timestamp);
+                let first_mod_sha = modifications
+                    .first()
+                    .map(|m| m.commit_sha.clone())
+                    .unwrap_or_default();
+
+                let record = FunctionChurnRecord {
+                    qualified_name: func.qn(i).to_string(),
+                    file_path: func.path(i).to_string(),
+                    function_name: func.node_name(i).to_string(),
+                    created_at,
+                    creation_commit: creation_commit.hash.clone(),
+                    lines_original: func.loc() as usize,
+                    first_modification_at: first_mod,
+                    first_modification_commit: first_mod_sha,
+                    modifications,
+                };
+
+                // Score and produce finding
+                if let Some(finding) = self.create_finding(&record) {
+                    debug!(
+                        "AIChurnDetector: Finding for {} (score={:.2}, severity={:?})",
+                        record.qualified_name,
+                        record.ai_churn_score(),
+                        finding.severity
+                    );
+                    findings.push(finding);
+                }
+            }
+        }
+
+        info!(
+            "AIChurnDetector: Produced {} findings from {} functions in {} high-churn files",
+            findings.len(),
+            total_functions,
+            high_churn_files.len()
+        );
+
+        Ok(findings)
+    }
+}
+
+impl AIChurnDetector {
+    /// Fallback detection without git history data
+    fn detect_without_git_history(
+        &self,
+        _graph: &dyn crate::graph::GraphQuery,
+    ) -> Result<Vec<Finding>> {
+        warn!(
+            "AIChurnDetector: No git history data in graph. \
+             For full churn detection, ensure git history is indexed."
+        );
+        Ok(vec![])
+    }
+}
+
+impl crate::detectors::RegisteredDetector for AIChurnDetector {
+    fn create(_init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
+        std::sync::Arc::new(Self::new())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::detectors::base::Detector;
+
+    #[test]
+    fn test_detect_returns_empty_without_git() {
+        let store = crate::graph::GraphBuilder::new().freeze();
+        let detector = AIChurnDetector::new();
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let findings = detector.detect(&ctx).expect("should detect without git");
+        assert!(findings.is_empty(), "Should return empty when no git repo");
+    }
+
+    #[test]
+    fn test_churn_score_high_velocity() {
+        let record = FunctionChurnRecord {
+            qualified_name: "module.func".to_string(),
+            file_path: "src/module.py".to_string(),
+            function_name: "func".to_string(),
+            created_at: Some(Utc::now() - Duration::hours(72)),
+            creation_commit: "abc123".to_string(),
+            lines_original: 20,
+            first_modification_at: Some(Utc::now() - Duration::hours(48)),
+            first_modification_commit: "def456".to_string(),
+            modifications: vec![
+                Modification {
+                    timestamp: Utc::now() - Duration::hours(48),
+                    commit_sha: "def456".to_string(),
+                    lines_added: 10,
+                    lines_deleted: 5,
+                },
+                Modification {
+                    timestamp: Utc::now() - Duration::hours(24),
+                    commit_sha: "ghi789".to_string(),
+                    lines_added: 8,
+                    lines_deleted: 3,
+                },
+                Modification {
+                    timestamp: Utc::now() - Duration::hours(12),
+                    commit_sha: "jkl012".to_string(),
+                    lines_added: 5,
+                    lines_deleted: 2,
+                },
+            ],
+        };
+        let score = record.ai_churn_score();
+        assert!(
+            score > 0.5,
+            "High-velocity fix should have significant churn score, got {}",
+            score
+        );
+        assert!(
+            record.is_high_velocity_fix(),
+            "Should be flagged as high velocity fix"
+        );
+    }
+
+    #[test]
+    fn test_churn_score_stable_code() {
+        let record = FunctionChurnRecord {
+            qualified_name: "module.stable".to_string(),
+            file_path: "src/module.py".to_string(),
+            function_name: "stable".to_string(),
+            created_at: Some(Utc::now() - Duration::days(365)),
+            creation_commit: "old123".to_string(),
+            lines_original: 30,
+            first_modification_at: Some(Utc::now() - Duration::days(300)),
+            first_modification_commit: "mod456".to_string(),
+            modifications: vec![Modification {
+                timestamp: Utc::now() - Duration::days(300),
+                commit_sha: "mod456".to_string(),
+                lines_added: 2,
+                lines_deleted: 1,
+            }],
+        };
+        let score = record.ai_churn_score();
+        assert!(
+            score < 0.5,
+            "Stable code should have low churn score, got {}",
+            score
+        );
+        assert!(
+            !record.is_high_velocity_fix(),
+            "Should NOT be flagged as high velocity fix"
+        );
+    }
+
+    #[test]
+    fn test_detector_defaults() {
+        let detector = AIChurnDetector::new();
+        assert_eq!(detector.analysis_window_days, 90);
+        assert_eq!(detector.min_function_lines, 5);
+    }
+
+    /// Regression test: legitimate iterative development (feature growth) should NOT
+    /// produce a Critical or High finding. The key signal is lines_added >> lines_deleted,
+    /// indicating new functionality being added rather than AI fix-up churn.
+    ///
+    /// This scenario: a 30-line function with 4 modifications over 3 days, where
+    /// lines_added (62) vastly exceeds lines_deleted (9). The raw churn_ratio is
+    /// (62+9)/30 = 2.37, which would trigger Critical under the old pure-churn logic.
+    /// But since additions dominate deletions, this is feature growth, not AI slop.
+    #[test]
+    fn test_no_critical_for_legitimate_development() {
+        let now = Utc::now();
+        let record = FunctionChurnRecord {
+            qualified_name: "cli.analyze.run_analysis".to_string(),
+            file_path: "src/cli/analyze.rs".to_string(),
+            function_name: "run_analysis".to_string(),
+            created_at: Some(now - Duration::hours(72)),
+            creation_commit: "aaa111".to_string(),
+            lines_original: 30,
+            first_modification_at: Some(now - Duration::hours(46)),
+            first_modification_commit: "bbb222".to_string(),
+            modifications: vec![
+                // Commit 1: Add error handling — mostly additions
+                Modification {
+                    timestamp: now - Duration::hours(46),
+                    commit_sha: "bbb222".to_string(),
+                    lines_added: 15,
+                    lines_deleted: 2,
+                },
+                // Commit 2: Add new feature branch — mostly additions
+                Modification {
+                    timestamp: now - Duration::hours(36),
+                    commit_sha: "ccc333".to_string(),
+                    lines_added: 20,
+                    lines_deleted: 3,
+                },
+                // Commit 3: Polish and extend — still net-positive
+                Modification {
+                    timestamp: now - Duration::hours(24),
+                    commit_sha: "ddd444".to_string(),
+                    lines_added: 15,
+                    lines_deleted: 2,
+                },
+                // Commit 4: One more iteration adding functionality
+                Modification {
+                    timestamp: now - Duration::hours(12),
+                    commit_sha: "eee555".to_string(),
+                    lines_added: 12,
+                    lines_deleted: 2,
+                },
+            ],
+        };
+
+        // Raw churn_ratio = (15+2+20+3+15+2+12+2)/30 = 71/30 = 2.37
+        // This exceeds CRITICAL_CHURN_RATIO (1.5) under the old logic.
+        // But lines_added=62, lines_deleted=9 → ratio 6.9:1, clearly feature growth.
+        let raw_churn = record.churn_ratio();
+        assert!(
+            raw_churn > CRITICAL_CHURN_RATIO,
+            "Test setup: raw churn ratio ({:.2}) should exceed CRITICAL threshold ({}) \
+             so this test is meaningful",
+            raw_churn,
+            CRITICAL_CHURN_RATIO,
+        );
+
+        let detector = AIChurnDetector::new();
+        let finding = detector.create_finding(&record);
+
+        // Should either produce no finding, or at most Medium — never Critical or High
+        match &finding {
+            None => {} // acceptable: no finding at all
+            Some(f) => {
+                assert_ne!(
+                    f.severity,
+                    Severity::Critical,
+                    "Legitimate iterative development should NOT produce Critical. \
+                     Got severity={:?}, score={:.2}, churn_ratio={:.2}",
+                    f.severity,
+                    record.ai_churn_score(),
+                    record.churn_ratio(),
+                );
+                assert_ne!(
+                    f.severity,
+                    Severity::High,
+                    "Legitimate iterative development should NOT produce High. \
+                     Got severity={:?}, score={:.2}, churn_ratio={:.2}",
+                    f.severity,
+                    record.ai_churn_score(),
+                    record.churn_ratio(),
+                );
+            }
+        }
+    }
+}
