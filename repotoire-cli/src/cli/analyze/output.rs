@@ -11,7 +11,6 @@ use crate::reporters;
 use anyhow::Result;
 use console::style;
 use std::path::{Path, PathBuf};
-use std::time::Instant;
 
 /// Normalize a path to be relative
 fn normalize_path(path: &Path) -> String {
@@ -381,92 +380,3 @@ pub fn cache_results(
     Ok(())
 }
 
-/// Output results from fully cached data (fast path).
-/// Legacy: only used by the old `run()` pipeline.
-#[allow(dead_code)]
-pub(super) fn output_cached_results(
-    no_emoji: bool,
-    quiet_mode: bool,
-    config_fail_on: Option<Severity>,
-    mut findings: Vec<Finding>,
-    cached_score: &crate::detectors::CachedScoreResult,
-    format: reporters::OutputFormat,
-    output_path: Option<&Path>,
-    start_time: Instant,
-    explain_score: bool,
-    severity: Option<Severity>,
-    top: Option<usize>,
-    page: usize,
-    per_page: usize,
-    skip_detector: &[String],
-    repotoire_dir: &Path,
-) -> Result<()> {
-    // Apply skip-detector filter
-    if !skip_detector.is_empty() {
-        let skip_set: std::collections::HashSet<&str> =
-            skip_detector.iter().map(|s| s.as_str()).collect();
-        findings.retain(|f| !skip_set.contains(f.detector.as_str()));
-    }
-
-    // Apply severity and top filters (same as normal path)
-    filter_findings(&mut findings, severity, top);
-
-    // Paginate
-    let (paginated_findings, pagination_info) = paginate_findings(findings.clone(), page, per_page);
-
-    let findings_summary = FindingsSummary::from_findings(&paginated_findings);
-
-    // Build health report with filtered+paginated findings
-    let health_report = HealthReport {
-        overall_score: cached_score.score,
-        grade: cached_score.grade,
-        structure_score: cached_score.structure_score.unwrap_or(cached_score.score),
-        quality_score: cached_score.quality_score.unwrap_or(cached_score.score),
-        architecture_score: cached_score.architecture_score.or(Some(cached_score.score)),
-        findings: paginated_findings.clone(),
-        findings_summary: findings_summary.clone(),
-        total_files: cached_score.total_files,
-        total_functions: cached_score.total_functions,
-        total_classes: cached_score.total_classes,
-        total_loc: cached_score.total_loc.unwrap_or(0),
-    };
-
-    // Use format_and_output for consistent behavior with normal path
-    format_and_output(
-        &health_report,
-        &findings, // all filtered findings (for JSON "all" output)
-        format,
-        output_path,
-        repotoire_dir,
-        pagination_info,
-        paginated_findings.len(),
-        no_emoji,
-    )?;
-
-    // Warn if --explain-score used with cached results
-    if explain_score {
-        eprintln!(
-            "{}",
-            console::style("Note: --explain-score requires a fresh analysis. Run `repotoire clean` first, then re-analyze.")
-                .yellow()
-        );
-    }
-
-    // Final summary (text only)
-    if !matches!(format, reporters::OutputFormat::Json | reporters::OutputFormat::Sarif) {
-        let elapsed = start_time.elapsed();
-        let done_prefix = if no_emoji { "" } else { "✨ " };
-        if !quiet_mode {
-            println!(
-                "\n{}Analysis complete in {:.2}s (cached)",
-                style(done_prefix).bold(),
-                elapsed.as_secs_f64()
-            );
-        }
-    }
-
-    // CI/CD threshold check (use unfiltered findings for fail-on)
-    check_fail_threshold(config_fail_on, &health_report)?;
-
-    Ok(())
-}

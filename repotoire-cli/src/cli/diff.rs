@@ -266,7 +266,7 @@ pub fn format_sarif(result: &DiffResult) -> anyhow::Result<String> {
         total_loc: 0,
     };
 
-    crate::reporters::report(&report, "sarif")
+    crate::reporters::report_with_format(&report, crate::reporters::OutputFormat::Sarif)
 }
 
 /// Load baseline and head findings from cache, returning them along with scores

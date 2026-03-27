@@ -66,12 +66,6 @@ impl std::fmt::Display for OutputFormat {
 }
 
 /// Render a health report in the specified format
-pub fn report(report: &HealthReport, format: &str) -> Result<String> {
-    let fmt = OutputFormat::from_str(format)?;
-    report_with_format(report, fmt)
-}
-
-/// Render a health report using an OutputFormat enum
 pub fn report_with_format(report: &HealthReport, format: OutputFormat) -> Result<String> {
     match format {
         OutputFormat::Text => text::render(report),

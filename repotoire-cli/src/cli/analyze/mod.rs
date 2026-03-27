@@ -225,7 +225,7 @@ fn emit_optional_output(
         sidecar_report.findings = all_findings.to_vec();
         sidecar_report.findings_summary =
             crate::models::FindingsSummary::from_findings(all_findings);
-        let json_output = crate::reporters::report(&sidecar_report, "json")?;
+        let json_output = crate::reporters::report_with_format(&sidecar_report, crate::reporters::OutputFormat::Json)?;
         std::fs::write(sidecar_path, &json_output)?;
         eprintln!("JSON sidecar written to: {}", sidecar_path.display());
     }
