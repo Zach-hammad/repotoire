@@ -93,7 +93,7 @@ impl Backend {
                 let reader_clone = reader.clone();
                 let read_gen = current_gen;
                 let event = tokio::task::spawn_blocking(move || {
-                    let mut r = reader_clone.lock().unwrap();
+                    let mut r = reader_clone.lock().unwrap_or_else(|e| e.into_inner());
                     (WorkerClient::read_event_from(&mut r), read_gen)
                 })
                 .await;
@@ -127,13 +127,13 @@ impl Backend {
 
                         // Check restart limit and restart worker
                         let workspace_root = {
-                            let state = worker_state.lock().unwrap();
+                            let state = worker_state.lock().unwrap_or_else(|e| e.into_inner());
                             state.workspace_root.clone()
                         };
 
                         let ws = worker_state.clone();
                         let can_restart = tokio::task::spawn_blocking(move || {
-                            let mut state = ws.lock().unwrap();
+                            let mut state = ws.lock().unwrap_or_else(|e| e.into_inner());
                             state.worker.should_restart()
                         })
                         .await
@@ -146,7 +146,7 @@ impl Backend {
                             // Respawn worker and re-send init, take the new reader
                             let ws = worker_state.clone();
                             let spawn_result = tokio::task::spawn_blocking(move || {
-                                let mut state = ws.lock().unwrap();
+                                let mut state = ws.lock().unwrap_or_else(|e| e.into_inner());
                                 state.worker.kill();
                                 state.worker.spawn().and_then(|_| {
                                     state.worker.send_init(workspace_root.as_ref()).map(|_| ())
@@ -161,7 +161,7 @@ impl Backend {
                                     tracing::info!("repotoire worker restarted successfully");
                                     // Bump reader generation so in-flight reads from old pipe are discarded
                                     current_gen = reader_generation.fetch_add(1, Ordering::SeqCst) + 1;
-                                    *reader.lock().unwrap() = new_reader;
+                                    *reader.lock().unwrap_or_else(|e| e.into_inner()) = new_reader;
                                     // Reset progress token so it gets re-created on next progress event
                                     progress_token_created = false;
                                     continue; // Resume the reader loop
@@ -199,7 +199,7 @@ impl Backend {
                 // Stale response filtering: discard responses to outdated requests.
                 // Events with id: None are unsolicited (filesystem watcher) — never stale.
                 if let Some(event_id) = event.id() {
-                    let state = worker_state.lock().unwrap();
+                    let state = worker_state.lock().unwrap_or_else(|e| e.into_inner());
                     if event_id < state.latest_request_id {
                         // Stale response — a newer analyze request has been issued since
                         // this event was generated. Discard to avoid overwriting fresher results.
@@ -412,7 +412,7 @@ impl LanguageServer for Backend {
         // Store workspace root
         if let Some(root) = params.root_uri {
             if let Ok(path) = root.to_file_path() {
-                self.worker_state.lock().unwrap().workspace_root = Some(path);
+                self.worker_state.lock().unwrap_or_else(|e| e.into_inner()).workspace_root = Some(path);
             }
         }
 
@@ -438,7 +438,7 @@ impl LanguageServer for Backend {
         // Spawn worker and send init with the workspace root from initialize().
         // Lock is acquired and released within the block — never held across await.
         let init_result: std::result::Result<Option<BufReader<std::process::ChildStdout>>, String> = {
-            let mut state = self.worker_state.lock().unwrap();
+            let mut state = self.worker_state.lock().unwrap_or_else(|e| e.into_inner());
             let root = state.workspace_root.clone();
             if let Err(e) = state.worker.spawn() {
                 Err(format!("Failed to spawn repotoire worker: {}", e))
@@ -460,14 +460,14 @@ impl LanguageServer for Backend {
     async fn shutdown(&self) -> Result<()> {
         // Send shutdown
         {
-            let mut state = self.worker_state.lock().unwrap();
+            let mut state = self.worker_state.lock().unwrap_or_else(|e| e.into_inner());
             let _ = state.worker.send_shutdown();
         }
         // Give the worker 5 seconds to exit gracefully
         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
         // Force kill if still running
         {
-            let mut state = self.worker_state.lock().unwrap();
+            let mut state = self.worker_state.lock().unwrap_or_else(|e| e.into_inner());
             state.worker.kill();
         }
         Ok(())
@@ -478,7 +478,7 @@ impl LanguageServer for Backend {
         if let Ok(path) = uri.to_file_path() {
             // Add file to pending set
             {
-                self.worker_state.lock().unwrap().pending_files.insert(path);
+                self.worker_state.lock().unwrap_or_else(|e| e.into_inner()).pending_files.insert(path);
             }
 
             // Increment debounce generation to cancel any in-flight debounce task
@@ -500,7 +500,7 @@ impl LanguageServer for Backend {
                 // Flush pending files as one analyze command
                 let ws = worker_state.clone();
                 let result = tokio::task::spawn_blocking(move || {
-                    let mut state = ws.lock().unwrap();
+                    let mut state = ws.lock().unwrap_or_else(|e| e.into_inner());
                     let files: Vec<PathBuf> = state.pending_files.drain().collect();
                     if files.is_empty() {
                         return None;

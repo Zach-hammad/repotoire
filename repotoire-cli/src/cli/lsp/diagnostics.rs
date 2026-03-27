@@ -48,7 +48,7 @@ pub fn path_to_uri(path: &Path) -> Option<Url> {
             // Relative path — canonicalize to make absolute
             path.canonicalize()
                 .map_err(|_| ())
-                .and_then(|abs| Url::from_file_path(abs))
+                .and_then(Url::from_file_path)
         })
         .ok()
 }

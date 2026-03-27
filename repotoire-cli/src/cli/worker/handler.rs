@@ -1,16 +1,17 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use super::protocol::{Command, Event, WorkerConfig};
 use crate::cli::watch::engine::{WatchEngine, WatchReanalysis};
 use crate::engine::AnalysisConfig;
 
+#[derive(Default)]
 pub struct WorkerHandler {
     engine: Option<WatchEngine>,
 }
 
 impl WorkerHandler {
     pub fn new() -> Self {
-        Self { engine: None }
+        Self::default()
     }
 
     pub fn handle(&mut self, cmd: Command) -> Vec<Event> {
@@ -28,7 +29,7 @@ impl WorkerHandler {
         }
     }
 
-    fn handle_init(&mut self, id: u64, path: &PathBuf, config: WorkerConfig) -> Vec<Event> {
+    fn handle_init(&mut self, id: u64, path: &Path, config: WorkerConfig) -> Vec<Event> {
         let analysis_config = AnalysisConfig {
             workers: config.workers,
             all_detectors: config.all_detectors,

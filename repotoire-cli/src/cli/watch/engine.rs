@@ -62,7 +62,7 @@ impl WatchEngine {
                 self.last_result = Some(result);
                 self.iteration += 1;
 
-                if self.iteration % 10 == 0 {
+                if self.iteration.is_multiple_of(10) {
                     let _ = self.save();
                 }
 
