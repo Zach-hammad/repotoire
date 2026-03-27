@@ -40,11 +40,40 @@ export const metadata: Metadata = {
     icon: "/logo.png",
     apple: "/logo.png",
   },
+  metadataBase: new URL("https://www.repotoire.com"),
+  alternates: {
+    canonical: "/",
+  },
   openGraph: {
     title: "Repotoire — Graph-Powered Code Intelligence",
     description:
       "Go beyond traditional linters with graph-powered code intelligence. Detect architectural issues, get AI-powered auto-fixes, and fast incremental analysis.",
     type: "website",
+    url: "https://www.repotoire.com",
+    siteName: "Repotoire",
+    images: [
+      {
+        url: "https://www.repotoire.com/og-image.png",
+        width: 1200,
+        height: 630,
+        alt: "Repotoire — Graph-powered code analysis with 106 Rust detectors",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Repotoire — Graph-Powered Code Intelligence",
+    description:
+      "Find what your linter can't see. 106 pure Rust detectors, graph-powered analysis.",
+    images: ["https://www.repotoire.com/og-image.png"],
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+    },
   },
 }
 
@@ -62,6 +91,47 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={`${inter.variable} ${spaceGrotesk.variable} ${geistMono.variable} font-sans antialiased`}>
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify({
+              "@context": "https://schema.org",
+              "@graph": [
+                {
+                  "@type": "WebSite",
+                  "@id": "https://www.repotoire.com/#website",
+                  url: "https://www.repotoire.com",
+                  name: "Repotoire",
+                  description: "Graph-powered code intelligence with 106 pure Rust detectors.",
+                },
+                {
+                  "@type": "Organization",
+                  "@id": "https://www.repotoire.com/#organization",
+                  name: "Repotoire",
+                  url: "https://www.repotoire.com",
+                  logo: {
+                    "@type": "ImageObject",
+                    url: "https://www.repotoire.com/logo.png",
+                  },
+                  description: "Graph-powered code health platform. 106 pure Rust detectors, 9 languages, single binary.",
+                },
+                {
+                  "@type": "SoftwareApplication",
+                  name: "Repotoire",
+                  applicationCategory: "DeveloperApplication",
+                  operatingSystem: "Linux, macOS, Windows",
+                  url: "https://www.repotoire.com",
+                  description: "Find architectural issues, circular dependencies, and code smells that linters miss. Graph-powered analysis with AI-powered fixes.",
+                  offers: {
+                    "@type": "Offer",
+                    price: "0",
+                    priceCurrency: "USD",
+                  },
+                },
+              ],
+            }),
+          }}
+        />
         {/* Skip link for keyboard navigation */}
         <a
           href="#main-content"

@@ -16,6 +16,22 @@ export default function robots(): MetadataRoute.Robots {
           "/cli/",
         ],
       },
+      {
+        userAgent: "GPTBot",
+        allow: "/",
+      },
+      {
+        userAgent: "OAI-SearchBot",
+        allow: "/",
+      },
+      {
+        userAgent: "ClaudeBot",
+        allow: "/",
+      },
+      {
+        userAgent: "PerplexityBot",
+        allow: "/",
+      },
     ],
     sitemap: `${BASE_URL}/sitemap.xml`,
   };

@@ -1,6 +1,6 @@
 import { MetadataRoute } from "next";
 
-const BASE_URL = process.env.NEXT_PUBLIC_APP_URL || "https://repotoire.com";
+const BASE_URL = process.env.NEXT_PUBLIC_APP_URL || "https://www.repotoire.com";
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const lastModified = new Date();
@@ -36,12 +36,6 @@ export default function sitemap(): MetadataRoute.Sitemap {
       lastModified,
       changeFrequency: "weekly",
       priority: 0.9,
-    },
-    {
-      url: `${BASE_URL}/blog`,
-      lastModified,
-      changeFrequency: "weekly",
-      priority: 0.7,
     },
     {
       url: `${BASE_URL}/contact`,
