@@ -31,100 +31,16 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, info, warn};
 
 /// Cache format version - bump when schema changes
-const CACHE_VERSION: u32 = 2;
+const CACHE_VERSION: u32 = 3;
 
 /// Buffer size for hashing large files (64KB chunks)
 const HASH_BUFFER_SIZE: usize = 65536;
-
-/// Deserialize Severity from both old format ("High", Debug) and new format ("high", Display/serde).
-fn deserialize_severity_compat<'de, D>(deserializer: D) -> Result<Severity, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let s = String::deserialize(deserializer)?;
-    s.parse::<Severity>().map_err(serde::de::Error::custom)
-}
-
-/// Serialized finding for cache storage
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct CachedFinding {
-    pub id: String,
-    pub detector: String,
-    #[serde(deserialize_with = "deserialize_severity_compat")]
-    pub severity: Severity,
-    pub title: String,
-    pub description: String,
-    pub affected_files: Vec<String>,
-    pub line_start: Option<u32>,
-    pub line_end: Option<u32>,
-    pub suggested_fix: Option<String>,
-    pub estimated_effort: Option<String>,
-    pub category: Option<String>,
-    pub cwe_id: Option<String>,
-    pub why_it_matters: Option<String>,
-    #[serde(default)]
-    pub confidence: Option<f64>,
-    #[serde(default)]
-    pub deterministic: bool,
-    #[serde(default)]
-    pub threshold_metadata: std::collections::BTreeMap<String, String>,
-}
-
-impl From<&Finding> for CachedFinding {
-    fn from(f: &Finding) -> Self {
-        Self {
-            id: f.id.clone(),
-            detector: f.detector.clone(),
-            severity: f.severity,
-            title: f.title.clone(),
-            description: f.description.clone(),
-            affected_files: f
-                .affected_files
-                .iter()
-                .map(|p| p.to_string_lossy().to_string())
-                .collect(),
-            line_start: f.line_start,
-            line_end: f.line_end,
-            suggested_fix: f.suggested_fix.clone(),
-            estimated_effort: f.estimated_effort.clone(),
-            category: f.category.clone(),
-            cwe_id: f.cwe_id.clone(),
-            why_it_matters: f.why_it_matters.clone(),
-            confidence: f.confidence,
-            deterministic: f.deterministic,
-            threshold_metadata: f.threshold_metadata.clone(),
-        }
-    }
-}
-
-impl CachedFinding {
-    fn to_finding(&self) -> Finding {
-        Finding {
-            id: self.id.clone(),
-            detector: self.detector.clone(),
-            severity: self.severity,
-            title: self.title.clone(),
-            description: self.description.clone(),
-            affected_files: self.affected_files.iter().map(PathBuf::from).collect(),
-            line_start: self.line_start,
-            line_end: self.line_end,
-            suggested_fix: self.suggested_fix.clone(),
-            estimated_effort: self.estimated_effort.clone(),
-            category: self.category.clone(),
-            cwe_id: self.cwe_id.clone(),
-            why_it_matters: self.why_it_matters.clone(),
-            confidence: self.confidence,
-            deterministic: self.deterministic,
-            threshold_metadata: self.threshold_metadata.clone(),
-        }
-    }
-}
 
 /// Cached file entry
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CachedFile {
     hash: String,
-    findings: Vec<CachedFinding>,
+    findings: Vec<Finding>,
     timestamp: u64,
     /// Qualified names of cross-file values this file depends on (e.g., "config.TIMEOUT")
     #[serde(default)]
@@ -156,7 +72,7 @@ pub struct CachedScoreResult {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct GraphCache {
     hash: Option<String>,
-    detectors: HashMap<String, Vec<CachedFinding>>,
+    detectors: HashMap<String, Vec<Finding>>,
     #[serde(default)]
     score: Option<CachedScoreResult>,
 }
@@ -388,7 +304,7 @@ impl IncrementalCache {
                     return vec![];
                 }
 
-                cached.findings.iter().map(|cf| cf.to_finding()).collect()
+                cached.findings.clone()
             }
         }
     }
@@ -403,14 +319,11 @@ impl IncrementalCache {
             .map(|d| d.as_secs())
             .unwrap_or(0);
 
-        let cached_findings: Vec<CachedFinding> =
-            findings.iter().map(CachedFinding::from).collect();
-
         self.cache.files.insert(
             path_key,
             CachedFile {
                 hash: file_hash,
-                findings: cached_findings,
+                findings: findings.to_vec(),
                 timestamp,
                 value_dependencies: Vec::new(),
                 value_hashes: HashMap::new(),
@@ -532,13 +445,10 @@ impl IncrementalCache {
 
     /// Store findings from a graph-level detector
     pub fn cache_graph_findings(&mut self, detector_name: &str, findings: &[Finding]) {
-        let cached_findings: Vec<CachedFinding> =
-            findings.iter().map(CachedFinding::from).collect();
-
         self.cache
             .graph
             .detectors
-            .insert(detector_name.to_string(), cached_findings);
+            .insert(detector_name.to_string(), findings.to_vec());
         self.dirty = true;
     }
 
@@ -549,7 +459,7 @@ impl IncrementalCache {
             .graph
             .detectors
             .get(detector_name)
-            .map(|findings| findings.iter().map(|cf| cf.to_finding()).collect())
+            .cloned()
             .unwrap_or_default()
     }
 
@@ -559,7 +469,8 @@ impl IncrementalCache {
             .graph
             .detectors
             .values()
-            .flat_map(|findings| findings.iter().map(|cf| cf.to_finding()))
+            .flatten()
+            .cloned()
             .collect()
     }
 
@@ -964,13 +875,9 @@ mod tests {
             ..Default::default()
         };
 
-        let cached = CachedFinding::from(&finding);
-        assert_eq!(
-            cached.threshold_metadata.get("threshold_source").expect("key should exist"),
-            "adaptive"
-        );
-
-        let restored = cached.to_finding();
+        // Round-trip through serde (simulates cache write/read)
+        let json = serde_json::to_string(&finding).expect("serialize");
+        let restored: Finding = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(restored.id, "rt-1");
         assert_eq!(restored.confidence, Some(0.85));
         assert_eq!(
@@ -979,6 +886,13 @@ mod tests {
                 .get("effective_threshold")
                 .expect("metadata key should exist"),
             "15"
+        );
+        assert_eq!(
+            restored
+                .threshold_metadata
+                .get("threshold_source")
+                .expect("key should exist"),
+            "adaptive"
         );
     }
 

@@ -565,7 +565,7 @@ fn send_telemetry(
     // Detect frameworks
     let frameworks: Vec<String> = crate::detectors::framework_detection::detect_frameworks(&canon)
         .into_iter()
-        .map(|f| format!("{:?}", f).to_lowercase())
+        .map(|f| f.to_string())
         .collect();
 
     // Graph primitives

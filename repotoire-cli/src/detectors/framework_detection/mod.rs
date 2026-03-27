@@ -60,6 +60,42 @@ pub enum Framework {
     Bun,
 }
 
+impl std::fmt::Display for Framework {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Framework::Prisma => write!(f, "prisma"),
+            Framework::Drizzle => write!(f, "drizzle"),
+            Framework::TypeORM => write!(f, "typeorm"),
+            Framework::Sequelize => write!(f, "sequelize"),
+            Framework::Knex => write!(f, "knex"),
+            Framework::Mongoose => write!(f, "mongoose"),
+            Framework::Objection => write!(f, "objection"),
+            Framework::MikroORM => write!(f, "mikroorm"),
+            Framework::BetterSQLite3 => write!(f, "better-sqlite3"),
+            Framework::Django => write!(f, "django"),
+            Framework::SQLAlchemy => write!(f, "sqlalchemy"),
+            Framework::Peewee => write!(f, "peewee"),
+            Framework::TortoiseORM => write!(f, "tortoiseorm"),
+            Framework::Pony => write!(f, "pony"),
+            Framework::SQLObject => write!(f, "sqlobject"),
+            Framework::Diesel => write!(f, "diesel"),
+            Framework::SeaORM => write!(f, "seaorm"),
+            Framework::SQLx => write!(f, "sqlx"),
+            Framework::Hibernate => write!(f, "hibernate"),
+            Framework::JPA => write!(f, "jpa"),
+            Framework::MyBatis => write!(f, "mybatis"),
+            Framework::JOOQ => write!(f, "jooq"),
+            Framework::SpringData => write!(f, "spring-data"),
+            Framework::ActiveRecord => write!(f, "activerecord"),
+            Framework::Sequel => write!(f, "sequel"),
+            Framework::GORM => write!(f, "gorm"),
+            Framework::Ent => write!(f, "ent"),
+            Framework::SQLBoiler => write!(f, "sqlboiler"),
+            Framework::Bun => write!(f, "bun"),
+        }
+    }
+}
+
 impl Framework {
     /// Returns the safe patterns for this framework that should NOT trigger SQL injection warnings
     pub fn safe_patterns(&self) -> &'static [&'static str] {
