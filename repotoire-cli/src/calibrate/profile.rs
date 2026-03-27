@@ -54,6 +54,12 @@ impl MetricKind {
     }
 }
 
+impl std::fmt::Display for MetricKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.name())
+    }
+}
+
 /// Statistical distribution for a single metric
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MetricDistribution {

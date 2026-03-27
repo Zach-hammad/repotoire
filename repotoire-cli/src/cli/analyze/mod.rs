@@ -593,7 +593,7 @@ fn send_telemetry(
                 .filter(|(_, d)| d.confident && d.mean > 0.0)
                 .map(|(kind, d)| {
                     let deviation = ((d.p95 - d.mean) / d.mean).abs();
-                    (format!("{:?}", kind), d.p95, deviation)
+                    (kind.to_string(), d.p95, deviation)
                 })
                 .collect();
             deviations.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));

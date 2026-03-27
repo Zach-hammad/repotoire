@@ -119,8 +119,8 @@ pub struct VotingStats {
     pub multi_detector_findings: usize,
     pub boosted_by_consensus: usize,
     pub rejected_low_confidence: usize,
-    pub strategy: String,
-    pub confidence_method: String,
+    pub strategy: VotingStrategy,
+    pub confidence_method: ConfidenceMethod,
     pub threshold: f64,
 }
 
@@ -264,8 +264,8 @@ impl VotingEngine {
             multi_detector_findings: groups.values().filter(|g| g.len() > 1).count(),
             boosted_by_consensus: boosted_count,
             rejected_low_confidence: rejected_count,
-            strategy: format!("{:?}", self.strategy),
-            confidence_method: format!("{:?}", self.confidence_method),
+            strategy: self.strategy,
+            confidence_method: self.confidence_method,
             threshold: self.confidence_threshold,
         };
 
