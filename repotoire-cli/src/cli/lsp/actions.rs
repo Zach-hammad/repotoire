@@ -11,24 +11,8 @@ fn comment_prefix(uri: &Url) -> &'static str {
     let path = uri.path();
     if path.ends_with(".py") || path.ends_with(".rb") {
         "#"
-    } else if path.ends_with(".rs")
-        || path.ends_with(".ts")
-        || path.ends_with(".tsx")
-        || path.ends_with(".js")
-        || path.ends_with(".jsx")
-        || path.ends_with(".go")
-        || path.ends_with(".java")
-        || path.ends_with(".c")
-        || path.ends_with(".cpp")
-        || path.ends_with(".cs")
-        || path.ends_with(".swift")
-        || path.ends_with(".kt")
-    {
-        "//"
-    } else if path.ends_with(".php") {
-        "//"
     } else {
-        "//" // default
+        "//"
     }
 }
 

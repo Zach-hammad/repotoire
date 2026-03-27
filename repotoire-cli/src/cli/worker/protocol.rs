@@ -17,6 +17,9 @@ pub enum Command {
         #[serde(default)]
         config: WorkerConfig,
     },
+    /// Analyze changed files. The `files` list is used for delta display
+    /// (showing which files triggered the re-analysis), not to scope the
+    /// analysis — the engine always re-analyzes the full project.
     Analyze {
         id: u64,
         files: Vec<PathBuf>,

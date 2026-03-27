@@ -1,16 +1,17 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use super::protocol::{Command, Event, WorkerConfig};
 use crate::cli::watch::engine::{WatchEngine, WatchReanalysis};
 use crate::engine::AnalysisConfig;
 
+#[derive(Default)]
 pub struct WorkerHandler {
     engine: Option<WatchEngine>,
 }
 
 impl WorkerHandler {
     pub fn new() -> Self {
-        Self { engine: None }
+        Self::default()
     }
 
     pub fn handle(&mut self, cmd: Command) -> Vec<Event> {
@@ -28,7 +29,7 @@ impl WorkerHandler {
         }
     }
 
-    fn handle_init(&mut self, id: u64, path: &PathBuf, config: WorkerConfig) -> Vec<Event> {
+    fn handle_init(&mut self, id: u64, path: &Path, config: WorkerConfig) -> Vec<Event> {
         let analysis_config = AnalysisConfig {
             workers: config.workers,
             all_detectors: config.all_detectors,
@@ -46,13 +47,13 @@ impl WorkerHandler {
             }
         };
 
+        let start = std::time::Instant::now();
         match engine.initial_analyze() {
             Ok(result) => {
+                let elapsed_ms = start.elapsed().as_millis() as u64;
                 let score = result.score.overall;
                 let grade = result.score.grade.clone();
-                // Move findings out of result to avoid unnecessary clone
                 let findings = result.findings;
-                let elapsed_ms = 0; // TODO: track elapsed in initial_analyze
                 self.engine = Some(engine);
                 vec![Event::Ready {
                     id: Some(id),
@@ -122,9 +123,10 @@ impl WorkerHandler {
             }];
         };
 
+        let start = std::time::Instant::now();
         match engine.initial_analyze() {
             Ok(result) => {
-                // Move findings out — engine already stored its own clone in last_result
+                let elapsed_ms = start.elapsed().as_millis() as u64;
                 let score = result.score.overall;
                 let grade = result.score.grade.clone();
                 vec![Event::Ready {
@@ -132,7 +134,7 @@ impl WorkerHandler {
                     findings: result.findings,
                     score,
                     grade,
-                    elapsed_ms: 0,
+                    elapsed_ms,
                 }]
             }
             Err(e) => {
