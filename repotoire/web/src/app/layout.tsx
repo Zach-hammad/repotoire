@@ -31,9 +31,9 @@ const geistMono = Geist_Mono({
 })
 
 export const metadata: Metadata = {
-  title: "Repotoire — Graph-Powered Code Intelligence",
+  title: "Repotoire — Graph-Powered Code Intelligence for Developers",
   description:
-    "Go beyond traditional linters with graph-powered code intelligence. Detect architectural issues, get AI-powered auto-fixes, and fast incremental analysis.",
+    "Go beyond traditional linters with graph-powered code intelligence. 106 pure Rust detectors find architectural issues, circular dependencies, and code smells that other tools miss. Fast incremental analysis.",
   generator: "v0.app",
   keywords: ["code analysis", "linter", "graph database", "AI", "technical debt", "code quality"],
   icons: {
@@ -45,9 +45,9 @@ export const metadata: Metadata = {
     canonical: "/",
   },
   openGraph: {
-    title: "Repotoire — Graph-Powered Code Intelligence",
+    title: "Repotoire — Graph-Powered Code Intelligence for Developers",
     description:
-      "Go beyond traditional linters with graph-powered code intelligence. Detect architectural issues, get AI-powered auto-fixes, and fast incremental analysis.",
+      "106 pure Rust detectors find architectural issues, circular dependencies, and code smells that linters miss. Single binary, 9 languages, graph-powered analysis.",
     type: "website",
     url: "https://www.repotoire.com",
     siteName: "Repotoire",
@@ -62,9 +62,9 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "Repotoire — Graph-Powered Code Intelligence",
+    title: "Repotoire — Graph-Powered Code Intelligence for Developers",
     description:
-      "Find what your linter can't see. 106 pure Rust detectors, graph-powered analysis.",
+      "106 pure Rust detectors find architectural issues, circular dependencies, and code smells that linters miss. Single binary, 9 languages.",
     images: ["https://www.repotoire.com/og-image.png"],
   },
   robots: {
