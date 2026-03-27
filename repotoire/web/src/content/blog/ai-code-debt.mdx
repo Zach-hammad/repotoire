@@ -1,0 +1,160 @@
+---
+title: "AI Makes You Code 4x Faster. It Also Creates 4x More Debt."
+description: "AI coding assistants boost velocity but leave behind duplicate blocks, missing abstractions, and untested code. Here's what the research shows — and how to catch it before it compounds."
+date: "2026-03-27"
+author: "zach"
+tags: ["ai", "code-quality", "technical-debt"]
+---
+
+## The productivity trap
+
+The pitch is compelling: GitHub Copilot, Cursor, and similar AI coding assistants make developers 2-4x faster at writing code. McKinsey found that developers using AI complete tasks 20-45% faster. Surveys consistently report that teams ship more features per sprint after adopting AI tools.
+
+But there's a problem that the velocity metrics don't capture.
+
+GitClear's 2024 analysis of 153 million lines of changed code found that AI-assisted codebases show **a 4x increase in code duplication** compared to pre-AI baselines. Moved and copy-pasted code surged. Code churn — lines written and then rewritten within two weeks — spiked. The code was being written faster, but it was structurally worse.
+
+This isn't a theoretical concern. It's showing up in real codebases right now.
+
+## What AI-generated code debt looks like
+
+AI assistants generate code that's **locally correct but globally incoherent**. Each suggestion makes sense in isolation. The function works, the tests pass, the types check. But zoom out and patterns emerge that no human developer would create intentionally.
+
+### Duplicate blocks everywhere
+
+Ask Copilot to implement error handling in three different API routes and you'll get three slightly different implementations of the same pattern. A human would extract a shared utility after the second one. Copilot doesn't know the other routes exist.
+
+```typescript
+// route-a.ts — Copilot generated
+try {
+  const result = await db.query(sql);
+  if (!result.rows.length) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+  return NextResponse.json({ data: result.rows[0] });
+} catch (err) {
+  console.error("Route A failed:", err);
+  return NextResponse.json({ error: "Internal error" }, { status: 500 });
+}
+
+// route-b.ts — Copilot generated (nearly identical)
+try {
+  const result = await db.query(sql);
+  if (!result.rows.length) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+  return NextResponse.json({ data: result.rows[0] });
+} catch (error) {
+  console.error("Route B error:", error);
+  return NextResponse.json({ error: "Server error" }, { status: 500 });
+}
+```
+
+The variable name changed from `err` to `error`. The error message changed slightly. The structure is identical. Multiply this by 50 routes and you have a maintenance nightmare where fixing a bug means finding and updating dozens of copies.
+
+### Missing abstractions
+
+This is the deepest problem. AI generates concrete implementations but doesn't create abstractions. It writes the `if` statement but never the enum. It writes the switch-case but never the strategy pattern. It handles every edge case inline rather than extracting a validation layer.
+
+The result is code that's flat — lots of functions, few abstractions, no hierarchy. When the business logic changes, you're updating 30 files instead of one.
+
+### Boilerplate explosion
+
+AI is excellent at generating boilerplate. So excellent that it will happily generate 200 lines of repetitive setup code instead of a 10-line configuration-driven approach. It doesn't push back. It doesn't say "this would be simpler with a factory." It gives you exactly what you asked for, in exactly the most verbose way possible.
+
+### Tests that don't test the AI-added code
+
+This is the most insidious pattern. A developer uses AI to add a new feature — say, a complex validation function with eight edge cases. The AI generates the function perfectly. But it doesn't generate tests. The developer, moving fast (that's the whole point), ships it without test coverage.
+
+The feature works today. But when someone modifies it in three months, there's no safety net. The debt compounds silently.
+
+## Why traditional tools don't catch this
+
+ESLint will tell you about unused variables. Clippy will flag unnecessary clones. Ruff will enforce import ordering. But none of them can detect:
+
+- **The same error-handling pattern duplicated across 30 files** — because each file is analyzed independently
+- **A function that 15 other modules depend on but has zero tests** — because the linter doesn't see the dependency graph
+- **Three modules that always change together but don't import each other** — because the linter doesn't analyze git history
+- **A validation function that was copy-pasted from another service and slightly modified** — because the linter compares syntax, not semantics
+
+These are **graph-level problems**. They exist in the relationships between files, not within any single file. You need a tool that builds a dependency graph and analyzes the system as a whole.
+
+## How Repotoire catches AI-generated debt
+
+Repotoire runs 106 detectors, six of which specifically target AI-generated code patterns. They work by analyzing the structure of your codebase as a graph — functions, classes, imports, and their relationships — then applying algorithms that surface patterns invisible to file-by-file analysis.
+
+### AIBoilerplate
+
+Finds regions of code that are structurally repetitive — the same shape of function repeated with minor variations. This catches the error-handling duplication, the repeated API route patterns, and the boilerplate that AI generates instead of abstractions.
+
+### AIChurn
+
+Detects code that was recently added and then quickly modified — a signal that AI-generated code didn't fit the codebase correctly and needed manual adjustment. High churn in recently-added code often indicates that the AI's suggestion was accepted too quickly.
+
+### AIComplexitySpike
+
+Flags functions where cyclomatic complexity is significantly higher than the surrounding code. AI tends to generate complex, deeply-nested implementations where a human would decompose the problem. A single function with complexity 25 in a codebase where the average is 6 is a red flag.
+
+### AIDuplicateBlock
+
+Identifies near-identical code blocks across different files using AST fingerprinting. Unlike simple text comparison, this catches duplicates even when variable names and comments differ — exactly the kind of duplication AI creates.
+
+### AIMissingTests
+
+Finds functions and classes that are heavily depended upon (high fan-in in the dependency graph) but have no associated test files. When AI adds a new utility that five modules immediately start using, this detector flags the missing coverage before it becomes a problem.
+
+### AINamingPattern
+
+Detects inconsistent naming conventions within a module — a signal that code was generated by a model that doesn't know your project's conventions. When half your functions use `camelCase` and the AI-generated ones use `snake_case`, this catches it.
+
+## See it on your codebase
+
+Run Repotoire on any codebase with significant AI-assisted development:
+
+```bash
+cargo install repotoire
+repotoire analyze /path/to/your/repo
+```
+
+The output shows a health score broken down into Structure (40%), Quality (30%), and Architecture (30%), with specific findings for each issue:
+
+```
+repotoire v0.5.1 — graph-powered code health
+
+Analyzing: /path/to/your/repo
+  Files: 847 | Languages: TypeScript, Python
+  Graph: 12,493 nodes, 31,207 edges
+  Detectors: 106 (73 default + 33 deep-scan)
+
+What stands out:
+  MEDIUM  AIDuplicateBlock     23 duplicate blocks across 14 files
+  MEDIUM  AIMissingTests       8 high-fanin functions with no tests
+  LOW     AIBoilerplate        41 boilerplate regions detected
+  LOW     AINamingPattern      12 naming inconsistencies
+
+Health Score: 74/100 (B-)
+  Structure:    81/100
+  Quality:      69/100
+  Architecture: 72/100
+
+Quick wins:
+  Extract shared error handler → resolves 19 of 23 duplicate blocks
+  Add tests for auth utilities → covers 5 of 8 untested functions
+```
+
+The "Quick wins" section shows which fixes have the highest impact — resolving the most findings with the least effort.
+
+## The takeaway
+
+AI coding assistants are genuinely useful. The productivity gains are real. But velocity without structural awareness creates debt that compounds faster than teams expect.
+
+The solution isn't to stop using AI. It's to **pair your AI assistant with a tool that sees the system-level consequences** of all those individually-correct suggestions.
+
+Linters catch syntax issues. AI catches bugs. But nobody's watching the architecture — the relationships between modules, the duplication across files, the missing tests on critical paths. That's what graph-powered analysis is for.
+
+```bash
+cargo install repotoire
+repotoire analyze .
+```
+
+Run it once. See what Copilot left behind.

@@ -1,0 +1,180 @@
+---
+title: "Why Linters Miss Your Worst Bugs"
+description: "ESLint, Clippy, and Ruff are great at what they do. But file-by-file analysis has a fundamental blind spot: it can't see your architecture. Here's what graph analysis catches that linters never will."
+date: "2026-03-25"
+author: "zach"
+tags: ["architecture", "static-analysis", "graph-analysis"]
+---
+
+## Linters are great. Use them.
+
+Let's be clear upfront: ESLint, Clippy, Ruff, Pylint, and their equivalents are essential tools. They catch real bugs, enforce consistent style, and prevent common mistakes. Every project should use them.
+
+But they share a fundamental limitation that no amount of rules or plugins can fix.
+
+**Linters analyze files one at a time.**
+
+When ESLint processes `auth.ts`, it sees the imports, the functions, the types — everything inside that file. It can tell you about unused variables, type mismatches, missing error handling, and a hundred other things. What it can't tell you is how `auth.ts` relates to the rest of your system.
+
+And that's where your worst bugs live.
+
+## The file-boundary problem
+
+Consider a codebase with 500 files. A linter runs 500 independent analyses, one per file. Each analysis is thorough within its scope. But the linter never asks:
+
+- Which files depend on which?
+- Which module is a single point of failure?
+- Are there circular dependency chains?
+- Which files always change together?
+- Is there dead code that's exported but never imported?
+
+These questions require seeing the **relationships between files** — the dependency graph, the import structure, the call hierarchy. No single-file analysis can answer them.
+
+This isn't a limitation of specific linters. It's a limitation of the approach. Adding more ESLint rules doesn't help because the information simply isn't available when processing one file at a time.
+
+## Five things linters will never catch
+
+### 1. Circular dependencies
+
+A imports B. B imports C. C imports A. Each import is valid when viewed in isolation. No single file is "wrong." But the cycle creates a system that's fragile, hard to test, and prone to initialization bugs that only appear at runtime.
+
+Finding cycles requires running **Tarjan's strongly connected components algorithm** on the import graph — a computation that by definition needs the entire graph, not one file.
+
+In real codebases, cycles aren't always this simple. They can span 5, 10, or 20 files. They can form through re-exports and barrel files. They're invisible to any tool that doesn't build the full dependency graph.
+
+```
+// Invisible to linters — each import is valid in isolation
+auth/middleware.ts → auth/session.ts → auth/token.ts
+     ↑                                        |
+     └────────────────────────────────────────┘
+```
+
+Repotoire detects these using Tarjan's SCC algorithm on the full import graph. It finds cycles of any length and reports the minimal set of edges that would break each cycle.
+
+### 2. Hidden coupling
+
+Two files never import each other. They're in different directories. They appear completely unrelated. But every time one changes, the other changes too.
+
+This is **temporal coupling** — files that are logically connected but structurally independent. It often indicates a shared concept that should be extracted into its own module, or a dependency that's implicit rather than explicit (maybe they both read from the same config, or they both implement halves of the same protocol).
+
+Git history reveals these patterns. By analyzing which files change in the same commits over time (weighted by recency), you can build a **co-change matrix** that surfaces hidden dependencies no linter would find.
+
+Repotoire builds this matrix using exponential decay-weighted analysis of your git history. When two files consistently change together but don't import each other, it flags the hidden coupling with the specific commits as evidence.
+
+### 3. Architectural bottlenecks
+
+In every codebase, some modules are more important than others. Not because they're bigger or more complex, but because they sit at critical junctures in the dependency graph — everything flows through them.
+
+**Betweenness centrality** measures this: how often does the shortest path between any two modules pass through this one? A module with high betweenness centrality is a bottleneck. If it breaks, the blast radius is enormous. If it's slow, everything is slow. If it's poorly tested, you're building on sand.
+
+```
+                    ┌─── service-a
+                    │
+api-gateway ─── core/utils ─── service-b
+                    │
+                    └─── service-c ─── worker
+```
+
+In this graph, `core/utils` has the highest betweenness centrality. Every service depends on it. A bug there affects everything downstream. But a linter analyzing `core/utils` in isolation sees just another utility file — nothing about its systemic importance.
+
+Repotoire computes betweenness centrality, PageRank, and dominator tree analysis to identify these bottlenecks. It doesn't just tell you the file is complex — it tells you the file is **critical** because of where it sits in the graph.
+
+### 4. God classes that span the dependency graph
+
+A linter can tell you a class has too many methods. But it can't tell you that a class has become a **gravitational center** — a node that half the codebase depends on, that mixes concerns from five different domains, and that cannot be modified without risking cascading failures.
+
+God classes in the graph sense aren't always large. Sometimes they're moderately-sized modules that have accumulated too many responsibilities over time. They import from many domains and are imported by many consumers. The problem isn't their internal complexity — it's their external coupling.
+
+Detecting this requires computing the **fan-in** (how many modules depend on this one) and **fan-out** (how many modules this one depends on) across the entire dependency graph, then flagging modules where both metrics are unusually high. A module with fan-in of 40 and fan-out of 15 is almost certainly doing too much.
+
+### 5. Dead code that's exported but never imported
+
+Your linter tells you about unused local variables. But what about exported functions that no file in the entire project imports? Or interfaces that were defined for an API that was later redesigned?
+
+This is **cross-file dead code** — functions, types, and classes that are publicly exported but have zero consumers. They add maintenance burden, confuse new developers, and make refactoring harder because you're not sure what's safe to remove.
+
+Finding these requires comparing every export in the codebase against every import. That's a graph operation: build a node for every exported symbol, an edge for every import, then find nodes with zero incoming edges.
+
+Repotoire's dead code detector does exactly this across all supported languages. It reports exported symbols with zero importers, ranked by the number of downstream files that would benefit from the cleanup.
+
+## How graph analysis works
+
+The approach is conceptually simple:
+
+1. **Parse** every file using tree-sitter to extract functions, classes, imports, and their relationships
+2. **Build a graph** where nodes are code entities and edges are relationships (imports, calls, inherits, uses)
+3. **Enrich with git data** — blame information, change frequency, co-change patterns
+4. **Run graph algorithms** — PageRank, betweenness centrality, Tarjan's SCC, Louvain community detection, dominator trees
+5. **Detect patterns** that are impossible to see file-by-file
+
+Each algorithm reveals a different class of problem:
+
+| Algorithm | What it finds |
+|-----------|--------------|
+| Tarjan SCC | Circular dependencies (cycles in the import graph) |
+| Betweenness centrality | Architectural bottlenecks (critical path modules) |
+| PageRank | Influential code (modules that matter most to system stability) |
+| Louvain communities | Module boundaries (where your code naturally clusters) |
+| Dominator trees | Single points of failure (modules that gate access to subtrees) |
+| Co-change matrix | Hidden coupling (files that change together without explicit dependencies) |
+
+These aren't exotic academic algorithms. They're the same algorithms that power Google Search (PageRank), social network analysis (community detection), and compiler optimization (dominator trees). Applied to code, they surface architectural patterns that would take a senior engineer weeks of manual review to identify.
+
+## Repotoire's approach
+
+Repotoire is a pure Rust CLI that runs all of this locally. No cloud service, no Docker, no external database. It uses petgraph for the in-memory graph and tree-sitter for parsing across 9 languages (Python, TypeScript, JavaScript, Rust, Go, Java, C#, C, C++).
+
+106 detectors run in parallel via rayon. 73 default detectors cover security, code quality, and architecture. 33 additional deep-scan detectors cover code smells, style issues, and dead code.
+
+The graph algorithms run in two phases:
+- **Phase A** (computed at graph freeze): dominator trees, articulation points, PageRank, betweenness centrality, strongly connected components
+- **Phase B** (weighted overlay): git co-change temporal weights, weighted PageRank, weighted betweenness, Louvain community detection
+
+All results are pre-computed once and available to detectors at O(1) lookup cost.
+
+## The difference in practice
+
+Here's a concrete example. Take a mature TypeScript monorepo — 800 files, well-linted, CI passing, no ESLint warnings.
+
+**What ESLint finds:** Nothing. The codebase passes all rules.
+
+**What Repotoire finds:**
+
+```
+What stands out:
+  HIGH    CircularDependency    3 dependency cycles (longest: 7 files)
+  HIGH    ArchBottleneck        core/db.ts has betweenness 0.34 (2x threshold)
+  MEDIUM  HiddenCoupling        auth/session.ts ↔ billing/stripe.ts (87% co-change)
+  MEDIUM  GodClass              api/middleware.ts (fan-in: 42, fan-out: 18)
+  MEDIUM  DeadCode              14 exported functions with zero importers
+  LOW     CommunityMisplacement shared/utils.ts belongs to auth cluster, not shared
+
+Health Score: 71/100 (B-)
+  Structure:    85/100
+  Quality:      82/100
+  Architecture: 46/100
+```
+
+The Quality score is high — the code is well-written at the file level. But the Architecture score is low because of systemic issues that no linter can detect.
+
+The circular dependency spanning 7 files means that testing any one of those modules requires mocking the entire cycle. The bottleneck on `core/db.ts` means a bug there affects 34% of all call paths. The hidden coupling between auth and billing means changes in one reliably break the other — and the team doesn't know why because there's no explicit dependency.
+
+## When to use what
+
+This isn't an either/or choice. Linters and graph analysis catch fundamentally different classes of problems:
+
+| Tool | Scope | Catches | Run when |
+|------|-------|---------|----------|
+| ESLint/Clippy/Ruff | Single file | Syntax, style, common bugs | Every save / commit |
+| Repotoire | Entire codebase | Architecture, coupling, systemic issues | Weekly / per PR / in CI |
+
+Use your linter on every keystroke. Use graph analysis to catch the problems that accumulate between keystrokes.
+
+## Try it
+
+```bash
+cargo install repotoire
+repotoire analyze .
+```
+
+Run it on a codebase that passes all your linter checks. See what it finds that the linter couldn't.
