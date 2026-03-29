@@ -5,6 +5,16 @@ All notable changes to Repotoire will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1](https://github.com/Zach-hammad/repotoire/compare/v0.5.0...v0.5.1) (2026-03-29)
+
+
+### Bug Fixes
+
+* address code review findings in LSP server and watch mode ([3064251](https://github.com/Zach-hammad/repotoire/commit/306425149e3e80acfbf21a5741a28e14d6bf96c9))
+* deprecate --since flag, wire git churn into debt command ([9de5000](https://github.com/Zach-hammad/repotoire/commit/9de5000b8080e474fbc4bce285cc167c0da7847a))
+* resolve 24 QA pain points, fix finding dedup + inline suppression bugs ([bc24940](https://github.com/Zach-hammad/repotoire/commit/bc24940d769c1dbc22ca5e72a4dcaf17977074eb))
+* resolve clippy warnings and harden LSP server ([6f1de69](https://github.com/Zach-hammad/repotoire/commit/6f1de692a6e524715cb8b38ce6b589d2bae0743e))
+
 ## [0.5.0](https://github.com/Zach-hammad/repotoire/compare/v0.4.0...v0.5.0) (2026-03-19)
 
 
