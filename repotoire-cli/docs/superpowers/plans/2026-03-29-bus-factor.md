@@ -19,7 +19,7 @@
 |------|---------------|
 | `src/git/ownership.rs` | DOA computation, OwnershipModel, HHI, greedy set cover, module aggregation |
 | `src/engine/stages/ownership_enrich.rs` | Pipeline stage: opens GitHistory, computes OwnershipModel |
-| `src/detectors/architecture/single_owner_module.rs` | Detector: module with bus_factor=1 + high complexity |
+| `src/detectors/architecture/single_owner_module.rs` | Detector: module with bus_factor=1, >=3 files |
 | `src/detectors/architecture/knowledge_silo.rs` | Detector: module with HHI > 0.65 |
 | `src/detectors/architecture/orphaned_knowledge.rs` | Detector: file with all authors inactive |
 | `src/detectors/architecture/critical_path_single_owner.rs` | Detector: bus_factor=1 + high centrality |
@@ -938,9 +938,7 @@ Create `src/detectors/architecture/single_owner_module.rs` with struct + test on
 //! Detector: module with bus_factor=1 and above-median complexity.
 
 use crate::detectors::analysis_context::AnalysisContext;
-use crate::detectors::base::Detector;
-use crate::detectors::config::DetectorConfig;
-use crate::detectors::DetectorScope;
+use crate::detectors::base::{Detector, DetectorConfig, DetectorScope};
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use std::sync::Arc;
@@ -1326,6 +1324,16 @@ git commit -m "feat(detectors): add OrphanedKnowledge detector (all authors inac
 This is the differentiator — combines bus factor with graph centrality.
 
 - [ ] **Step 1: Create detector file**
+
+**Imports** (note: needs `HashMap` which is not in Rust prelude):
+```rust
+use crate::detectors::base::{Detector, DetectorConfig, DetectorScope};
+use crate::detectors::analysis_context::AnalysisContext;
+use crate::models::{Finding, Severity};
+use anyhow::Result;
+use std::collections::HashMap;
+use std::sync::Arc;
+```
 
 Key: file-to-node mapping. Iterate graph nodes, group by file, check centrality.
 

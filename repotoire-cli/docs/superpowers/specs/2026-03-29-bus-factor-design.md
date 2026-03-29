@@ -181,7 +181,7 @@ All 4 detectors:
 
 | Field | Value |
 |-------|-------|
-| Fires when | Module has ≥3 non-test files AND P10 bus_factor = 1 AND avg complexity > repo median |
+| Fires when | Module has ≥3 non-test files AND P10 bus_factor = 1 |
 | Severity | High |
 | Confidence | 0.90 |
 | Title | "Module `{path}` depends entirely on {author}" |
@@ -313,7 +313,7 @@ Each detector supports `DetectorConfig` overrides:
 [detectors.SingleOwnerModule]
 enabled = true
 min_module_files = 3          # minimum files to consider a module
-complexity_percentile = 50    # complexity threshold (default: median)
+# complexity check removed — orthogonal to knowledge risk
 
 [detectors.KnowledgeSilo]
 hhi_threshold = 0.65          # HHI above which to fire
