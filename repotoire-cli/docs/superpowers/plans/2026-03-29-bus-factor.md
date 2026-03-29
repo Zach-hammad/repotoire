@@ -31,6 +31,7 @@
 | `src/engine/stages/mod.rs` | Add `pub mod ownership_enrich;` |
 | `src/engine/mod.rs:357-368` | Insert ownership_enrich stage between freeze and calibrate |
 | `src/detectors/analysis_context.rs:210-315` | Add `ownership: Option<Arc<OwnershipModel>>` + update 4 constructors |
+| `src/detectors/engine.rs` | Add ownership to PrecomputedAnalysis, Clone, to_context(), to_context_scoped(), precompute_gd_startup() |
 | `src/detectors/architecture/mod.rs:1-28` | Add 4 new module + pub use declarations |
 | `src/detectors/mod.rs:176-185` | Add 4 `register::<>()` calls to DEFAULT_DETECTOR_FACTORIES |
 | `src/config/project_config/mod.rs:162-220` | Add `OwnershipConfigToml` struct + field on `ProjectConfig` |
@@ -808,7 +809,8 @@ git commit -m "feat(engine): add ownership_enrich pipeline stage between freeze 
 
 **Files:**
 - Modify: `src/detectors/analysis_context.rs`
-- Modify: `src/engine/stages/detect.rs` (DetectInput struct)
+- Modify: `src/detectors/engine.rs` (PrecomputedAnalysis — CRITICAL for data to reach detectors)
+- Modify: `src/engine/stages/detect.rs` (DetectInput struct + inject into PrecomputedAnalysis)
 - Modify: `src/engine/mod.rs` (pass ownership into DetectInput)
 
 - [ ] **Step 1: Add ownership field to AnalysisContext**
@@ -836,9 +838,65 @@ In `src/engine/stages/detect.rs`, add to the `DetectInput` struct:
     pub ownership: Option<Arc<crate::git::ownership::OwnershipModel>>,
 ```
 
-And pass it through when constructing `AnalysisContext` in `detect_stage()`.
+- [ ] **Step 4: Add ownership field to PrecomputedAnalysis**
 
-- [ ] **Step 4: Pass ownership_model into DetectInput in `src/engine/mod.rs`**
+**CRITICAL**: `detect_stage()` does NOT construct `AnalysisContext` directly — it goes through
+`PrecomputedAnalysis::to_context()` in `src/detectors/engine.rs`. Without this step, ownership
+data never reaches detectors at runtime.
+
+In `src/detectors/engine.rs`, add to the `PrecomputedAnalysis` struct (after `co_change_matrix` field):
+
+```rust
+    pub ownership: Option<Arc<crate::git::ownership::OwnershipModel>>,
+```
+
+Update the `Clone` impl (after `co_change_matrix` clone):
+
+```rust
+            ownership: self.ownership.as_ref().map(Arc::clone),
+```
+
+Update `to_context()` (after `co_change_matrix` line):
+
+```rust
+            ownership: self.ownership.as_ref().map(Arc::clone),
+```
+
+Update `to_context_scoped()` (after `co_change_matrix` line):
+
+```rust
+            ownership: self.ownership.as_ref().map(Arc::clone),
+```
+
+Update `precompute_gd_startup()` return (after `co_change_matrix: None,`):
+
+```rust
+        ownership: None,
+```
+
+- [ ] **Step 5: Wire ownership into PrecomputedAnalysis in detect_stage()**
+
+In `src/engine/stages/detect.rs`, inject ownership into the precomputed struct.
+
+After the `precomputed.co_change_matrix = ...` line (~line 143), add:
+
+```rust
+    precomputed.ownership = input.ownership.as_ref().map(Arc::clone);
+```
+
+Also inject in the **incremental path** (after `reused.co_change_matrix = ...` ~line 246):
+
+```rust
+        reused.ownership = input.ownership.as_ref().map(Arc::clone);
+```
+
+And in the incremental slow path (after `precomputed.co_change_matrix = ...` ~line 294):
+
+```rust
+        precomputed.ownership = input.ownership.as_ref().map(Arc::clone);
+```
+
+- [ ] **Step 6: Pass ownership_model into DetectInput in `src/engine/mod.rs`**
 
 In the `detect::detect_stage()` call (~line 370), add:
 
@@ -846,21 +904,21 @@ In the `detect::detect_stage()` call (~line 370), add:
                 ownership: ownership_model.clone(),
 ```
 
-- [ ] **Step 5: Verify it compiles**
+- [ ] **Step 7: Verify it compiles**
 
 Run: `cargo check`
 Expected: compiles clean
 
-- [ ] **Step 6: Run full test suite**
+- [ ] **Step 8: Run full test suite**
 
 Run: `cargo test`
 Expected: all existing tests pass (ownership is None everywhere in tests)
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
-git add src/detectors/analysis_context.rs src/engine/stages/detect.rs src/engine/mod.rs
-git commit -m "feat(detectors): add ownership field to AnalysisContext and DetectInput"
+git add src/detectors/analysis_context.rs src/engine/stages/detect.rs src/engine/mod.rs src/detectors/engine.rs
+git commit -m "feat(detectors): add ownership field to AnalysisContext, PrecomputedAnalysis, and DetectInput"
 ```
 
 ---
@@ -1299,7 +1357,7 @@ Key: file-to-node mapping. Iterate graph nodes, group by file, check centrality.
                 let file = interner.resolve(node.file_path).to_string();
                 let pr = prims.page_rank.get(&idx).copied().unwrap_or(0.0);
                 let bw = prims.betweenness.get(&idx).copied().unwrap_or(0.0);
-                let artic = prims.articulation_points.contains(&idx);
+                let artic = prims.articulation_point_set.contains(&idx);
 
                 let entry = file_centrality.entry(file).or_insert((0.0, 0.0, false));
                 if pr > entry.0 { entry.0 = pr; }
@@ -1386,7 +1444,15 @@ git commit -m "feat(detectors): add CriticalPathSingleOwner detector (bus factor
 
 Replace `compute_file_ownership()` to use OwnershipModel data.
 
-- [ ] **Step 1: Update `build_git_data()` to use OwnershipModel**
+- [ ] **Step 1: Add `project_bus_factor` field to GitData**
+
+In `src/reporters/report_context.rs`, add to the `GitData` struct (after `bus_factor_files`):
+
+```rust
+    pub project_bus_factor: Option<usize>,
+```
+
+- [ ] **Step 2: Update `build_git_data()` to use OwnershipModel**
 
 In `build_git_data()` (~line 169), replace the file_ownership and bus_factor_files computation:
 
@@ -1405,6 +1471,8 @@ In `build_git_data()` (~line 169), replace the file_ownership and bus_factor_fil
     } else {
         self.compute_file_ownership(graph)
     };
+
+    let project_bus_factor = self.ownership_model.as_ref().map(|o| o.project_bus_factor);
 ```
 
 This keeps backward compatibility — if ownership model isn't available, falls back to the old method.
@@ -1451,6 +1519,17 @@ fn render_knowledge_risk(ctx: &ReportContext) -> Option<String> {
 
     let mut out = String::new();
     out.push_str(&format!("\n{BOLD}Knowledge Risk{RESET}\n"));
+
+    // Project bus factor (from OwnershipModel via GitData)
+    if let Some(pbf) = git.project_bus_factor {
+        let interp = match pbf {
+            0 => " (critical)",
+            1 => " (high risk)",
+            2..=3 => " (moderate)",
+            _ => " (healthy)",
+        };
+        out.push_str(&format!("  Project bus factor: {pbf}{interp}\n"));
+    }
 
     // At-risk modules (aggregate by directory)
     let mut dir_risk: HashMap<String, (usize, usize)> = HashMap::new(); // (risky, total)
