@@ -1475,26 +1475,41 @@ In `build_git_data()` (~line 169), replace the file_ownership and bus_factor_fil
     let project_bus_factor = self.ownership_model.as_ref().map(|o| o.project_bus_factor);
 ```
 
+Then update the `Some(GitData { ... })` return at the end of `build_git_data()` (~line 223) to include:
+
+```rust
+    Some(GitData {
+        hidden_coupling,
+        top_co_change,
+        file_ownership,
+        bus_factor_files,
+        project_bus_factor,  // ← NEW — from OwnershipModel
+    })
+```
+
 This keeps backward compatibility — if ownership model isn't available, falls back to the old method.
 
-- [ ] **Step 2: Store ownership_model reference on AnalysisEngine**
+- [ ] **Step 3: Store ownership_model reference on AnalysisEngine**
 
-The engine needs to pass the `Arc<OwnershipModel>` to `build_git_data()`. The simplest approach: store it as a field after computation. In `src/engine/mod.rs`, add a field to `AnalysisEngine`:
+The engine needs to pass the `Arc<OwnershipModel>` to `build_git_data()`. In `src/engine/mod.rs`,
+add a field to `AnalysisEngine` (near other state fields):
 
 ```rust
     ownership_model: Option<Arc<crate::git::ownership::OwnershipModel>>,
 ```
 
-Set it after the ownership_enrich stage runs, and read it in `build_git_data()`.
+Initialize to `None` in `AnalysisEngine::new()` and any other constructor.
+After the ownership_enrich stage in `analyze()`, store it: `self.ownership_model = ownership_model.clone();`
+The `build_git_data()` method reads `self.ownership_model` via `&self`.
 
-- [ ] **Step 3: Verify compilation**
+- [ ] **Step 4: Verify compilation**
 
 Run: `cargo check`
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add src/engine/report_context.rs src/engine/mod.rs
+git add src/engine/report_context.rs src/engine/mod.rs src/reporters/report_context.rs
 git commit -m "feat(reporters): populate GitData from OwnershipModel instead of ExtraProps"
 ```
 
@@ -1673,7 +1688,7 @@ The treemap reuses `super::svg::treemap::render_treemap()` (already used for hot
             .map(|fo| super::svg::treemap::TreemapItem {
                 label: fo.path.clone(),
                 size: 1.0, // equal weight per file
-                color_value: fo.bus_factor as f64 / 5.0, // 0=red (bus_factor 0), 1=green (bus_factor 5+)
+                color_value: 1.0 - (fo.bus_factor as f64 / 5.0).min(1.0), // 0.0=green(healthy), 1.0=red(risky)
             })
             .collect();
 
