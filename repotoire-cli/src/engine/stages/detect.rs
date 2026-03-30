@@ -42,6 +42,9 @@ pub struct DetectInput<'a> {
     /// DOA-based file ownership model for bus factor analysis.
     pub ownership: Option<Arc<crate::git::ownership::OwnershipModel>>,
 
+    /// L3 cached node2vec embeddings for relational scoring.
+    pub cached_embeddings: Option<Arc<crate::predictive::embedding_scorer::CachedEmbeddings>>,
+
     /// Run all detectors including deep-scan detectors (default: false).
     pub all_detectors: bool,
 
@@ -141,10 +144,11 @@ pub fn detect_stage(input: &DetectInput) -> Result<DetectOutput> {
     // Inject pre-computed taint results into security detectors
     inject_taint_precomputed(&detectors, &precomputed.taint_results);
 
-    // Inject git churn data, co-change matrix, and ownership into precomputed analysis
+    // Inject git churn data, co-change matrix, ownership, and embeddings into precomputed analysis
     precomputed.git_churn = Arc::clone(&input.file_churn);
     precomputed.co_change_matrix = input.co_change_matrix.as_ref().map(Arc::clone);
     precomputed.ownership = input.ownership.as_ref().map(Arc::clone);
+    precomputed.cached_embeddings = input.cached_embeddings.as_ref().map(Arc::clone);
 
     // Build analysis context from precomputed data
     let ctx = precomputed.to_context(graph, &resolver);
@@ -251,6 +255,7 @@ fn detect_stage_incremental(
         reused.git_churn = Arc::clone(&input.file_churn);
         reused.co_change_matrix = input.co_change_matrix.as_ref().map(Arc::clone);
         reused.ownership = input.ownership.as_ref().map(Arc::clone);
+        reused.cached_embeddings = input.cached_embeddings.as_ref().map(Arc::clone);
 
         let needs_taint = detectors.iter().any(|d| d.taint_category().is_some());
         if needs_taint {
@@ -299,6 +304,7 @@ fn detect_stage_incremental(
         precomputed.git_churn = Arc::clone(&input.file_churn);
         precomputed.co_change_matrix = input.co_change_matrix.as_ref().map(Arc::clone);
         precomputed.ownership = input.ownership.as_ref().map(Arc::clone);
+        precomputed.cached_embeddings = input.cached_embeddings.as_ref().map(Arc::clone);
         precomputed
     };
     let precompute_duration = precompute_start.elapsed();

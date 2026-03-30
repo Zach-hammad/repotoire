@@ -54,7 +54,12 @@ impl Detector for HierarchicalSurprisalDetector {
         let contexts = &ctx.functions;
         let i = graph.interner();
         let mut engine = PredictiveCodingEngine::new();
-        engine.train_and_score(graph, files, contexts, None);
+        engine.train_and_score(
+            graph,
+            files,
+            contexts,
+            ctx.cached_embeddings.as_ref().map(|arc| arc.as_ref()),
+        );
 
         let surprising = engine.get_surprising_entities(2); // min concordance 2 for findings
 

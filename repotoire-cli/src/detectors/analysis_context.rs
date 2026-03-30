@@ -78,6 +78,10 @@ pub struct AnalysisContext<'g> {
     /// DOA-based file ownership model for bus factor analysis.
     /// `None` when ownership analysis is disabled or git history is unavailable.
     pub ownership: Option<Arc<crate::git::ownership::OwnershipModel>>,
+
+    /// L3 cached node2vec embeddings for relational scoring.
+    /// `None` when embeddings have not been computed yet.
+    pub cached_embeddings: Option<Arc<crate::predictive::embedding_scorer::CachedEmbeddings>>,
 }
 
 impl<'g> AnalysisContext<'g> {
@@ -230,6 +234,7 @@ impl<'g> AnalysisContext<'g> {
             co_change_summary: Arc::new(HashMap::new()),
             co_change_matrix: None,
             ownership: None,
+            cached_embeddings: None,
         }
     }
 
@@ -318,6 +323,7 @@ impl<'g> AnalysisContext<'g> {
             co_change_summary: Arc::new(HashMap::new()),
             co_change_matrix: None,
             ownership: None,
+            cached_embeddings: None,
         }
     }
 }

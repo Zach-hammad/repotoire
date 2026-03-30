@@ -347,6 +347,7 @@ mod tests {
             co_change_summary: Arc::new(HashMap::new()),
             co_change_matrix: None,
             ownership: None,
+            cached_embeddings: None,
         }
     }
 

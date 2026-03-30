@@ -52,6 +52,8 @@ pub struct PrecomputedAnalysis {
     pub co_change_matrix: Option<Arc<crate::git::co_change::CoChangeMatrix>>,
     /// DOA-based file ownership model for bus factor analysis.
     pub ownership: Option<Arc<crate::git::ownership::OwnershipModel>>,
+    /// L3 cached node2vec embeddings for relational scoring.
+    pub cached_embeddings: Option<Arc<crate::predictive::embedding_scorer::CachedEmbeddings>>,
 }
 
 impl Clone for PrecomputedAnalysis {
@@ -72,6 +74,7 @@ impl Clone for PrecomputedAnalysis {
             co_change_summary: Arc::clone(&self.co_change_summary),
             co_change_matrix: self.co_change_matrix.as_ref().map(Arc::clone),
             ownership: self.ownership.as_ref().map(Arc::clone),
+            cached_embeddings: self.cached_embeddings.as_ref().map(Arc::clone),
         }
     }
 }
@@ -104,6 +107,7 @@ impl PrecomputedAnalysis {
             co_change_summary: Arc::clone(&self.co_change_summary),
             co_change_matrix: self.co_change_matrix.as_ref().map(Arc::clone),
             ownership: self.ownership.as_ref().map(Arc::clone),
+            cached_embeddings: self.cached_embeddings.as_ref().map(Arc::clone),
         }
     }
 
@@ -146,6 +150,7 @@ impl PrecomputedAnalysis {
             co_change_summary: Arc::clone(&self.co_change_summary),
             co_change_matrix: self.co_change_matrix.as_ref().map(Arc::clone),
             ownership: self.ownership.as_ref().map(Arc::clone),
+            cached_embeddings: self.cached_embeddings.as_ref().map(Arc::clone),
         }
     }
 }
@@ -314,6 +319,7 @@ pub fn precompute_gd_startup(
         co_change_summary: Arc::new(HashMap::new()),
         co_change_matrix: None,
         ownership: None,
+        cached_embeddings: None,
     }
 }
 
