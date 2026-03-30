@@ -111,6 +111,10 @@ pub enum RelationalScorer {
 The `PredictiveCodingEngine` uses `RelationalScorer` — it calls `.distance(qn, contexts)`
 on whichever variant is active. The concordance logic doesn't change.
 
+**API note:** `EmbeddingRelationalScorer::distance()` ignores the `contexts` parameter (it uses
+its own quantized embeddings). The `contexts` param is kept in the signature for API compatibility
+with `GraphRelationalScorer` which needs it. This is an intentional unused parameter.
+
 ### `EmbeddingRelationalScorer`
 
 ```rust
@@ -197,8 +201,10 @@ CodeGraph (frozen, Arc)
         ├── load embeddings.bin
         ├── TurboQuantCodebook::new(dim=64, bits=4, same seed)
         ├── EmbeddingRelationalScorer { codebook, embeddings }
-        └── per function: knn_search_rerank(qn_embedding, all_embeddings, k=10)
-            → k-th neighbor distance → z-score
+        └── per function: knn_search(qn_embedding, all_embeddings, k=10)
+            → k-th neighbor ADC distance → z-score
+            (ADC-only, no reranking — reranking adds reconstruction
+             overhead that exceeds the scoring budget)
 ```
 
 ---
@@ -272,8 +278,8 @@ repotoire analyze . --format text --explain-score
 |-------|-------------|-------|
 | Background embedding computation | ~2-4s | Fire-and-forget, doesn't block |
 | Cache load (embeddings.bin) | <50ms | Bincode deserialize ~400KB |
-| L3 scoring per function | <1ms | ADC table build + kNN lookup |
-| L3 total (5000 functions) | <500ms | Within precompute budget |
+| L3 scoring per function | ~0.3ms | ADC table build (once) + scan 5000 entries |
+| L3 total (5000 functions) | ~1.5-2s | 5000 queries × 5000 entries × 64ns ADC. Acceptable — runs in parallel with other precompute work via rayon. |
 | Cache write (atomic) | <100ms | Bincode serialize + rename |
 
 ---
