@@ -453,7 +453,7 @@ mod tests {
         let mut labels = Vec::new();
 
         // Seed RNG for reproducible but varied synthetic data
-        let mut hash_seed = |i: usize, offset: usize| -> f64 {
+        let hash_seed = |i: usize, offset: usize| -> f64 {
             let mut h = DefaultHasher::new();
             (i * 137 + offset * 31).hash(&mut h);
             (h.finish() % 1000) as f64 / 1000.0

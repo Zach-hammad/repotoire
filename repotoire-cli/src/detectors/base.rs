@@ -635,7 +635,7 @@ mod tests {
 
     #[test]
     fn test_requires_graph_annotation_coverage() {
-        let tmp = tempfile::tempdir().expect("create tempdir");
+        let _tmp = tempfile::tempdir().expect("create tempdir");
         let init = crate::detectors::DetectorInit::test_default();
         let detectors = crate::detectors::create_all_detectors(&init);
 

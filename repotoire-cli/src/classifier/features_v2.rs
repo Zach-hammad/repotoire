@@ -452,7 +452,7 @@ mod tests {
     use super::*;
     use crate::graph::builder::GraphBuilder;
     use crate::graph::store_models::CodeNode;
-    use crate::graph::traits::GraphQueryExt;
+
     use crate::graph::CodeEdge;
     use std::collections::HashMap;
     use std::path::PathBuf;

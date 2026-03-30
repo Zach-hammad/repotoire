@@ -421,7 +421,7 @@ mod tests {
 
     #[test]
     fn test_build_module_metrics_empty_graph() {
-        let mut graph = GraphBuilder::new();
+        let graph = GraphBuilder::new();
         let metrics = build_module_metrics(&graph);
         assert!(metrics.is_empty());
     }
@@ -503,7 +503,7 @@ mod tests {
 
     #[test]
     fn test_build_class_cohesion_empty() {
-        let mut graph = GraphBuilder::new();
+        let graph = GraphBuilder::new();
         let cohesion = build_class_cohesion(&graph);
         assert!(cohesion.is_empty());
     }

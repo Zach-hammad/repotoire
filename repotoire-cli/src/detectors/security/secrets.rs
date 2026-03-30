@@ -549,7 +549,7 @@ mod tests {
     #[test]
     fn test_detects_hardcoded_aws_key() {
         let store = GraphBuilder::new().freeze();
-        let detector = SecretDetector::new("/mock/repo");
+        let _detector = SecretDetector::new("/mock/repo");
         // Use .rb extension: masking has no tree-sitter grammar for Ruby,
         let detector = SecretDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
@@ -612,7 +612,7 @@ mod tests {
     #[test]
     fn test_no_finding_for_password_field_definition() {
         let store = GraphBuilder::new().freeze();
-        let detector = SecretDetector::new("/mock/repo");
+        let _detector = SecretDetector::new("/mock/repo");
         // Use .rb -- no tree-sitter masking, content passes through
         let detector = SecretDetector::new("/mock/repo");
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![

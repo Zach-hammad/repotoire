@@ -429,7 +429,7 @@ mod tests {
             (f, d),
         ];
 
-        let (ap_vec, ap_set, bridges, _comp_sizes) =
+        let (_ap_vec, ap_set, bridges, _comp_sizes) =
             compute_articulation_points(&functions, &call_edges, &[], &[]);
 
         // c and d should be articulation points (bridge nodes)

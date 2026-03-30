@@ -279,7 +279,7 @@ mod tests {
 
     #[test]
     fn test_empty_graph() {
-        let mut graph = GraphBuilder::new();
+        let graph = GraphBuilder::new();
         let idx = ReachabilityIndex::build(&graph);
         assert_eq!(idx.reachable_count(), 0);
         assert!(!idx.is_reachable("anything"));
@@ -324,7 +324,7 @@ mod tests {
 
     #[test]
     fn test_build_decorator_index_empty() {
-        let mut graph = GraphBuilder::new();
+        let graph = GraphBuilder::new();
         let idx = build_decorator_index(&graph);
         assert!(idx.is_empty());
     }

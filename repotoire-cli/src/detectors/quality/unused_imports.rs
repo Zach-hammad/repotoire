@@ -476,7 +476,7 @@ mod tests {
     #[test]
     fn test_no_finding_for_type_checking_block() {
         let store = GraphBuilder::new().freeze();
-        let detector = UnusedImportsDetector::new("/mock/repo");
+        let _detector = UnusedImportsDetector::new("/mock/repo");
         // UserModel is only imported inside TYPE_CHECKING and never referenced
         // outside (only in string annotation "UserModel").
         let detector = UnusedImportsDetector::new("/mock/repo");

@@ -178,7 +178,7 @@ mod tests {
     #[test]
     fn test_detector_empty_graph_no_crash() {
         let store = GraphBuilder::new().freeze();
-        let files = MockFileProvider::new(vec![]);
+        let _files = MockFileProvider::new(vec![]);
         let detector = HierarchicalSurprisalDetector::new();
         let ctx = crate::detectors::analysis_context::AnalysisContext::test(&store);
         let findings = detector.detect(&ctx).expect("detection should succeed");

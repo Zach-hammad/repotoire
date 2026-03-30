@@ -450,6 +450,7 @@ mod tests {
         assert_eq!(Language::from_path(&h), Language::C);
     }
 
+    #[test]
     fn test_estimated_memory() {
         let info = LightweightFileInfo::empty(PathBuf::from("test.py"), Language::Python);
         let mem = info.estimated_memory();

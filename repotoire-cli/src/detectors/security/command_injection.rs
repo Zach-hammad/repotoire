@@ -627,7 +627,7 @@ mod tests {
     #[test]
     fn test_no_finding_for_exec_in_comment() {
         let store = GraphBuilder::new().freeze();
-        let detector = CommandInjectionDetector::new("/mock/repo");
+        let _detector = CommandInjectionDetector::new("/mock/repo");
         // The command_injection detector uses masked_content. In masked mode,
         // comments are NOT stripped by MockFileProvider (only Python triple-quoted strings are).
         // However, os.system in a JS/TS comment line won't have user input patterns,
