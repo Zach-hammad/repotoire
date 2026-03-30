@@ -75,11 +75,7 @@ fn detector_names(findings: &[serde_json::Value]) -> Vec<String> {
 fn test_csharp_produces_findings() {
     let (stdout, stderr, exit_code) = analyze_csharp_fixture();
 
-    assert_eq!(
-        exit_code, 0,
-        "Analysis should succeed. stderr: {}",
-        stderr
-    );
+    assert_eq!(exit_code, 0, "Analysis should succeed. stderr: {}", stderr);
 
     let findings = parse_findings(&stdout);
     let detectors = detector_names(&findings);
@@ -153,4 +149,3 @@ fn test_csharp_todo_detected() {
         detectors
     );
 }
-

@@ -71,13 +71,17 @@ impl CircularDependencyDetector {
 
             // Count imports between these files
             let gi = graph.interner();
-            let strength = graph.all_import_edges()
+            let strength = graph
+                .all_import_edges()
                 .iter()
                 .filter(|&&(src_idx, dst_idx)| {
-                    if let (Some(src_node), Some(dst_node)) = (graph.node_idx(src_idx), graph.node_idx(dst_idx)) {
+                    if let (Some(src_node), Some(dst_node)) =
+                        (graph.node_idx(src_idx), graph.node_idx(dst_idx))
+                    {
                         let src = src_node.qn(gi);
                         let dst = dst_node.qn(gi);
-                        (src == from || src.ends_with(&format!("/{}", from))) && (dst == to || dst.ends_with(&format!("/{}", to)))
+                        (src == from || src.ends_with(&format!("/{}", from)))
+                            && (dst == to || dst.ends_with(&format!("/{}", to)))
                     } else {
                         false
                     }
@@ -124,7 +128,9 @@ impl CircularDependencyDetector {
         let mut external_imports: HashMap<String, usize> = HashMap::new();
 
         for &(src_idx, dst_idx) in graph.all_import_edges() {
-            if let (Some(src_node), Some(dst_node)) = (graph.node_idx(src_idx), graph.node_idx(dst_idx)) {
+            if let (Some(src_node), Some(dst_node)) =
+                (graph.node_idx(src_idx), graph.node_idx(dst_idx))
+            {
                 let src = src_node.qn(gi);
                 let dst = dst_node.qn(gi);
                 // Count how many times a file in the SCC is imported from OUTSIDE the SCC
@@ -363,7 +369,10 @@ impl Detector for CircularDependencyDetector {
         true
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         debug!("Starting circular dependency detection");
 
@@ -428,8 +437,8 @@ impl crate::detectors::RegisteredDetector for CircularDependencyDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::{CodeEdge, CodeNode, NodeKind};
     use crate::graph::builder::GraphBuilder;
+    use crate::graph::{CodeEdge, CodeNode, NodeKind};
 
     #[test]
     fn test_severity_calculation() {
@@ -473,7 +482,10 @@ mod tests {
         store.add_edge_by_name("c.py", "a.py", CodeEdge::imports());
 
         let detector = CircularDependencyDetector::new();
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
 
         assert_eq!(findings.len(), 1);
@@ -494,7 +506,10 @@ mod tests {
         store.add_edge_by_name("b.py", "c.py", CodeEdge::imports());
 
         let detector = CircularDependencyDetector::new();
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
 
         assert!(findings.is_empty());

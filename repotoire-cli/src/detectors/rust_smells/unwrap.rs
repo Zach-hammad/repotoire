@@ -4,7 +4,7 @@ use anyhow::Result;
 use std::path::PathBuf;
 use tracing::info;
 
-use super::{EXPECT_CALL, has_meaningful_expect_message, is_safe_unwrap_context, UNWRAP_CALL};
+use super::{has_meaningful_expect_message, is_safe_unwrap_context, EXPECT_CALL, UNWRAP_CALL};
 
 pub struct UnwrapWithoutContextDetector {
     #[allow(dead_code)] // Part of detector pattern, used for file scanning
@@ -38,7 +38,10 @@ impl Detector for UnwrapWithoutContextDetector {
         &["rs"]
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let files = &ctx.as_file_provider();
         let mut findings = vec![];
 

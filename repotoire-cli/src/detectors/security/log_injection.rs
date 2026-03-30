@@ -9,8 +9,8 @@ use std::path::PathBuf;
 use std::sync::LazyLock;
 
 static LOG_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"(?i)(logger\.|log\.|console\.log|print\(|logging\.)").expect("valid regex")
-    });
+    Regex::new(r"(?i)(logger\.|log\.|console\.log|print\(|logging\.)").expect("valid regex")
+});
 
 pub struct LogInjectionDetector {
     repository_path: PathBuf,
@@ -56,7 +56,10 @@ impl Detector for LogInjectionDetector {
 
     // No content_requirements — logging is everywhere, don't filter
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let files = &ctx.as_file_provider();
         let mut findings = vec![];
@@ -115,7 +118,8 @@ impl Detector for LogInjectionDetector {
         let mut taint_results = if let Some(cross) = self.precomputed_cross.get() {
             cross.clone()
         } else {
-            self.taint_analyzer.trace_taint(graph, TaintCategory::LogInjection)
+            self.taint_analyzer
+                .trace_taint(graph, TaintCategory::LogInjection)
         };
         let intra_paths = if let Some(intra) = self.precomputed_intra.get() {
             intra.clone()
@@ -161,7 +165,6 @@ impl Detector for LogInjectionDetector {
     }
 }
 
-
 impl crate::detectors::RegisteredDetector for LogInjectionDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
         std::sync::Arc::new(Self::new(init.repo_path))
@@ -186,7 +189,9 @@ mod tests {
             "Should detect user input in log statement with f-string"
         );
         assert!(
-            findings.iter().any(|f| f.detector == "LogInjectionDetector"),
+            findings
+                .iter()
+                .any(|f| f.detector == "LogInjectionDetector"),
             "Finding should come from LogInjectionDetector"
         );
     }
@@ -219,7 +224,9 @@ mod tests {
             "Should detect console.log with user input via template literal"
         );
         assert!(
-            findings.iter().any(|f| f.cwe_id.as_deref() == Some("CWE-117")),
+            findings
+                .iter()
+                .any(|f| f.cwe_id.as_deref() == Some("CWE-117")),
             "Finding should have CWE-117"
         );
     }
@@ -237,7 +244,9 @@ mod tests {
             "Should detect logger.info with user input from request via f-string"
         );
         assert!(
-            findings.iter().any(|f| f.detector == "LogInjectionDetector"),
+            findings
+                .iter()
+                .any(|f| f.detector == "LogInjectionDetector"),
             "Finding should come from LogInjectionDetector"
         );
     }

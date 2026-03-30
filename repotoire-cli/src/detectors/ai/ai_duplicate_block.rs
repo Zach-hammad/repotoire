@@ -253,13 +253,15 @@ impl AIDuplicateBlockDetector {
             return Vec::new();
         }
 
-        let candidates = crate::detectors::ast_fingerprint::lsh_candidate_pairs_from_sigs(signatures);
+        let candidates =
+            crate::detectors::ast_fingerprint::lsh_candidate_pairs_from_sigs(signatures);
 
         debug!(
             "LSH: {} candidates from {} functions ({:.1}% of {:.0} total pairs)",
             candidates.len(),
             functions.len(),
-            candidates.len() as f64 / (functions.len() as f64 * (functions.len() - 1) as f64 / 2.0) * 100.0,
+            candidates.len() as f64 / (functions.len() as f64 * (functions.len() - 1) as f64 / 2.0)
+                * 100.0,
             functions.len() as f64 * (functions.len() - 1) as f64 / 2.0,
         );
 
@@ -292,8 +294,7 @@ impl AIDuplicateBlockDetector {
                     &signatures[func2.sig_idx],
                 );
                 // Size-adaptive threshold: small functions need higher similarity
-                let adaptive_threshold =
-                    self.size_adaptive_threshold(func1.loc, func2.loc);
+                let adaptive_threshold = self.size_adaptive_threshold(func1.loc, func2.loc);
                 if similarity >= adaptive_threshold {
                     Some((func1.clone(), func2.clone(), similarity))
                 } else {
@@ -557,10 +558,15 @@ impl Detector for AIDuplicateBlockDetector {
     }
 
     fn file_extensions(&self) -> &'static [&'static str] {
-        &["py", "js", "ts", "jsx", "tsx", "java", "go", "rs", "c", "cpp", "cs"]
+        &[
+            "py", "js", "ts", "jsx", "tsx", "java", "go", "rs", "c", "cpp", "cs",
+        ]
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let files = &ctx.as_file_provider();
         use rayon::prelude::*;
 
@@ -576,14 +582,32 @@ impl Detector for AIDuplicateBlockDetector {
                 let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
                 let has_functions = match ext {
                     "py" => content.contains("\ndef ") || content.starts_with("def "),
-                    "js" | "jsx" => content.contains("function ") || content.contains("=> ") || content.contains("=>{"),
-                    "ts" | "tsx" => content.contains("function ") || content.contains("=> ") || content.contains("=>{"),
+                    "js" | "jsx" => {
+                        content.contains("function ")
+                            || content.contains("=> ")
+                            || content.contains("=>{")
+                    }
+                    "ts" | "tsx" => {
+                        content.contains("function ")
+                            || content.contains("=> ")
+                            || content.contains("=>{")
+                    }
                     "go" => content.contains("\nfunc ") || content.starts_with("func "),
-                    "rs" => content.contains("\nfn ") || content.starts_with("fn ") || content.contains(" fn "),
-                    "java" => content.contains("void ") || content.contains("public ") || content.contains("private "),
+                    "rs" => {
+                        content.contains("\nfn ")
+                            || content.starts_with("fn ")
+                            || content.contains(" fn ")
+                    }
+                    "java" => {
+                        content.contains("void ")
+                            || content.contains("public ")
+                            || content.contains("private ")
+                    }
                     _ => true,
                 };
-                if !has_functions { return None; }
+                if !has_functions {
+                    return None;
+                }
                 Some((path.to_path_buf(), content, ext.to_string()))
             })
             .collect();
@@ -626,9 +650,12 @@ impl Detector for AIDuplicateBlockDetector {
                             let ast_size = fp.normalized_bigrams.len();
                             // Use pre-computed sig or compute from bigrams
                             let sig = fp.minhash_sig.unwrap_or_else(|| {
-                                crate::detectors::ast_fingerprint::compute_minhash_signature(&fp.normalized_bigrams)
+                                crate::detectors::ast_fingerprint::compute_minhash_signature(
+                                    &fp.normalized_bigrams,
+                                )
                             });
-                            let string_literals = extract_string_literals(content, fp.line_start, fp.line_end);
+                            let string_literals =
+                                extract_string_literals(content, fp.line_start, fp.line_end);
                             Some(FuncWithSig {
                                 qualified_name: format!("{}::{}", path_str, fp.name),
                                 name: fp.name,
@@ -647,30 +674,39 @@ impl Detector for AIDuplicateBlockDetector {
 
                 // Slow path: fallback to re-parsing (e.g. tests with MockFileProvider)
                 let lang = crate::parsers::lightweight::Language::from_extension(ext);
-                let functions = crate::detectors::ast_fingerprint::parse_functions_with_fingerprints(content, lang);
+                let functions =
+                    crate::detectors::ast_fingerprint::parse_functions_with_fingerprints(
+                        content, lang,
+                    );
 
-                functions.into_iter().filter_map(move |(func, fp)| {
-                    let loc = (func.line_end - func.line_start + 1) as usize;
-                    if loc < min_loc || fp.normalized_bigrams.is_empty() {
-                        return None;
-                    }
-                    let generic_ratio = calculate_generic_ratio(&fp.identifiers);
-                    let ast_size = fp.normalized_bigrams.len();
-                    let sig = crate::detectors::ast_fingerprint::compute_minhash_signature(&fp.normalized_bigrams);
-                    let string_literals = extract_string_literals(content, func.line_start, func.line_end);
-                    Some(FuncWithSig {
-                        qualified_name: format!("{}::{}", path_str, func.name),
-                        name: func.name,
-                        file_path: path_str.clone(),
-                        line_start: func.line_start,
-                        line_end: func.line_end,
-                        string_literals,
-                        loc,
-                        generic_ratio,
-                        ast_size,
-                        sig,
+                functions
+                    .into_iter()
+                    .filter_map(move |(func, fp)| {
+                        let loc = (func.line_end - func.line_start + 1) as usize;
+                        if loc < min_loc || fp.normalized_bigrams.is_empty() {
+                            return None;
+                        }
+                        let generic_ratio = calculate_generic_ratio(&fp.identifiers);
+                        let ast_size = fp.normalized_bigrams.len();
+                        let sig = crate::detectors::ast_fingerprint::compute_minhash_signature(
+                            &fp.normalized_bigrams,
+                        );
+                        let string_literals =
+                            extract_string_literals(content, func.line_start, func.line_end);
+                        Some(FuncWithSig {
+                            qualified_name: format!("{}::{}", path_str, func.name),
+                            name: func.name,
+                            file_path: path_str.clone(),
+                            line_start: func.line_start,
+                            line_end: func.line_end,
+                            string_literals,
+                            loc,
+                            generic_ratio,
+                            ast_size,
+                            sig,
+                        })
                     })
-                }).collect::<Vec<_>>()
+                    .collect::<Vec<_>>()
             })
             .collect();
 
@@ -681,9 +717,7 @@ impl Detector for AIDuplicateBlockDetector {
         let func_sigs: Vec<FuncWithSig> = func_sigs
             .into_iter()
             .filter(|fs| {
-                if let Some(graph_func) =
-                    ctx.graph.find_function_at(&fs.file_path, fs.line_start)
-                {
+                if let Some(graph_func) = ctx.graph.find_function_at(&fs.file_path, fs.line_start) {
                     let i = ctx.graph.interner();
                     let qn = graph_func.qn(i);
                     if ctx.is_test_function(qn) {
@@ -698,7 +732,10 @@ impl Detector for AIDuplicateBlockDetector {
                     true
                 } else {
                     if fs.name.starts_with("test_") {
-                        info!("AIDupBlock filter: find_function_at MISS for test fn {}:{} (file={})", fs.name, fs.line_start, fs.file_path);
+                        info!(
+                            "AIDupBlock filter: find_function_at MISS for test fn {}:{} (file={})",
+                            fs.name, fs.line_start, fs.file_path
+                        );
                     }
                     !fs.name.starts_with("test_")
                 }
@@ -771,7 +808,11 @@ mod tests {
         let sig1 = crate::detectors::ast_fingerprint::compute_minhash_signature(&set1);
         let sig2 = crate::detectors::ast_fingerprint::compute_minhash_signature(&set2);
         let sim = crate::detectors::ast_fingerprint::minhash_jaccard(&sig1, &sig2);
-        assert!(sim < 0.2, "Disjoint sets should have low Jaccard, got {}", sim);
+        assert!(
+            sim < 0.2,
+            "Disjoint sets should have low Jaccard, got {}",
+            sim
+        );
     }
 
     #[test]
@@ -817,7 +858,9 @@ mod tests {
                 "def process_order(info):\n    value = validate(info)\n    if value is None:\n        raise ValueError('invalid')\n    output = transform(value)\n    return output\n",
             ),
         ]);
-        let findings = detector.detect(&ctx).expect("should detect duplicate blocks");
+        let findings = detector
+            .detect(&ctx)
+            .expect("should detect duplicate blocks");
         assert!(
             !findings.is_empty(),
             "Should detect near-duplicate functions with same structure but different variable names"
@@ -846,7 +889,9 @@ mod tests {
                 "def export_csv(data, output_path):\n    with open(output_path, 'w') as f:\n        writer = csv.writer(f)\n        writer.writerow(data[0].keys())\n        for row in data:\n            writer.writerow(row.values())\n",
             ),
         ]);
-        let findings = detector.detect(&ctx).expect("should detect different functions");
+        let findings = detector
+            .detect(&ctx)
+            .expect("should detect different functions");
         assert!(
             findings.is_empty(),
             "Should not flag structurally different functions. Found: {:?}",

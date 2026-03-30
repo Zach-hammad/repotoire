@@ -174,9 +174,11 @@ fn test_go_findings_reference_smells_go() {
             f["affected_files"]
                 .as_array()
                 .map(|files| {
-                    files
-                        .iter()
-                        .any(|p| p.as_str().map(|s| s.ends_with("smells.go")).unwrap_or(false))
+                    files.iter().any(|p| {
+                        p.as_str()
+                            .map(|s| s.ends_with("smells.go"))
+                            .unwrap_or(false)
+                    })
                 })
                 .unwrap_or(false)
         })

@@ -133,9 +133,7 @@ fn suggest_constant_name(num: i64, context_line: &str) -> String {
     if line_lower.contains("width") || line_lower.contains("height") {
         return format!("DIMENSION_{}", num);
     }
-    if (200..600).contains(&num)
-        && (line_lower.contains("status") || line_lower.contains("http"))
-    {
+    if (200..600).contains(&num) && (line_lower.contains("status") || line_lower.contains("http")) {
         return format!("HTTP_STATUS_{}", num);
     }
 
@@ -161,20 +159,17 @@ impl MagicNumbersDetector {
         // Add common round numbers and powers of 2
         for &n in &[
             // Round multiples of 10/100
-            100, 110, 120, 150, 200, 250, 300, 350, 400, 450, 500, 600, 700, 800, 900,
-            1000, 1100, 1200, 1500, 2000, 2500, 3000, 5000, 10000, 20000, 50000, 100000,
+            100, 110, 120, 150, 200, 250, 300, 350, 400, 450, 500, 600, 700, 800, 900, 1000, 1100,
+            1200, 1500, 2000, 2500, 3000, 5000, 10000, 20000, 50000, 100000,
             // Powers of 2 and related
             128, 255, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65535, 65536,
             // HTTP status codes
-            200, 201, 204, 301, 302, 304, 400, 401, 403, 404, 405, 409,
-            422, 429, 500, 502, 503, 504,
-            // Common ports
+            200, 201, 204, 301, 302, 304, 400, 401, 403, 404, 405, 409, 422, 429, 500, 502, 503,
+            504, // Common ports
             443, 3000, 3306, 5432, 5672, 6379, 8000, 8080, 8443, 9090, 9200, 27017,
             // Angles
-            180, 270, 360, 365,
-            // Time constants
-            3600, 86400, 604800,
-            // File permissions
+            180, 270, 360, 365, // Time constants
+            3600, 86400, 604800, // File permissions
             644, 755, 777,
         ] {
             acceptable.insert(n);
@@ -209,10 +204,10 @@ impl MagicNumbersDetector {
         if match_start > 0 {
             let prev = line.as_bytes()[match_start - 1];
             // "3.14" — the "14" part
-            if prev == b'.'
-                && match_start >= 2 && line.as_bytes()[match_start - 2].is_ascii_digit() {
-                    return true;
-                }
+            if prev == b'.' && match_start >= 2 && line.as_bytes()[match_start - 2].is_ascii_digit()
+            {
+                return true;
+            }
             // "1e10" — the "10" part
             if prev == b'e' || prev == b'E' {
                 return true;
@@ -221,7 +216,10 @@ impl MagicNumbersDetector {
         if match_end < line.len() {
             let next = line.as_bytes()[match_end];
             // "42.0" — the "42" part
-            if next == b'.' && match_end + 1 < line.len() && line.as_bytes()[match_end + 1].is_ascii_digit() {
+            if next == b'.'
+                && match_end + 1 < line.len()
+                && line.as_bytes()[match_end + 1].is_ascii_digit()
+            {
                 return true;
             }
             // "42e3" — the "42" part
@@ -257,7 +255,11 @@ impl MagicNumbersDetector {
         }
 
         // ── Bit operations (shifts, hex literals) ─────────────────────────
-        if trimmed.contains("<<") || trimmed.contains(">>") || trimmed.contains("0x") || trimmed.contains("0X") {
+        if trimmed.contains("<<")
+            || trimmed.contains(">>")
+            || trimmed.contains("0x")
+            || trimmed.contains("0X")
+        {
             return true;
         }
 
@@ -265,7 +267,9 @@ impl MagicNumbersDetector {
         if trimmed.contains(" = ") {
             let lhs = trimmed.split('=').next().unwrap_or("").trim();
             if !lhs.is_empty()
-                && lhs.bytes().all(|c| c.is_ascii_uppercase() || c == b'_' || c == b' ')
+                && lhs
+                    .bytes()
+                    .all(|c| c.is_ascii_uppercase() || c == b'_' || c == b' ')
             {
                 return true;
             }
@@ -278,7 +282,11 @@ impl MagicNumbersDetector {
         // Rust match arm: `42 => ...` or `42 | 43 => ...`
         if trimmed.contains("=>") {
             let arm = trimmed.split("=>").next().unwrap_or("");
-            if arm.trim().chars().all(|c| c.is_ascii_digit() || c == ' ' || c == '|' || c == '_') {
+            if arm
+                .trim()
+                .chars()
+                .all(|c| c.is_ascii_digit() || c == ' ' || c == '|' || c == '_')
+            {
                 return true;
             }
         }
@@ -316,11 +324,17 @@ impl MagicNumbersDetector {
             return true;
         }
         // Color/CSS values
-        if line_lower.contains("color") || line_lower.contains("rgb(") || line_lower.contains("opacity") {
+        if line_lower.contains("color")
+            || line_lower.contains("rgb(")
+            || line_lower.contains("opacity")
+        {
             return true;
         }
         // Character codes / Unicode
-        if line_lower.contains("codepoint") || line_lower.contains("charcode") || line_lower.contains("\\u") {
+        if line_lower.contains("codepoint")
+            || line_lower.contains("charcode")
+            || line_lower.contains("\\u")
+        {
             return true;
         }
         // Epoch/timestamp
@@ -332,7 +346,10 @@ impl MagicNumbersDetector {
             return true;
         }
         // Explicit timeout/delay/interval naming
-        if line_lower.contains("timeout") || line_lower.contains("_delay") || line_lower.contains("_interval") {
+        if line_lower.contains("timeout")
+            || line_lower.contains("_delay")
+            || line_lower.contains("_interval")
+        {
             return true;
         }
         // CWE identifiers (e.g., CWE-561, "cwe_id")
@@ -340,7 +357,10 @@ impl MagicNumbersDetector {
             return true;
         }
         // CSS properties (font-weight, font-size, line-height, max-width, etc.)
-        if line_lower.contains("font-") || line_lower.contains("line-height") || line_lower.contains("max-width") {
+        if line_lower.contains("font-")
+            || line_lower.contains("line-height")
+            || line_lower.contains("max-width")
+        {
             return true;
         }
         // Year constants (1900-2100)
@@ -653,7 +673,11 @@ fn is_string_literal_line(trimmed: &str) -> bool {
                 if quoted_len as f64 / trimmed.len() as f64 > 0.5 {
                     // Check if there's a number outside the quoted region
                     let before_str = &trimmed[..f];
-                    let after_str = if l + 1 < trimmed.len() { &trimmed[l + 1..] } else { "" };
+                    let after_str = if l + 1 < trimmed.len() {
+                        &trimmed[l + 1..]
+                    } else {
+                        ""
+                    };
                     let has_number_outside = (before_str.bytes().any(|b| b.is_ascii_digit())
                         && !before_str.trim().is_empty())
                         || after_str.bytes().any(|b| b.is_ascii_digit());
@@ -666,7 +690,6 @@ fn is_string_literal_line(trimmed: &str) -> bool {
     }
     false
 }
-
 
 impl crate::detectors::RegisteredDetector for MagicNumbersDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
@@ -685,19 +708,21 @@ mod tests {
         let detector = MagicNumbersDetector::new("/mock/repo");
         // 9999 is a 4-digit number NOT in the acceptable set.
         // Must appear in 2+ files to be flagged (single-file findings are dropped).
-        let ctx =
-            crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
-                &store,
-                vec![
-                    ("logic.py", "def check(x):\n    if x > 9999:\n        return True\n"),
-                    ("validation.py", "def validate(x):\n    if x > 9999:\n        return False\n"),
-                ],
-            );
-        let findings = detector.detect(&ctx).expect("detection should succeed");
-        assert!(
-            !findings.is_empty(),
-            "Should detect magic number 9999"
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![
+                (
+                    "logic.py",
+                    "def check(x):\n    if x > 9999:\n        return True\n",
+                ),
+                (
+                    "validation.py",
+                    "def validate(x):\n    if x > 9999:\n        return False\n",
+                ),
+            ],
         );
+        let findings = detector.detect(&ctx).expect("detection should succeed");
+        assert!(!findings.is_empty(), "Should detect magic number 9999");
         assert!(
             findings.iter().any(|f| f.title.contains("9999")),
             "Finding should mention 9999. Titles: {:?}",
@@ -709,14 +734,13 @@ mod tests {
     fn test_no_finding_for_acceptable_numbers() {
         let store = GraphBuilder::new().freeze();
         let detector = MagicNumbersDetector::new("/mock/repo");
-        let ctx =
-            crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
-                &store,
-                vec![(
-                    "clean.py",
-                    "def check(x):\n    if x > 100:\n        return True\n",
-                )],
-            );
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "clean.py",
+                "def check(x):\n    if x > 100:\n        return True\n",
+            )],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
@@ -729,14 +753,13 @@ mod tests {
     fn test_skips_named_constants() {
         let store = GraphBuilder::new().freeze();
         let detector = MagicNumbersDetector::new("/mock/repo");
-        let ctx =
-            crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
-                &store,
-                vec![(
-                    "constants.rs",
-                    "const MAX_RETRIES: u32 = 42;\nstatic TIMEOUT: u64 = 3000;\nlet MAX_ITEMS = 99;\n",
-                )],
-            );
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "constants.rs",
+                "const MAX_RETRIES: u32 = 42;\nstatic TIMEOUT: u64 = 3000;\nlet MAX_ITEMS = 99;\n",
+            )],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
@@ -789,14 +812,10 @@ mod tests {
     fn test_skips_float_literals() {
         let store = GraphBuilder::new().freeze();
         let detector = MagicNumbersDetector::new("/mock/repo");
-        let ctx =
-            crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
-                &store,
-                vec![(
-                    "math.py",
-                    "def area(r):\n    return 3.14 * r * r\n",
-                )],
-            );
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![("math.py", "def area(r):\n    return 3.14 * r * r\n")],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
@@ -809,14 +828,10 @@ mod tests {
     fn test_skips_enum_values() {
         let store = GraphBuilder::new().freeze();
         let detector = MagicNumbersDetector::new("/mock/repo");
-        let ctx =
-            crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
-                &store,
-                vec![(
-                    "enums.py",
-                    "STATUS_OK = 42\nERROR_CODE = 99\n",
-                )],
-            );
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![("enums.py", "STATUS_OK = 42\nERROR_CODE = 99\n")],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
@@ -829,14 +844,10 @@ mod tests {
     fn test_skips_assertions() {
         let store = GraphBuilder::new().freeze();
         let detector = MagicNumbersDetector::new("/mock/repo");
-        let ctx =
-            crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
-                &store,
-                vec![(
-                    "check.py",
-                    "def validate():\n    assert len(items) == 42\n",
-                )],
-            );
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![("check.py", "def validate():\n    assert len(items) == 42\n")],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
@@ -849,14 +860,13 @@ mod tests {
     fn test_skips_range_expressions() {
         let store = GraphBuilder::new().freeze();
         let detector = MagicNumbersDetector::new("/mock/repo");
-        let ctx =
-            crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
-                &store,
-                vec![(
-                    "range.rs",
-                    "fn foo() {\n    for i in 0..42 {\n        println!(\"{}\", i);\n    }\n}\n",
-                )],
-            );
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "range.rs",
+                "fn foo() {\n    for i in 0..42 {\n        println!(\"{}\", i);\n    }\n}\n",
+            )],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
@@ -898,21 +908,28 @@ mod tests {
         assert!(!is_conditional_or_arithmetic("    const TIMEOUT = 750;"));
         assert!(!is_conditional_or_arithmetic("    let timeout = 750"));
         assert!(!is_conditional_or_arithmetic("    set_timeout(750)"));
-        assert!(!is_conditional_or_arithmetic("    values := [1, 2, 750, 4]"));
+        assert!(!is_conditional_or_arithmetic(
+            "    values := [1, 2, 750, 4]"
+        ));
     }
 
     #[test]
     fn test_skips_test_file_paths() {
         let store = GraphBuilder::new().freeze();
         let detector = MagicNumbersDetector::new("/mock/repo");
-        let ctx =
-            crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
-                &store,
-                vec![
-                    ("tests/test_billing.py", "def test_apply():\n    if total > 9999:\n        pass\n"),
-                    ("src/billing.test.ts", "it('applies', () => {\n    if (total > 9999) {}\n});\n"),
-                ],
-            );
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![
+                (
+                    "tests/test_billing.py",
+                    "def test_apply():\n    if total > 9999:\n        pass\n",
+                ),
+                (
+                    "src/billing.test.ts",
+                    "it('applies', () => {\n    if (total > 9999) {}\n});\n",
+                ),
+            ],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),

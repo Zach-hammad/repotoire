@@ -20,8 +20,8 @@
 //! Requires co-change data — returns empty findings when unavailable.
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use crate::graph::GraphQueryExt;
 use crate::graph::interner::global_interner;
+use crate::graph::GraphQueryExt;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use std::collections::HashSet;
@@ -130,7 +130,11 @@ fn compute_propagation(
     }
 
     let propagation_rate = co_changing_caller_files as f32 / total_caller_files as f32;
-    Some((propagation_rate, co_changing_caller_files, total_caller_files))
+    Some((
+        propagation_rate,
+        co_changing_caller_files,
+        total_caller_files,
+    ))
 }
 
 impl Detector for ShotgunSurgeryDetector {
@@ -358,9 +362,9 @@ impl crate::detectors::RegisteredDetector for ShotgunSurgeryDetector {
 mod tests {
     use super::*;
     use crate::detectors::analysis_context::AnalysisContext;
-    use crate::graph::{CodeEdge, CodeNode};
-    use crate::graph::builder::GraphBuilder;
     use crate::git::co_change::CoChangeMatrix;
+    use crate::graph::builder::GraphBuilder;
+    use crate::graph::{CodeEdge, CodeNode};
     use std::sync::Arc;
 
     #[test]

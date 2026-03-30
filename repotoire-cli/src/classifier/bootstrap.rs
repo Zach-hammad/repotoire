@@ -68,7 +68,11 @@ pub fn mine_labels(findings: &[Finding], repo_path: &Path) -> Vec<WeakLabel> {
     let repo = match git2::Repository::discover(repo_path) {
         Ok(r) => r,
         Err(e) => {
-            tracing::debug!("bootstrap: could not open repo at {}: {}", repo_path.display(), e);
+            tracing::debug!(
+                "bootstrap: could not open repo at {}: {}",
+                repo_path.display(),
+                e
+            );
             return Vec::new();
         }
     };
@@ -156,16 +160,9 @@ fn find_fix_commit_files(repo: &git2::Repository) -> HashSet<String> {
             Err(_) => continue,
         };
 
-        let parent_tree = commit
-            .parent(0)
-            .ok()
-            .and_then(|p| p.tree().ok());
+        let parent_tree = commit.parent(0).ok().and_then(|p| p.tree().ok());
 
-        let diff = match repo.diff_tree_to_tree(
-            parent_tree.as_ref(),
-            Some(&tree),
-            None,
-        ) {
+        let diff = match repo.diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), None) {
             Ok(d) => d,
             Err(_) => continue,
         };
@@ -226,16 +223,9 @@ fn find_stable_files(repo: &git2::Repository) -> HashSet<String> {
             Err(_) => continue,
         };
 
-        let parent_tree = commit
-            .parent(0)
-            .ok()
-            .and_then(|p| p.tree().ok());
+        let parent_tree = commit.parent(0).ok().and_then(|p| p.tree().ok());
 
-        let diff = match repo.diff_tree_to_tree(
-            parent_tree.as_ref(),
-            Some(&tree),
-            None,
-        ) {
+        let diff = match repo.diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), None) {
             Ok(d) => d,
             Err(_) => continue,
         };
@@ -317,15 +307,13 @@ mod tests {
     #[test]
     fn test_mine_labels_no_repo() {
         // Pass a nonexistent path — should return empty labels, not panic
-        let findings = vec![
-            Finding {
-                id: "f-001".to_string(),
-                detector: "test_detector".to_string(),
-                affected_files: vec![PathBuf::from("src/main.rs")],
-                line_start: Some(10),
-                ..Default::default()
-            },
-        ];
+        let findings = vec![Finding {
+            id: "f-001".to_string(),
+            detector: "test_detector".to_string(),
+            affected_files: vec![PathBuf::from("src/main.rs")],
+            line_start: Some(10),
+            ..Default::default()
+        }];
 
         let labels = mine_labels(&findings, Path::new("/nonexistent/path/to/repo"));
         assert!(labels.is_empty());

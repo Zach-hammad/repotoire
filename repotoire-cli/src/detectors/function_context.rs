@@ -5,9 +5,9 @@
 
 #![allow(dead_code)] // Module under development - structs/helpers used in tests only
 
+use crate::graph::builder::GraphBuilder;
 use crate::graph::interner::StrKey;
 use crate::graph::{GraphQuery, GraphQueryExt};
-    use crate::graph::builder::GraphBuilder;
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use tracing::{debug, info};
@@ -171,7 +171,10 @@ impl<'a> FunctionContextBuilder<'a> {
             return HashMap::new();
         }
 
-        info!("Building function context for {} functions (legacy path)", func_count);
+        info!(
+            "Building function context for {} functions (legacy path)",
+            func_count
+        );
 
         let (adj, rev_adj, _qn_to_idx) = self.graph.get_call_adjacency();
         let file_paths: Vec<&str> = functions.iter().map(|f| f.path(i)).collect();
@@ -183,13 +186,23 @@ impl<'a> FunctionContextBuilder<'a> {
             .map(|f| {
                 self.graph
                     .node_by_name_idx(f.qn(i))
-                    .map(|(idx, _)| self.graph.primitives().betweenness.get(&idx).copied().unwrap_or(0.0))
+                    .map(|(idx, _)| {
+                        self.graph
+                            .primitives()
+                            .betweenness
+                            .get(&idx)
+                            .copied()
+                            .unwrap_or(0.0)
+                    })
                     .unwrap_or(0.0)
             })
             .collect();
         let max_betweenness = raw_betweenness.iter().cloned().fold(0.0_f64, f64::max);
         let normalized_betweenness: Vec<f64> = if max_betweenness > 0.0 {
-            raw_betweenness.iter().map(|b| b / max_betweenness).collect()
+            raw_betweenness
+                .iter()
+                .map(|b| b / max_betweenness)
+                .collect()
         } else {
             vec![0.0; raw_betweenness.len()]
         };
@@ -209,13 +222,18 @@ impl<'a> FunctionContextBuilder<'a> {
                     .iter()
                     .map(|&callee_idx| self.extract_module(file_paths[callee_idx]))
                     .collect();
-                let betweenness_score = normalized_betweenness
-                    .get(idx)
-                    .copied()
-                    .unwrap_or(0.0);
-                let call_depth = self.graph
+                let betweenness_score = normalized_betweenness.get(idx).copied().unwrap_or(0.0);
+                let call_depth = self
+                    .graph
                     .node_by_name_idx(qn)
-                    .map(|(ni, _)| self.graph.primitives().call_depth.get(&ni).copied().unwrap_or(0))
+                    .map(|(ni, _)| {
+                        self.graph
+                            .primitives()
+                            .call_depth
+                            .get(&ni)
+                            .copied()
+                            .unwrap_or(0)
+                    })
                     .unwrap_or(0);
                 let is_test = self.is_test_path(func.path(i))
                     || self.has_test_decorator(func.qualified_name, i);
@@ -223,19 +241,30 @@ impl<'a> FunctionContextBuilder<'a> {
                 let is_exported = func.get_bool("is_exported").unwrap_or(false)
                     || func.get_bool("is_public").unwrap_or(false);
                 let role = self.infer_role(
-                    in_degree, out_degree, caller_modules.len(), betweenness_score,
-                    is_exported, is_test, is_in_utility_module, call_depth,
+                    in_degree,
+                    out_degree,
+                    caller_modules.len(),
+                    betweenness_score,
+                    is_exported,
+                    is_test,
+                    is_in_utility_module,
+                    call_depth,
                 );
                 FunctionContext {
                     qualified_name: qn.to_string(),
                     name: func.node_name(i).to_string(),
                     file_path: func.path(i).to_string(),
                     module: self.extract_module(func.path(i)),
-                    in_degree, out_degree,
+                    in_degree,
+                    out_degree,
                     betweenness: betweenness_score,
                     caller_modules: caller_modules.len(),
                     callee_modules: callee_modules.len(),
-                    call_depth, role, is_exported, is_test, is_in_utility_module,
+                    call_depth,
+                    role,
+                    is_exported,
+                    is_test,
+                    is_in_utility_module,
                     complexity: func.complexity_opt(),
                     loc: func.loc(),
                 }
@@ -263,7 +292,10 @@ impl<'a> FunctionContextBuilder<'a> {
             return HashMap::new();
         }
 
-        info!("Building function context for {} functions (indexed path)", func_count);
+        info!(
+            "Building function context for {} functions (indexed path)",
+            func_count
+        );
 
         // Build a local NodeIndex -> usize map for adjacency arrays
         let ni_to_local: HashMap<petgraph::stable_graph::NodeIndex, usize> = func_node_idxs
@@ -288,22 +320,27 @@ impl<'a> FunctionContextBuilder<'a> {
         // Pre-extract file paths
         let file_paths: Vec<&str> = func_node_idxs
             .iter()
-            .map(|&ni| {
-                self.graph
-                    .node_idx(ni)
-                    .map(|n| n.path(i))
-                    .unwrap_or("")
-            })
+            .map(|&ni| self.graph.node_idx(ni).map(|n| n.path(i)).unwrap_or(""))
             .collect();
 
         // Read raw betweenness from graph primitives (O(1) per node) and normalize to [0, 1].
         let raw_betweenness: Vec<f64> = func_node_idxs
             .iter()
-            .map(|&ni| self.graph.primitives().betweenness.get(&ni).copied().unwrap_or(0.0))
+            .map(|&ni| {
+                self.graph
+                    .primitives()
+                    .betweenness
+                    .get(&ni)
+                    .copied()
+                    .unwrap_or(0.0)
+            })
             .collect();
         let max_betweenness = raw_betweenness.iter().cloned().fold(0.0_f64, f64::max);
         let normalized_betweenness: Vec<f64> = if max_betweenness > 0.0 {
-            raw_betweenness.iter().map(|b| b / max_betweenness).collect()
+            raw_betweenness
+                .iter()
+                .map(|b| b / max_betweenness)
+                .collect()
         } else {
             vec![0.0; raw_betweenness.len()]
         };
@@ -336,7 +373,13 @@ impl<'a> FunctionContextBuilder<'a> {
                     .copied()
                     .unwrap_or(0.0);
 
-                let call_depth = self.graph.primitives().call_depth.get(&ni).copied().unwrap_or(0);
+                let call_depth = self
+                    .graph
+                    .primitives()
+                    .call_depth
+                    .get(&ni)
+                    .copied()
+                    .unwrap_or(0);
 
                 let is_test = self.is_test_path(func.path(i))
                     || self.has_test_decorator(func.qualified_name, i);
@@ -482,7 +525,11 @@ impl<'a> FunctionContextBuilder<'a> {
     }
 
     /// Check if function has a test decorator (#[test], @pytest.mark, etc.)
-    fn has_test_decorator(&self, qn: crate::graph::interner::StrKey, i: &crate::graph::interner::StringInterner) -> bool {
+    fn has_test_decorator(
+        &self,
+        qn: crate::graph::interner::StrKey,
+        i: &crate::graph::interner::StringInterner,
+    ) -> bool {
         // Try NodeIndex-based API first (zero-copy reference)
         let ep = self.graph.extra_props_ref(qn).or({
             // Fallback: old API (returns owned clone)
@@ -560,8 +607,8 @@ impl<'a> FunctionContextBuilder<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::{CodeEdge, CodeNode};
     use crate::graph::builder::GraphBuilder;
+    use crate::graph::{CodeEdge, CodeNode};
 
     fn setup_test_graph() -> crate::graph::CodeGraph {
         let mut builder = GraphBuilder::new();
@@ -577,7 +624,8 @@ mod tests {
         builder
             .add_node(CodeNode::function("entry3", "api/handler.go").with_qualified_name("entry3"));
         builder.add_node(CodeNode::function("hub", "core/processor.go").with_qualified_name("hub"));
-        builder.add_node(CodeNode::function("util", "utils/helpers.go").with_qualified_name("util"));
+        builder
+            .add_node(CodeNode::function("util", "utils/helpers.go").with_qualified_name("util"));
         builder.add_node(
             CodeNode::function("leaf1", "core/processor.go").with_qualified_name("leaf1"),
         );

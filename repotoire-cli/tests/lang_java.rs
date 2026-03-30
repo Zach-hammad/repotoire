@@ -91,7 +91,9 @@ fn java_detects_sql_injection() {
     let (report, _) = analyze_java();
     let detectors = detector_names(&report);
     assert!(
-        detectors.iter().any(|d| d.contains("SQL") || d.contains("sql")),
+        detectors
+            .iter()
+            .any(|d| d.contains("SQL") || d.contains("sql")),
         "Should detect SQL injection. Found detectors: {:?}",
         detectors
     );
@@ -103,7 +105,9 @@ fn java_detects_insecure_crypto() {
     let detectors = detector_names(&report);
     // InsecureCryptoDetector now fires on Java (DES/MD5/ECB detection)
     assert!(
-        detectors.iter().any(|d| d.contains("crypto") || d.contains("Crypto")),
+        detectors
+            .iter()
+            .any(|d| d.contains("crypto") || d.contains("Crypto")),
         "InsecureCryptoDetector should detect DES/MD5/ECB in Java. Found: {:?}",
         detectors
     );
@@ -114,7 +118,9 @@ fn java_detects_xxe() {
     let (report, _) = analyze_java();
     let detectors = detector_names(&report);
     assert!(
-        detectors.iter().any(|d| d.contains("xxe") || d.contains("XXE") || d.contains("Xxe")),
+        detectors
+            .iter()
+            .any(|d| d.contains("xxe") || d.contains("XXE") || d.contains("Xxe")),
         "Should detect XXE via DocumentBuilderFactory. Found detectors: {:?}",
         detectors
     );
@@ -168,9 +174,7 @@ fn java_detects_command_injection() {
     let (report, _) = analyze_java();
     let detectors = detector_names(&report);
     assert!(
-        detectors
-            .iter()
-            .any(|d| d.contains("CommandInjection")),
+        detectors.iter().any(|d| d.contains("CommandInjection")),
         "CommandInjectionDetector should fire on Java fixture. Found: {:?}",
         detectors
     );
@@ -191,10 +195,7 @@ fn java_has_security_findings() {
                 .as_str()
                 .map(|c| c.to_lowercase().contains("security"))
                 .unwrap_or(false)
-                || matches!(
-                    f["severity"].as_str(),
-                    Some("critical") | Some("high")
-                )
+                || matches!(f["severity"].as_str(), Some("critical") | Some("high"))
         })
         .count();
 
@@ -215,9 +216,11 @@ fn java_findings_reference_smells_java() {
         f["affected_files"]
             .as_array()
             .map(|files| {
-                files
-                    .iter()
-                    .any(|p| p.as_str().map(|s| s.contains("Smells.java")).unwrap_or(false))
+                files.iter().any(|p| {
+                    p.as_str()
+                        .map(|s| s.contains("Smells.java"))
+                        .unwrap_or(false)
+                })
             })
             .unwrap_or(false)
     });

@@ -78,7 +78,10 @@ impl Detector for MutualRecursionDetector {
         true
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let gi = graph.interner();
 
@@ -124,30 +127,33 @@ impl Detector for MutualRecursionDetector {
             // Skip recursive descent / visitor patterns: cycles where functions
             // in the same file mutually recurse through a dispatcher. This is the
             // standard pattern for AST visitors, recursive parsers, and tree walkers.
-            let cycle_files: HashSet<&str> = cycle.iter()
+            let cycle_files: HashSet<&str> = cycle
+                .iter()
                 .filter_map(|&idx| graph.node_idx(idx).map(|n| n.path(gi)))
                 .collect();
             if cycle_files.len() == 1 {
                 // All functions in same file — check for visitor/dispatcher names
-                let has_visitor_name = cycle.iter()
-                    .filter_map(|&idx| graph.node_idx(idx))
-                    .any(|n| {
-                        let name = n.qn(gi).to_lowercase();
-                        let short = name.rsplit("::").next().unwrap_or(&name);
-                        short.starts_with("visit")
-                            || short.starts_with("convert")
-                            || short.starts_with("process")
-                            || short.starts_with("handle")
-                            || short.starts_with("dispatch")
-                            || short.starts_with("parse")
-                            || short.starts_with("walk")
-                            || short.starts_with("transform")
-                            || short.starts_with("traverse")
-                            || short.starts_with("analyze")
-                            || short.starts_with("infer")
-                            || short.starts_with("extract")
-                            || short.contains("_to_")
-                    });
+                let has_visitor_name =
+                    cycle
+                        .iter()
+                        .filter_map(|&idx| graph.node_idx(idx))
+                        .any(|n| {
+                            let name = n.qn(gi).to_lowercase();
+                            let short = name.rsplit("::").next().unwrap_or(&name);
+                            short.starts_with("visit")
+                                || short.starts_with("convert")
+                                || short.starts_with("process")
+                                || short.starts_with("handle")
+                                || short.starts_with("dispatch")
+                                || short.starts_with("parse")
+                                || short.starts_with("walk")
+                                || short.starts_with("transform")
+                                || short.starts_with("traverse")
+                                || short.starts_with("analyze")
+                                || short.starts_with("infer")
+                                || short.starts_with("extract")
+                                || short.contains("_to_")
+                        });
                 if has_visitor_name {
                     continue;
                 }
@@ -177,7 +183,11 @@ impl Detector for MutualRecursionDetector {
                 func_names.join(" -> ")
             } else {
                 let first_few: Vec<&str> = func_names.iter().take(6).map(|s| s.as_str()).collect();
-                format!("{} ... (+{} more)", first_few.join(" -> "), func_names.len() - 6)
+                format!(
+                    "{} ... (+{} more)",
+                    first_few.join(" -> "),
+                    func_names.len() - 6
+                )
             };
 
             let description = format!(
@@ -235,10 +245,7 @@ impl Detector for MutualRecursionDetector {
         // Sort by severity (highest first).
         findings.sort_by(|a, b| b.severity.cmp(&a.severity));
 
-        debug!(
-            "MutualRecursionDetector found {} findings",
-            findings.len()
-        );
+        debug!("MutualRecursionDetector found {} findings", findings.len());
 
         Ok(findings)
     }
@@ -246,7 +253,9 @@ impl Detector for MutualRecursionDetector {
 
 impl crate::detectors::RegisteredDetector for MutualRecursionDetector {
     fn create(init: &crate::detectors::DetectorInit) -> Arc<dyn Detector> {
-        Arc::new(Self::with_config(init.config_for("MutualRecursionDetector")))
+        Arc::new(Self::with_config(
+            init.config_for("MutualRecursionDetector"),
+        ))
     }
 }
 
@@ -280,7 +289,11 @@ mod tests {
         let findings = detector.detect(&ctx).expect("detection should succeed");
 
         assert_eq!(findings.len(), 1, "Should detect exactly one call cycle");
-        assert_eq!(findings[0].severity, Severity::Low, "Pair should be Low severity");
+        assert_eq!(
+            findings[0].severity,
+            Severity::Low,
+            "Pair should be Low severity"
+        );
         assert!(
             findings[0].description.contains("2 functions"),
             "Should mention 2 functions: {}",
@@ -316,7 +329,11 @@ mod tests {
         let findings = detector.detect(&ctx).expect("detection should succeed");
 
         assert_eq!(findings.len(), 1, "Should detect exactly one call cycle");
-        assert_eq!(findings[0].severity, Severity::Medium, "Triangle should be Medium");
+        assert_eq!(
+            findings[0].severity,
+            Severity::Medium,
+            "Triangle should be Medium"
+        );
     }
 
     #[test]
@@ -346,10 +363,7 @@ mod tests {
 
         let mut nodes = Vec::new();
         for i in 0..6 {
-            let n = builder.add_node(CodeNode::function(
-                &format!("f{}", i),
-                "big.py",
-            ));
+            let n = builder.add_node(CodeNode::function(&format!("f{}", i), "big.py"));
             nodes.push(n);
         }
         for i in 0..6 {
@@ -357,8 +371,7 @@ mod tests {
         }
 
         let graph = builder.freeze();
-        let config = DetectorConfig::new()
-            .with_option("max_cycle_size", serde_json::json!(3));
+        let config = DetectorConfig::new().with_option("max_cycle_size", serde_json::json!(3));
         let detector = MutualRecursionDetector::with_config(config);
 
         let ctx = crate::detectors::analysis_context::AnalysisContext::test(&graph);

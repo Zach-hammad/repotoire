@@ -34,8 +34,8 @@ use crate::models::{Finding, Severity};
 #[derive(Clone, Debug)]
 pub enum AgentStatus {
     Running,
-    Completed(bool), // success
-    Failed(#[allow(dead_code)] String),  // error message
+    Completed(bool),                    // success
+    Failed(#[allow(dead_code)] String), // error message
 }
 
 /// Represents a running agent task
@@ -84,8 +84,12 @@ impl AgentTask {
 
     /// Cancel/kill the running agent process
     fn cancel(&mut self) -> bool {
-        let Some(ref mut child) = self.child else { return false; };
-        if child.kill().is_err() { return false; }
+        let Some(ref mut child) = self.child else {
+            return false;
+        };
+        if child.kill().is_err() {
+            return false;
+        }
         self.status = AgentStatus::Failed("Cancelled by user".to_string());
         self.child = None;
         true

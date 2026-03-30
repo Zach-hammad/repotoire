@@ -49,7 +49,12 @@ fn confirm(prompt: &str) -> Result<bool> {
 }
 
 /// Display a single finding in dry-run mode with colored patch or manual steps
-fn display_dry_run_finding(term: &Term, idx: usize, finding: &Finding, rule_fix: &RuleFix) -> Result<()> {
+fn display_dry_run_finding(
+    term: &Term,
+    idx: usize,
+    finding: &Finding,
+    rule_fix: &RuleFix,
+) -> Result<()> {
     term.write_line(&format!(
         "{}",
         style(format!("═══ Finding #{} ═══", idx)).cyan().bold()
@@ -220,7 +225,12 @@ fn send_fix_applied_telemetry(
 }
 
 /// Run fixes for all fixable findings
-fn run_batch_fix(path: &Path, findings: &[Finding], options: FixOptions, telemetry: &crate::telemetry::Telemetry) -> Result<()> {
+fn run_batch_fix(
+    path: &Path,
+    findings: &[Finding],
+    options: FixOptions,
+    telemetry: &crate::telemetry::Telemetry,
+) -> Result<()> {
     let term = Term::stderr();
 
     // Find all findings that have rule-based fixes available
@@ -449,8 +459,13 @@ fn apply_rule_fix(
     let new_content = match detector {
         "UnusedImportsDetector" => {
             // Remove the import lines
-            lines.iter().enumerate()
-                .filter(|(i, _)| { let n = i + 1; n < line_start || n > line_end })
+            lines
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| {
+                    let n = i + 1;
+                    n < line_start || n > line_end
+                })
                 .map(|(_, line)| *line)
                 .collect::<Vec<_>>()
                 .join("\n")
@@ -479,7 +494,13 @@ fn apply_rule_fix(
 }
 
 /// Run fix for a single finding
-fn run_single_fix(path: &Path, finding: &Finding, index: usize, options: FixOptions, telemetry: &crate::telemetry::Telemetry) -> Result<()> {
+fn run_single_fix(
+    path: &Path,
+    finding: &Finding,
+    index: usize,
+    options: FixOptions,
+    telemetry: &crate::telemetry::Telemetry,
+) -> Result<()> {
     // If --no-ai flag is set, use rule-based fixes directly
     if options.no_ai {
         return run_rule_fix(path, finding, index, options, telemetry);
@@ -528,11 +549,7 @@ fn display_colored_diff(term: &Term, diff: &str) -> Result<()> {
 }
 
 /// Display AI fix metadata (title, confidence, description, rationale, diff).
-fn display_ai_fix_details(
-    term: &Term,
-    fix: &crate::ai::FixProposal,
-    path: &Path,
-) -> Result<()> {
+fn display_ai_fix_details(term: &Term, fix: &crate::ai::FixProposal, path: &Path) -> Result<()> {
     term.write_line(&format!("{} {}\n", style("Fix:").green().bold(), fix.title))?;
 
     term.write_line(&format!(
@@ -689,7 +706,16 @@ fn run_ai_fix(
     let fix = generator.generate_fix_with_retry(finding, path, 2)?;
 
     display_ai_fix_details(&term, &fix, path)?;
-    apply_ai_fix(&term, &fix, path, finding, index, options, ai_provider_name, telemetry)?;
+    apply_ai_fix(
+        &term,
+        &fix,
+        path,
+        finding,
+        index,
+        options,
+        ai_provider_name,
+        telemetry,
+    )?;
 
     // Save fix proposal
     let fixes_dir = crate::cache::cache_dir(path).join("fixes");
@@ -707,7 +733,13 @@ fn run_ai_fix(
 }
 
 /// Run rule-based fix generation (no AI required)
-fn run_rule_fix(path: &Path, finding: &Finding, index: usize, options: FixOptions, telemetry: &crate::telemetry::Telemetry) -> Result<()> {
+fn run_rule_fix(
+    path: &Path,
+    finding: &Finding,
+    index: usize,
+    options: FixOptions,
+    telemetry: &crate::telemetry::Telemetry,
+) -> Result<()> {
     let term = Term::stderr();
 
     term.write_line(&format!(
@@ -734,7 +766,9 @@ fn run_rule_fix(path: &Path, finding: &Finding, index: usize, options: FixOption
 
     // Try to generate a rule-based fix
     match generate_rule_fix(finding, path) {
-        Some(rule_fix) => display_rule_fix(&term, &rule_fix, finding, index, options, path, telemetry),
+        Some(rule_fix) => {
+            display_rule_fix(&term, &rule_fix, finding, index, options, path, telemetry)
+        }
         None => display_fallback_suggestion(&term, finding),
     }
 }
@@ -832,7 +866,11 @@ fn display_rule_fix(
             style(format!("repotoire fix {} --apply", index)).cyan()
         ))?;
     } else if rule_fix.auto_applicable && rule_fix.patch.is_some() && should_apply {
-        let confirmed = if options.auto { true } else { confirm("Apply this fix?")? };
+        let confirmed = if options.auto {
+            true
+        } else {
+            confirm("Apply this fix?")?
+        };
 
         if !confirmed {
             send_fix_applied_telemetry(path, finding, false, false, None, telemetry);

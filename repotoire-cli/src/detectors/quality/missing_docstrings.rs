@@ -130,7 +130,10 @@ impl Detector for MissingDocstringsDetector {
         &["py"]
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let i = graph.interner();
         let mut findings = vec![];
@@ -213,7 +216,8 @@ impl Detector for MissingDocstringsDetector {
 
                     let context_notes = format!("\n\n**Analysis:**\n{}", notes.join("\n"));
 
-                    let template = Self::generate_template(func.node_name(i), func.param_count_opt(), ext);
+                    let template =
+                        Self::generate_template(func.node_name(i), func.param_count_opt(), ext);
 
                     findings.push(Finding {
                         id: String::new(),
@@ -261,7 +265,6 @@ impl Detector for MissingDocstringsDetector {
     }
 }
 
-
 impl crate::detectors::RegisteredDetector for MissingDocstringsDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
         std::sync::Arc::new(Self::new(init.repo_path))
@@ -271,8 +274,8 @@ impl crate::detectors::RegisteredDetector for MissingDocstringsDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::{CodeNode};
     use crate::graph::builder::GraphBuilder;
+    use crate::graph::CodeNode;
 
     #[test]
     fn test_detects_missing_docstring() {
@@ -301,7 +304,10 @@ mod tests {
         );
 
         let detector = MissingDocstringsDetector::new(dir.path());
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
@@ -338,7 +344,10 @@ mod tests {
         );
 
         let detector = MissingDocstringsDetector::new(dir.path());
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),

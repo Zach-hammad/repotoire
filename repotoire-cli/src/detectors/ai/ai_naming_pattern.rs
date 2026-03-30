@@ -22,9 +22,12 @@ use std::path::PathBuf;
 use std::sync::LazyLock;
 use tracing::{debug, info};
 
-static FUNC_DEF_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(\s*)def\s+(\w+)\s*\(").expect("valid regex"));
-static ASSIGNMENT_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s+(\w+)\s*=\s").expect("valid regex"));
-static FOR_LOOP_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s+for\s+(\w+)\s+in\s").expect("valid regex"));
+static FUNC_DEF_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^(\s*)def\s+(\w+)\s*\(").expect("valid regex"));
+static ASSIGNMENT_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^\s+(\w+)\s*=\s").expect("valid regex"));
+static FOR_LOOP_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^\s+for\s+(\w+)\s+in\s").expect("valid regex"));
 
 /// Default configuration
 const DEFAULT_GENERIC_RATIO_THRESHOLD: f64 = 0.4; // 40%
@@ -436,10 +439,15 @@ impl Detector for AINamingPatternDetector {
     }
 
     fn file_extensions(&self) -> &'static [&'static str] {
-        &["py", "js", "ts", "jsx", "tsx", "java", "go", "rs", "c", "cpp", "cs"]
+        &[
+            "py", "js", "ts", "jsx", "tsx", "java", "go", "rs", "c", "cpp", "cs",
+        ]
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let files = &ctx.as_file_provider();
         let mut findings = Vec::new();
 
@@ -530,7 +538,9 @@ impl Detector for AINamingPatternDetector {
                         if let Some(m) = caps.get(1) {
                             let name = m.as_str().to_string();
                             // Skip private names and ignored
-                            if !name.starts_with('_') && !self.ignored_set.contains(&name.to_lowercase()) {
+                            if !name.starts_with('_')
+                                && !self.ignored_set.contains(&name.to_lowercase())
+                            {
                                 identifiers.push(name);
                             }
                         }
@@ -587,10 +597,7 @@ impl Detector for AINamingPatternDetector {
         }
 
         findings.truncate(self.max_findings);
-        info!(
-            "AINamingPatternDetector found {} findings",
-            findings.len()
-        );
+        info!("AINamingPatternDetector found {} findings", findings.len());
         Ok(findings)
     }
 }
@@ -695,7 +702,9 @@ mod tests {
         let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
             ("users.py", "def create_user(username, email, password):\n    hashed_password = hash_password(password)\n    user = User(username=username, email=email)\n    user.set_password(hashed_password)\n    user.save()\n    confirmation_email = build_welcome_email(user)\n    send_email(confirmation_email)\n    return user\n"),
         ]);
-        let findings = detector.detect(&ctx).expect("should detect domain-specific naming");
+        let findings = detector
+            .detect(&ctx)
+            .expect("should detect domain-specific naming");
         assert!(
             findings.is_empty(),
             "Should not flag function with domain-specific names. Found: {:?}",

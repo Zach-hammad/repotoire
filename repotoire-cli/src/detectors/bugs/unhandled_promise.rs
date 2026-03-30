@@ -16,9 +16,10 @@ use std::sync::LazyLock;
 use tracing::info;
 
 static PROMISE_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"(new Promise|\.then\(|fetch\(|axios\.|\.json\(\))").expect("valid regex")
-    });
-static ASYNC_FUNC: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"async\s+(function\s+)?(\w+)").expect("valid regex"));
+    Regex::new(r"(new Promise|\.then\(|fetch\(|axios\.|\.json\(\))").expect("valid regex")
+});
+static ASYNC_FUNC: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"async\s+(function\s+)?(\w+)").expect("valid regex"));
 
 pub struct UnhandledPromiseDetector {
     #[allow(dead_code)] // Part of detector pattern, used for file scanning
@@ -30,7 +31,10 @@ impl UnhandledPromiseDetector {
     crate::detectors::detector_new!(50);
 
     /// Find all async functions in the codebase
-    fn find_async_functions(&self, files: &dyn crate::detectors::file_provider::FileProvider) -> HashSet<String> {
+    fn find_async_functions(
+        &self,
+        files: &dyn crate::detectors::file_provider::FileProvider,
+    ) -> HashSet<String> {
         let mut async_funcs = HashSet::new();
 
         for path in files.files_with_extensions(&["js", "ts", "jsx", "tsx"]) {
@@ -58,7 +62,6 @@ impl UnhandledPromiseDetector {
             || combined.contains("token")
             || combined.contains("credential")
     }
-
 }
 
 impl Detector for UnhandledPromiseDetector {
@@ -73,7 +76,10 @@ impl Detector for UnhandledPromiseDetector {
         &["js", "ts", "jsx", "tsx"]
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let files = &ctx.as_file_provider();
         let mut findings = vec![];
@@ -226,8 +232,14 @@ impl Detector for UnhandledPromiseDetector {
                         let is_critical = Self::is_critical_context(line, &context);
                         let containing_func =
                             graph.find_function_at(&path_str, (i + 1) as u32).map(|f| {
-                                let callers = graph.get_callers(f.qn(crate::graph::interner::global_interner())).len();
-                                (f.node_name(crate::graph::interner::global_interner()).to_string(), callers)
+                                let callers = graph
+                                    .get_callers(f.qn(crate::graph::interner::global_interner()))
+                                    .len();
+                                (
+                                    f.node_name(crate::graph::interner::global_interner())
+                                        .to_string(),
+                                    callers,
+                                )
                             });
 
                         // Calculate severity
@@ -318,7 +330,6 @@ impl Detector for UnhandledPromiseDetector {
         Ok(findings)
     }
 }
-
 
 impl crate::detectors::RegisteredDetector for UnhandledPromiseDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {

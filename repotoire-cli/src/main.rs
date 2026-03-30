@@ -26,10 +26,7 @@ fn main() -> Result<()> {
     let default_filter = cli.log_level.as_filter_str();
     tracing_subscriber::registry()
         .with(fmt::layer().with_writer(std::io::stderr))
-        .with(
-            EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new(default_filter)),
-        )
+        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_filter)))
         .init();
 
     // Initialize telemetry (no-op if disabled)

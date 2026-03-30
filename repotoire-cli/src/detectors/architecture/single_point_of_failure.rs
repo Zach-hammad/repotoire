@@ -80,7 +80,10 @@ impl Detector for SinglePointOfFailureDetector {
         true
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let gi = graph.interner();
 
@@ -94,7 +97,14 @@ impl Detector for SinglePointOfFailureDetector {
         // Collect all PageRank values for percentile computation.
         let mut all_ranks: Vec<f64> = functions
             .iter()
-            .map(|&idx| graph.primitives().page_rank.get(&idx).copied().unwrap_or(0.0))
+            .map(|&idx| {
+                graph
+                    .primitives()
+                    .page_rank
+                    .get(&idx)
+                    .copied()
+                    .unwrap_or(0.0)
+            })
             .collect();
         all_ranks.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
@@ -104,7 +114,12 @@ impl Detector for SinglePointOfFailureDetector {
         const ENTRY_POINT_NAMES: &[&str] = &["main", "run", "start", "init"];
 
         for &func_idx in functions {
-            let dominated = graph.primitives().dominated.get(&func_idx).map(|v| v.as_slice()).unwrap_or(&[]);
+            let dominated = graph
+                .primitives()
+                .dominated
+                .get(&func_idx)
+                .map(|v| v.as_slice())
+                .unwrap_or(&[]);
             let dom_count = dominated.len();
 
             if dom_count < self.min_dominated {
@@ -132,12 +147,21 @@ impl Detector for SinglePointOfFailureDetector {
                 continue;
             }
 
-            let page_rank = graph.primitives().page_rank.get(&func_idx).copied().unwrap_or(0.0);
-            let frontier = graph.primitives().frontier.get(&func_idx).map(|v| v.as_slice()).unwrap_or(&[]);
+            let page_rank = graph
+                .primitives()
+                .page_rank
+                .get(&func_idx)
+                .copied()
+                .unwrap_or(0.0);
+            let frontier = graph
+                .primitives()
+                .frontier
+                .get(&func_idx)
+                .map(|v| v.as_slice())
+                .unwrap_or(&[]);
 
             // Compute PageRank percentile.
-            let rank_pos = all_ranks
-                .partition_point(|&r| r < page_rank);
+            let rank_pos = all_ranks.partition_point(|&r| r < page_rank);
             let percentile = if all_ranks.is_empty() {
                 0.0
             } else {
@@ -186,12 +210,7 @@ impl Detector for SinglePointOfFailureDetector {
                 "`{}` dominates {} of {} functions ({:.1}%). \
                  PageRank percentile: {:.0}%. \
                  Blast radius boundary: {}",
-                func_name,
-                dom_count,
-                total_functions,
-                dom_pct,
-                percentile,
-                frontier_display,
+                func_name, dom_count, total_functions, dom_pct, percentile, frontier_display,
             );
 
             findings.push(Finding {
@@ -240,7 +259,9 @@ impl Detector for SinglePointOfFailureDetector {
 
 impl crate::detectors::RegisteredDetector for SinglePointOfFailureDetector {
     fn create(init: &crate::detectors::DetectorInit) -> Arc<dyn Detector> {
-        Arc::new(Self::with_config(init.config_for("SinglePointOfFailureDetector")))
+        Arc::new(Self::with_config(
+            init.config_for("SinglePointOfFailureDetector"),
+        ))
     }
 }
 
@@ -273,8 +294,7 @@ mod tests {
         let graph = build_domination_graph();
 
         // With min_dominated=2, auth dominates handler+db+helpers (3 nodes).
-        let config = DetectorConfig::new()
-            .with_option("min_dominated", serde_json::json!(2));
+        let config = DetectorConfig::new().with_option("min_dominated", serde_json::json!(2));
         let detector = SinglePointOfFailureDetector::with_config(config);
 
         let ctx = crate::detectors::analysis_context::AnalysisContext::test(&graph);
@@ -286,16 +306,15 @@ mod tests {
             "Should detect at least one single point of failure"
         );
 
-        let detectors: Vec<&str> = findings
-            .iter()
-            .map(|f| f.description.as_str())
-            .collect();
+        let detectors: Vec<&str> = findings.iter().map(|f| f.description.as_str()).collect();
 
         // At least one finding should mention "auth" or "entry" dominating.
-        let has_domination = findings.iter().any(|f| {
-            f.description.contains("dominates")
-        });
-        assert!(has_domination, "Findings should describe domination: {:?}", detectors);
+        let has_domination = findings.iter().any(|f| f.description.contains("dominates"));
+        assert!(
+            has_domination,
+            "Findings should describe domination: {:?}",
+            detectors
+        );
     }
 
     #[test]
@@ -303,8 +322,7 @@ mod tests {
         let graph = build_domination_graph();
 
         // With min_dominated=100, nothing should trigger.
-        let config = DetectorConfig::new()
-            .with_option("min_dominated", serde_json::json!(100));
+        let config = DetectorConfig::new().with_option("min_dominated", serde_json::json!(100));
         let detector = SinglePointOfFailureDetector::with_config(config);
 
         let ctx = crate::detectors::analysis_context::AnalysisContext::test(&graph);
@@ -340,8 +358,7 @@ mod tests {
 
         // With min_dominated=2, `main` passes count threshold but should be
         // skipped because "main" is an entry point.
-        let config = DetectorConfig::new()
-            .with_option("min_dominated", serde_json::json!(2));
+        let config = DetectorConfig::new().with_option("min_dominated", serde_json::json!(2));
         let detector = SinglePointOfFailureDetector::with_config(config);
         let ctx = crate::detectors::analysis_context::AnalysisContext::test(&graph);
         let findings = detector.detect(&ctx).expect("detection should succeed");
@@ -371,8 +388,7 @@ mod tests {
         }
         let graph = builder.freeze();
 
-        let config = DetectorConfig::new()
-            .with_option("min_dominated", serde_json::json!(2));
+        let config = DetectorConfig::new().with_option("min_dominated", serde_json::json!(2));
         let detector = SinglePointOfFailureDetector::with_config(config);
         let ctx = crate::detectors::analysis_context::AnalysisContext::test(&graph);
         let findings = detector.detect(&ctx).expect("detection should succeed");

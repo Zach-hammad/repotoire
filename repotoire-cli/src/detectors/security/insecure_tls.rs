@@ -394,7 +394,10 @@ impl Detector for InsecureTlsDetector {
     fn bypass_postprocessor(&self) -> bool {
         true
     }
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         debug!("Starting insecure TLS detection");
         let fp = ctx.as_file_provider();
         let extensions: &[&str] = &[
@@ -407,7 +410,8 @@ impl Detector for InsecureTlsDetector {
                 file_list.push((path, content.as_ref().clone()));
             }
         }
-        let file_refs: Vec<(&Path, &str)> = file_list.iter().map(|(p, c)| (*p, c.as_str())).collect();
+        let file_refs: Vec<(&Path, &str)> =
+            file_list.iter().map(|(p, c)| (*p, c.as_str())).collect();
         let findings = self.scan_files(&file_refs);
         info!("InsecureTlsDetector found {} findings", findings.len());
         Ok(findings)
@@ -427,7 +431,6 @@ impl Detector for InsecureTlsDetector {
         crate::detectors::detector_context::ContentFlags::HAS_CRYPTO
     }
 }
-
 
 impl crate::detectors::RegisteredDetector for InsecureTlsDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
@@ -475,7 +478,8 @@ mod tests {
     fn test_rust_danger_accept() {
         let detector = InsecureTlsDetector::new(Path::new("."));
         let path = Path::new("client.rs");
-        let content = "let client = reqwest::Client::builder().danger_accept_invalid_certs(true).build()?;\n";
+        let content =
+            "let client = reqwest::Client::builder().danger_accept_invalid_certs(true).build()?;\n";
         let findings = detector.scan_files(&[(path, content)]);
         assert!(
             !findings.is_empty(),

@@ -8,18 +8,21 @@ pub mod store_models;
 pub mod traits;
 
 // ── Builder/Frozen architecture ──
-pub mod indexes;
 pub mod builder;
-pub mod frozen;
 pub mod compat;
+pub mod frozen;
+pub mod indexes;
 pub mod metrics_cache;
-pub mod primitives;
 pub mod persistence;
+pub mod primitives;
 
 #[allow(unused_imports)] // Public API for downstream use
 pub use interner::{StrKey, StringInterner};
 pub use store_models::{CodeEdge, CodeNode, EdgeKind, NodeKind};
-pub use store_models::{ExtraProps, FLAG_IS_ASYNC, FLAG_IS_EXPORTED, FLAG_IS_PUBLIC, FLAG_IS_METHOD, FLAG_ADDRESS_TAKEN, FLAG_HAS_DECORATORS};
+pub use store_models::{
+    ExtraProps, FLAG_ADDRESS_TAKEN, FLAG_HAS_DECORATORS, FLAG_IS_ASYNC, FLAG_IS_EXPORTED,
+    FLAG_IS_METHOD, FLAG_IS_PUBLIC,
+};
 
 pub use traits::GraphQuery;
 pub use traits::GraphQueryExt;

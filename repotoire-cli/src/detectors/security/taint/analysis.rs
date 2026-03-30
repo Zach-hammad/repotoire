@@ -414,7 +414,8 @@ impl TaintAnalyzer {
     }
 
     /// Add code injection sinks and sanitizers
-    fn add_code_patterns(&mut self) { // repotoire:ignore[mutual-recursion]
+    fn add_code_patterns(&mut self) {
+        // repotoire:ignore[mutual-recursion]
         let mut sinks = HashSet::new();
         for pattern in &[
             // Python
@@ -571,9 +572,7 @@ impl TaintAnalyzer {
         // Find sink functions FIRST — if none exist, skip entirely
         let sink_funcs: Vec<_> = functions
             .iter()
-            .filter(|f| {
-                self.is_sink(f.node_name(i), category) || self.is_sink(f.qn(i), category)
-            })
+            .filter(|f| self.is_sink(f.node_name(i), category) || self.is_sink(f.qn(i), category))
             .collect();
 
         if sink_funcs.is_empty() {
@@ -581,10 +580,7 @@ impl TaintAnalyzer {
         }
 
         // Build sink set ONCE (outside source loop)
-        let sink_qns: HashSet<&str> = sink_funcs
-            .iter()
-            .map(|f| f.qn(i))
-            .collect();
+        let sink_qns: HashSet<&str> = sink_funcs.iter().map(|f| f.qn(i)).collect();
 
         // Find source functions
         let source_funcs: Vec<_> = functions
@@ -599,12 +595,7 @@ impl TaintAnalyzer {
 
         // BFS from each source to find paths to sinks
         for source in &source_funcs {
-            let source_paths = self.bfs_to_sinks(
-                graph,
-                source.qn(i),
-                &sink_qns,
-                category,
-            );
+            let source_paths = self.bfs_to_sinks(graph, source.qn(i), &sink_qns, category);
 
             for (sink_qn, call_chain, sanitizer) in source_paths {
                 if let Some(sink) = sink_funcs.iter().find(|f| f.qn(i) == sink_qn) {
@@ -644,7 +635,10 @@ impl TaintAnalyzer {
         // Strong signal: route decorator — always a source
         // Check has_decorators flag first (cheap), then resolve from ExtraProps
         let has_route_decorator = func.has_decorators() && {
-            if let Some(dec_key) = graph.extra_props(func.qualified_name).and_then(|ep| ep.decorators) {
+            if let Some(dec_key) = graph
+                .extra_props(func.qualified_name)
+                .and_then(|ep| ep.decorators)
+            {
                 let d = i.resolve(dec_key);
                 d.contains("@app.route")
                     || d.contains("@router")
@@ -841,9 +835,7 @@ impl TaintAnalyzer {
         for callee in &callees {
             let callee_name = callee.node_name(i);
             let callee_qn = callee.qn(i);
-            if self.is_sink(callee_name, category)
-                || self.is_sink(callee_qn, category)
-            {
+            if self.is_sink(callee_name, category) || self.is_sink(callee_qn, category) {
                 // Direct call to sink from this function
                 let is_sanitized = callees.iter().any(|c| {
                     self.is_sanitizer(c.node_name(i), category)
@@ -1032,12 +1024,7 @@ pub fn run_intra_function_taint(
         // Run intra-function analysis
         let func_name = func.node_name(i);
         let paths = analyzer.analyze_intra_function(
-            &func_body,
-            func_name,
-            func_path,
-            line_start,
-            language,
-            category,
+            &func_body, func_name, func_path, line_start, language, category,
         );
 
         all_paths.extend(paths);

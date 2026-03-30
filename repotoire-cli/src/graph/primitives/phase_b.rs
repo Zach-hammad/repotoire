@@ -10,10 +10,9 @@ use rayon::prelude::*;
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BinaryHeap, HashMap, HashSet};
 
+use crate::git::co_change::CoChangeMatrix;
 use crate::graph::interner::StrKey;
 use crate::graph::store_models::{CodeEdge, CodeNode};
-use crate::git::co_change::CoChangeMatrix;
-
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Phase B: Weighted overlay + community detection
@@ -28,25 +27,50 @@ pub(super) fn compute_weighted_phase(
     co_change: &CoChangeMatrix,
     graph: &StableGraph<CodeNode, CodeEdge>,
     edge_fingerprint: u64,
-) -> (HashMap<NodeIndex, f64>, HashMap<NodeIndex, f64>, HashMap<NodeIndex, usize>, f64, Vec<(NodeIndex, NodeIndex, f32, f32, f32)>) {
+) -> (
+    HashMap<NodeIndex, f64>,
+    HashMap<NodeIndex, f64>,
+    HashMap<NodeIndex, usize>,
+    f64,
+    Vec<(NodeIndex, NodeIndex, f32, f32, f32)>,
+) {
     let (overlay, hidden_coupling) = build_weighted_overlay(
-        functions, files, all_call_edges, all_import_edges, co_change, graph,
+        functions,
+        files,
+        all_call_edges,
+        all_import_edges,
+        co_change,
+        graph,
     );
 
     if overlay.node_count() == 0 {
-        return (HashMap::new(), HashMap::new(), HashMap::new(), 0.0, hidden_coupling);
+        return (
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            0.0,
+            hidden_coupling,
+        );
     }
 
     // Run weighted algorithms in parallel
     let (weighted_pr, (weighted_bw, (community, modularity))) = rayon::join(
         || compute_weighted_page_rank(&overlay, 20, 0.85, 1e-6),
-        || rayon::join(
-            || compute_weighted_betweenness(&overlay, 200, edge_fingerprint),
-            || compute_communities(&overlay, 1.0),
-        ),
+        || {
+            rayon::join(
+                || compute_weighted_betweenness(&overlay, 200, edge_fingerprint),
+                || compute_communities(&overlay, 1.0),
+            )
+        },
     );
 
-    (weighted_pr, weighted_bw, community, modularity, hidden_coupling)
+    (
+        weighted_pr,
+        weighted_bw,
+        community,
+        modularity,
+        hidden_coupling,
+    )
 }
 
 /// Build a temporary weighted overlay graph merging structural edges with
@@ -67,7 +91,10 @@ pub(super) fn build_weighted_overlay(
     all_import_edges: &[(NodeIndex, NodeIndex)],
     co_change: &CoChangeMatrix,
     graph: &StableGraph<CodeNode, CodeEdge>,
-) -> (StableGraph<NodeIndex, f32>, Vec<(NodeIndex, NodeIndex, f32, f32, f32)>) {
+) -> (
+    StableGraph<NodeIndex, f32>,
+    Vec<(NodeIndex, NodeIndex, f32, f32, f32)>,
+) {
     // 1. Build idx_map: original NodeIndex → overlay NodeIndex
     let mut overlay: StableGraph<NodeIndex, f32> = StableGraph::new();
     let mut idx_map: HashMap<NodeIndex, NodeIndex> = HashMap::new();
@@ -82,7 +109,10 @@ pub(super) fn build_weighted_overlay(
     for &func_idx in functions {
         let node = &graph[func_idx];
         let file_key = node.file_path;
-        file_to_functions.entry(file_key).or_default().push(func_idx);
+        file_to_functions
+            .entry(file_key)
+            .or_default()
+            .push(func_idx);
     }
 
     // 3. Process structural edges with deduplication
@@ -156,27 +186,45 @@ pub(super) fn build_weighted_overlay(
             let node = &graph[file_idx];
             let path = si.resolve(node.file_path);
             if let Some((dir, _)) = path.rsplit_once('/') {
-                dir_to_files.entry(dir.to_string()).or_default().push(node.file_path);
+                dir_to_files
+                    .entry(dir.to_string())
+                    .or_default()
+                    .push(node.file_path);
             }
         }
 
         // For each directory, find the index/mod/init file and connect it to siblings
         for (_dir, file_keys) in &dir_to_files {
             // Find aggregator files (mod.rs, __init__.py, index.ts, etc.)
-            let aggregators: Vec<StrKey> = file_keys.iter().copied().filter(|&k| {
-                let name = si.resolve(k);
-                let basename = name.rsplit('/').next().unwrap_or(name);
-                matches!(basename,
-                    "mod.rs" | "__init__.py" | "index.ts" | "index.js" |
-                    "index.tsx" | "index.jsx" | "index.mjs" | "mod.go"
-                )
-            }).collect();
+            let aggregators: Vec<StrKey> = file_keys
+                .iter()
+                .copied()
+                .filter(|&k| {
+                    let name = si.resolve(k);
+                    let basename = name.rsplit('/').next().unwrap_or(name);
+                    matches!(
+                        basename,
+                        "mod.rs"
+                            | "__init__.py"
+                            | "index.ts"
+                            | "index.js"
+                            | "index.tsx"
+                            | "index.jsx"
+                            | "index.mjs"
+                            | "mod.go"
+                    )
+                })
+                .collect();
 
             // Connect each aggregator to all other files in the same directory
             for &agg in &aggregators {
                 for &sibling in file_keys {
                     if agg != sibling {
-                        let (lo, hi) = if agg <= sibling { (agg, sibling) } else { (sibling, agg) };
+                        let (lo, hi) = if agg <= sibling {
+                            (agg, sibling)
+                        } else {
+                            (sibling, agg)
+                        };
                         structurally_connected_files.insert((lo, hi));
                     }
                 }
@@ -203,7 +251,11 @@ pub(super) fn build_weighted_overlay(
                 if let Some(second_hop) = adjacency.get(&neighbor) {
                     for &distant in second_hop {
                         if distant != file {
-                            let (lo, hi) = if file <= distant { (file, distant) } else { (distant, file) };
+                            let (lo, hi) = if file <= distant {
+                                (file, distant)
+                            } else {
+                                (distant, file)
+                            };
                             two_hop.push((lo, hi));
                         }
                     }
@@ -218,13 +270,14 @@ pub(super) fn build_weighted_overlay(
 
     // 5. Hidden coupling: co-change pairs with NO structural edges between files
     //    (after containment + 2-hop filtering)
-    let mut hidden_coupling: Vec<(NodeIndex, NodeIndex, f32, f32, f32)> = Vec::new();  // (file_a, file_b, weight, lift, confidence)
+    let mut hidden_coupling: Vec<(NodeIndex, NodeIndex, f32, f32, f32)> = Vec::new(); // (file_a, file_b, weight, lift, confidence)
 
     // Compute adaptive hub threshold: p90 of coupling degrees.
     // Files in the top 10% by coupling degree are hubs (infrastructure files
     // that co-change with everything). Adapts to repo size automatically.
     let hub_threshold = {
-        let mut degrees: Vec<usize> = co_change.iter()
+        let mut degrees: Vec<usize> = co_change
+            .iter()
             .flat_map(|(&(a, b), _)| [co_change.coupling_degree(a), co_change.coupling_degree(b)])
             .collect();
         degrees.sort_unstable();
@@ -325,8 +378,7 @@ pub(super) fn compute_weighted_page_rank(
     }
 
     let init = 1.0 / node_count as f64;
-    let mut rank: HashMap<NodeIndex, f64> =
-        overlay.node_indices().map(|n| (n, init)).collect();
+    let mut rank: HashMap<NodeIndex, f64> = overlay.node_indices().map(|n| (n, init)).collect();
 
     for _ in 0..iterations {
         let mut new_rank: HashMap<NodeIndex, f64> = overlay
@@ -356,7 +408,9 @@ pub(super) fn compute_weighted_page_rank(
             let src_rank = rank[&src];
             for edge in &out_edges {
                 let fraction = *edge.weight() as f64 / total_weight;
-                *new_rank.get_mut(&edge.target()).expect("overlay node must exist in rank map") += damping * src_rank * fraction;
+                *new_rank
+                    .get_mut(&edge.target())
+                    .expect("overlay node must exist in rank map") += damping * src_rank * fraction;
             }
         }
 
@@ -400,8 +454,7 @@ pub(super) fn compute_weighted_betweenness(
     }
 
     // Collect overlay node indices sorted for deterministic sampling
-    let mut nodes: Vec<petgraph::stable_graph::NodeIndex> =
-        overlay.node_indices().collect();
+    let mut nodes: Vec<petgraph::stable_graph::NodeIndex> = overlay.node_indices().collect();
     nodes.sort_by_key(|n| n.index());
 
     let actual_sample = sample_size.min(node_count);
@@ -423,11 +476,8 @@ pub(super) fn compute_weighted_betweenness(
     };
 
     // Map overlay NodeIndex → local dense index for array-based accumulation
-    let node_to_local: HashMap<petgraph::stable_graph::NodeIndex, usize> = nodes
-        .iter()
-        .enumerate()
-        .map(|(i, &n)| (n, i))
-        .collect();
+    let node_to_local: HashMap<petgraph::stable_graph::NodeIndex, usize> =
+        nodes.iter().enumerate().map(|(i, &n)| (n, i)).collect();
 
     // Parallel Brandes: each source computes partial betweenness via Dijkstra
     let partial_results: Vec<Vec<f64>> = sources
@@ -568,12 +618,22 @@ pub(super) fn compute_communities(
         neighbor_weights.insert(*n, HashMap::new());
     }
     for edge_id in overlay.edge_indices() {
-        let (u, v) = overlay.edge_endpoints(edge_id).expect("edge must have endpoints");
+        let (u, v) = overlay
+            .edge_endpoints(edge_id)
+            .expect("edge must have endpoints");
         let w = overlay[edge_id] as f64;
         // Treat directed graph as undirected: each directed edge u→v with weight w
         // contributes w to both u's and v's neighborhoods.
-        *neighbor_weights.entry(u).or_default().entry(v).or_insert(0.0) += w;
-        *neighbor_weights.entry(v).or_default().entry(u).or_insert(0.0) += w;
+        *neighbor_weights
+            .entry(u)
+            .or_default()
+            .entry(v)
+            .or_insert(0.0) += w;
+        *neighbor_weights
+            .entry(v)
+            .or_default()
+            .entry(u)
+            .or_insert(0.0) += w;
     }
 
     // node strength k_i = sum of all incident edge weights (undirected treatment).
@@ -657,9 +717,7 @@ pub(super) fn compute_communities(
 
                 // Deterministic tiebreaker: prefer strictly better delta,
                 // or on tie pick the smaller community ID.
-                if delta > best_delta
-                    || (delta == best_delta && target_comm < best_comm)
-                {
+                if delta > best_delta || (delta == best_delta && target_comm < best_comm) {
                     best_delta = delta;
                     best_comm = target_comm;
                 }
@@ -729,7 +787,9 @@ pub(super) fn compute_modularity(
     // but contribute to both i-j directions, so add w for each directed edge where c_i == c_j)
     let mut internal_weight = 0.0;
     for edge_id in overlay.edge_indices() {
-        let (u, v) = overlay.edge_endpoints(edge_id).expect("edge must have endpoints");
+        let (u, v) = overlay
+            .edge_endpoints(edge_id)
+            .expect("edge must have endpoints");
         if community[&u] == community[&v] {
             // Each directed edge contributes w to the undirected sum
             // (the full A_ij matrix double-counts, and we sum over all i,j pairs)

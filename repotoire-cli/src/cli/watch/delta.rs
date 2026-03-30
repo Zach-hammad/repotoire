@@ -111,7 +111,10 @@ mod tests {
     fn delta_no_previous() {
         let result = make_result(vec![make_finding("XSS", "a.rs", 10)], 85.0);
         let delta = compute_delta(&result, None, vec![], Duration::from_millis(100));
-        assert!(delta.new_findings.is_empty(), "first run has no 'new' findings");
+        assert!(
+            delta.new_findings.is_empty(),
+            "first run has no 'new' findings"
+        );
         assert!(delta.fixed_findings.is_empty());
         assert_eq!(delta.total_findings, 1);
         assert_eq!(delta.score, 85.0);

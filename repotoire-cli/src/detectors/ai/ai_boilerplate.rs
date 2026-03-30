@@ -116,7 +116,11 @@ fn jaccard_similarity(set1: &HashSet<String>, set2: &HashSet<String>) -> f64 {
 fn bitset_jaccard(a: u128, b: u128) -> f64 {
     let intersection = (a & b).count_ones() as f64;
     let union = (a | b).count_ones() as f64;
-    if union == 0.0 { 1.0 } else { intersection / union }
+    if union == 0.0 {
+        1.0
+    } else {
+        intersection / union
+    }
 }
 
 /// Cluster functions by AST similarity using popcount-sorted sliding window +
@@ -161,7 +165,9 @@ fn cluster_by_similarity(
         .enumerate()
         .filter_map(|(i, f)| {
             let b = f.bitset;
-            if b == 0 { return None; }
+            if b == 0 {
+                return None;
+            }
             Some((i, b, b.count_ones()))
         })
         .collect();
@@ -199,7 +205,6 @@ fn cluster_by_similarity(
         .map(|indices| indices.into_iter().map(|i| functions[i].clone()).collect())
         .collect()
 }
-
 
 /// Detects excessive boilerplate code using AST clustering
 pub struct AIBoilerplateDetector {
@@ -586,14 +591,21 @@ impl Detector for AIBoilerplateDetector {
     }
 
     fn file_extensions(&self) -> &'static [&'static str] {
-        &["py", "js", "ts", "jsx", "tsx", "java", "go", "rs", "c", "cpp", "cs"]
+        &[
+            "py", "js", "ts", "jsx", "tsx", "java", "go", "rs", "c", "cpp", "cs",
+        ]
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let files = &ctx.as_file_provider();
         use rayon::prelude::*;
 
-        let source_exts = &["py", "js", "ts", "jsx", "tsx", "java", "go", "rs", "c", "cpp", "cs"];
+        let source_exts = &[
+            "py", "js", "ts", "jsx", "tsx", "java", "go", "rs", "c", "cpp", "cs",
+        ];
 
         // Collect file paths + content upfront
         let file_data: Vec<_> = files
@@ -602,7 +614,11 @@ impl Detector for AIBoilerplateDetector {
             .filter(|path| !crate::detectors::base::is_test_path(&path.to_string_lossy()))
             .filter_map(|path| {
                 let content = files.content(path)?;
-                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_string();
+                let ext = path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("")
+                    .to_string();
                 Some((path.to_path_buf(), content, ext))
             })
             .collect();
@@ -643,28 +659,33 @@ impl Detector for AIBoilerplateDetector {
 
                 // Slow path: fallback to re-parsing (e.g. tests with MockFileProvider)
                 let lang = crate::parsers::lightweight::Language::from_extension(ext);
-                let functions = crate::detectors::ast_fingerprint::parse_functions_for_boilerplate(content, lang);
+                let functions = crate::detectors::ast_fingerprint::parse_functions_for_boilerplate(
+                    content, lang,
+                );
 
-                functions.into_iter().filter_map(move |(func, fp)| {
-                    let loc = (func.line_end - func.line_start + 1) as usize;
-                    if loc < min_loc || fp.structural_kinds.is_empty() {
-                        return None;
-                    }
-                    Some(FunctionAST {
-                        qualified_name: format!("{}::{}", path_str, func.name),
-                        name: func.name,
-                        file_path: path_str.clone(),
-                        line_start: func.line_start,
-                        line_end: func.line_end,
-                        loc,
-                        hash_set: fp.structural_kinds,
-                        bitset: 0,
-                        patterns: fp.patterns,
-                        decorators: vec![],
-                        parent_class: None,
-                        is_method: false,
+                functions
+                    .into_iter()
+                    .filter_map(move |(func, fp)| {
+                        let loc = (func.line_end - func.line_start + 1) as usize;
+                        if loc < min_loc || fp.structural_kinds.is_empty() {
+                            return None;
+                        }
+                        Some(FunctionAST {
+                            qualified_name: format!("{}::{}", path_str, func.name),
+                            name: func.name,
+                            file_path: path_str.clone(),
+                            line_start: func.line_start,
+                            line_end: func.line_end,
+                            loc,
+                            hash_set: fp.structural_kinds,
+                            bitset: 0,
+                            patterns: fp.patterns,
+                            decorators: vec![],
+                            parent_class: None,
+                            is_method: false,
+                        })
                     })
-                }).collect::<Vec<_>>()
+                    .collect::<Vec<_>>()
             })
             .collect();
 
@@ -774,7 +795,9 @@ mod tests {
             ("search.py", "def search(query, filters):\n    results = []\n    for item in database.query(query):\n        if matches_filters(item, filters):\n            results.append(item)\n    return sorted(results, key=lambda x: x.score)\n"),
             ("export.py", "def export_csv(data, output_path):\n    with open(output_path, 'w') as f:\n        writer = csv.writer(f)\n        writer.writerow(data[0].keys())\n        for row in data:\n            writer.writerow(row.values())\n"),
         ]);
-        let findings = detector.detect(&ctx).expect("should detect diverse functions");
+        let findings = detector
+            .detect(&ctx)
+            .expect("should detect diverse functions");
         assert!(
             findings.is_empty(),
             "Should not flag structurally diverse functions. Found: {:?}",

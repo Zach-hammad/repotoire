@@ -77,9 +77,7 @@ fn update_disk_cache(
     let Some(mtime_secs) = get_file_mtime_secs(repo_path.join(file_path)) else {
         return;
     };
-    let mut dc = disk_cache
-        .write()
-        .expect("git disk cache lock poisoned");
+    let mut dc = disk_cache.write().expect("git disk cache lock poisoned");
     dc.files.insert(
         file_path.to_string(),
         CachedBlame {
@@ -189,9 +187,7 @@ impl GitBlame {
             }
 
             // Check disk cache first
-            let dc = disk_cache
-                .read()
-                .expect("git disk cache lock poisoned");
+            let dc = disk_cache.read().expect("git disk cache lock poisoned");
             let cached_entries = dc
                 .is_valid(file_path, &repo_path)
                 .then(|| dc.files.get(file_path))

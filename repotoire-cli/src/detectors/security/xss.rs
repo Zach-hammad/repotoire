@@ -8,7 +8,9 @@ use regex::Regex;
 use std::path::PathBuf;
 use std::sync::LazyLock;
 
-static XSS_PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(innerHTML|outerHTML|document\.write|dangerouslySetInnerHTML|v-html|ng-bind-html|\[innerHTML\])").expect("valid regex"));
+static XSS_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)(innerHTML|outerHTML|document\.write|dangerouslySetInnerHTML|v-html|ng-bind-html|\[innerHTML\])").expect("valid regex")
+});
 
 pub struct XssDetector {
     repository_path: PathBuf,
@@ -56,7 +58,10 @@ impl Detector for XssDetector {
         crate::detectors::detector_context::ContentFlags::HAS_TEMPLATE
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let files = &ctx.as_file_provider();
         let mut findings = vec![];
@@ -240,7 +245,6 @@ impl Detector for XssDetector {
     }
 }
 
-
 impl crate::detectors::RegisteredDetector for XssDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
         std::sync::Arc::new(Self::new(init.repo_path))
@@ -271,7 +275,9 @@ mod tests {
             findings.iter().map(|f| &f.title).collect::<Vec<_>>()
         );
         assert!(
-            findings.iter().any(|f| f.cwe_id.as_deref() == Some("CWE-79")),
+            findings
+                .iter()
+                .any(|f| f.cwe_id.as_deref() == Some("CWE-79")),
             "Finding should have CWE-79"
         );
     }
@@ -304,7 +310,9 @@ mod tests {
             "Should detect document.write with user input from req.query"
         );
         assert!(
-            findings.iter().any(|f| f.cwe_id.as_deref() == Some("CWE-79")),
+            findings
+                .iter()
+                .any(|f| f.cwe_id.as_deref() == Some("CWE-79")),
             "Finding should have CWE-79"
         );
     }
@@ -338,7 +346,10 @@ mod tests {
         // The comment mentions innerHTML but has no user input pattern on that line,
         // so it should either be empty or at most Medium (no user input marker).
         // Since there's no actual user input keyword on the comment line, it won't be Critical.
-        let critical = findings.iter().filter(|f| f.severity == Severity::Critical).count();
+        let critical = findings
+            .iter()
+            .filter(|f| f.severity == Severity::Critical)
+            .count();
         assert_eq!(
             critical, 0,
             "innerHTML in a comment should not produce Critical findings"
@@ -354,7 +365,10 @@ mod tests {
         ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
         // innerHTML appears inside a string literal, no actual DOM API call
-        let critical = findings.iter().filter(|f| f.severity == Severity::Critical).count();
+        let critical = findings
+            .iter()
+            .filter(|f| f.severity == Severity::Critical)
+            .count();
         assert_eq!(
             critical, 0,
             "innerHTML mentioned in a string literal should not produce Critical findings"

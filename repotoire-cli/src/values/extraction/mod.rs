@@ -249,10 +249,7 @@ mod tests {
     #[test]
     fn test_python_negative_integer() {
         let r = parse_python_expr("-42");
-        assert_eq!(
-            r,
-            SymbolicValue::Literal(LiteralValue::Integer(-42))
-        );
+        assert_eq!(r, SymbolicValue::Literal(LiteralValue::Integer(-42)));
     }
 
     // --- File-level extraction tests ---

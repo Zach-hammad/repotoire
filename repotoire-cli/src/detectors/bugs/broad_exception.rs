@@ -15,7 +15,9 @@ use std::path::PathBuf;
 use std::sync::LazyLock;
 use tracing::info;
 
-static BROAD_EXCEPT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(except\s*:|catch\s*\(\s*(Exception|Error|Throwable|BaseException|\w)\s*\)|catch\s*\{)").expect("valid regex"));
+static BROAD_EXCEPT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)(except\s*:|catch\s*\(\s*(Exception|Error|Throwable|BaseException|\w)\s*\)|catch\s*\{)").expect("valid regex")
+});
 
 pub struct BroadExceptionDetector {
     #[allow(dead_code)] // Part of detector pattern, used for file scanning
@@ -141,11 +143,16 @@ impl Detector for BroadExceptionDetector {
         &["py", "js", "ts", "jsx", "tsx", "java", "go", "rs"]
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let files = &ctx.as_file_provider();
         let mut findings = vec![];
 
-        for path in files.files_with_extensions(&["py", "js", "ts", "jsx", "tsx", "java", "go", "rs"]) {
+        for path in
+            files.files_with_extensions(&["py", "js", "ts", "jsx", "tsx", "java", "go", "rs"])
+        {
             if findings.len() >= self.max_findings {
                 break;
             }
@@ -246,7 +253,6 @@ impl Detector for BroadExceptionDetector {
     }
 }
 
-
 impl crate::detectors::RegisteredDetector for BroadExceptionDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
         std::sync::Arc::new(Self::new(init.repo_path))
@@ -266,10 +272,7 @@ mod tests {
             ("handler.py", "def process():\n    try:\n        do_work()\n    except:\n        log(\"something failed\")\n"),
         ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
-        assert!(
-            !findings.is_empty(),
-            "Should detect bare except:"
-        );
+        assert!(!findings.is_empty(), "Should detect bare except:");
         assert!(
             findings[0].title.contains("Broad exception"),
             "Title should mention broad exception, got: {}",

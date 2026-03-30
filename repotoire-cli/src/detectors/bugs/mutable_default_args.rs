@@ -15,10 +15,11 @@ use std::sync::LazyLock;
 use tracing::info;
 
 static MUTABLE_DEFAULT: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"def\s+(\w+)\s*\([^)]*(\w+)\s*=\s*(\[\]|\{\}|set\(\)|list\(\)|dict\(\)|defaultdict\(\)|Counter\(\)|deque\(\))").expect("valid regex")
-    });
+    Regex::new(r"def\s+(\w+)\s*\([^)]*(\w+)\s*=\s*(\[\]|\{\}|set\(\)|list\(\)|dict\(\)|defaultdict\(\)|Counter\(\)|deque\(\))").expect("valid regex")
+});
 #[allow(dead_code)]
-static FUNC_NAME: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"def\s+(\w+)").expect("valid regex"));
+static FUNC_NAME: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"def\s+(\w+)").expect("valid regex"));
 
 /// Get the appropriate fix based on mutable type
 fn get_fix_example(mutable_type: &str, param_name: &str) -> String {
@@ -101,14 +102,20 @@ impl Detector for MutableDefaultArgsDetector {
         &["py"]
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let files = &ctx.as_file_provider();
         let i = graph.interner();
         let mut findings = vec![];
 
         // Pre-build lookup: (file_path, func_name) → CodeNode — O(N) once instead of O(N) per match
-        let func_lookup: std::collections::HashMap<(String, String), crate::graph::store_models::CodeNode> = graph
+        let func_lookup: std::collections::HashMap<
+            (String, String),
+            crate::graph::store_models::CodeNode,
+        > = graph
             .get_functions()
             .into_iter()
             .map(|f| ((f.path(i).to_string(), f.node_name(i).to_string()), f))
@@ -137,8 +144,11 @@ impl Detector for MutableDefaultArgsDetector {
 
                         // Get function info from pre-built lookup — O(1)
                         let key = (path_str.clone(), func_name.to_string());
-                        let (caller_count, is_public, func_end) = if let Some(func) = func_lookup.get(&key) {
-                            let callers = graph.get_callers(func.qn(crate::graph::interner::global_interner()));
+                        let (caller_count, is_public, func_end) = if let Some(func) =
+                            func_lookup.get(&key)
+                        {
+                            let callers = graph
+                                .get_callers(func.qn(crate::graph::interner::global_interner()));
                             let is_pub = !func_name.starts_with('_');
                             (callers.len(), is_pub, func.line_end as usize)
                         } else {
@@ -228,7 +238,6 @@ impl Detector for MutableDefaultArgsDetector {
     }
 }
 
-
 impl crate::detectors::RegisteredDetector for MutableDefaultArgsDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
         std::sync::Arc::new(Self::new(init.repo_path))
@@ -244,9 +253,13 @@ mod tests {
     fn test_detects_mutable_default_list() {
         let store = GraphBuilder::new().freeze();
         let detector = MutableDefaultArgsDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("service.py", "def collect_items(items=[]):\n    items.append(\"new\")\n    return items\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "service.py",
+                "def collect_items(items=[]):\n    items.append(\"new\")\n    return items\n",
+            )],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),

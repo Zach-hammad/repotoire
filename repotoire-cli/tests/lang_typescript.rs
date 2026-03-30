@@ -45,7 +45,10 @@ fn setup_fixture_workspace(filenames: &[&str]) -> tempfile::TempDir {
 /// Run repotoire analyze and return parsed JSON findings.
 fn run_analyze(dir: &Path, extra_args: &[&str]) -> Vec<serde_json::Value> {
     let mut cmd = Command::new(repotoire_bin());
-    cmd.arg("analyze").arg(dir).arg("--no-emoji").arg("--all-detectors");
+    cmd.arg("analyze")
+        .arg(dir)
+        .arg("--no-emoji")
+        .arg("--all-detectors");
     for arg in extra_args {
         cmd.arg(arg);
     }
@@ -300,8 +303,7 @@ fn test_tsx_react_hooks_violation() {
     let findings = run_analyze(dir.path(), &["--format", "json"]);
 
     assert!(
-        has_detector(&findings, "ReactHooksDetector")
-            || has_finding_about(&findings, "hook"),
+        has_detector(&findings, "ReactHooksDetector") || has_finding_about(&findings, "hook"),
         "Should detect React hooks violations (conditional hooks). Found detectors: {:?}",
         detector_names(&findings)
     );

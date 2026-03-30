@@ -15,7 +15,8 @@ use std::path::PathBuf;
 use std::sync::LazyLock;
 use tracing::info;
 
-static LOOSE_EQUALITY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[^!=<>]==[^=]|[^!]==[^=]").expect("valid regex"));
+static LOOSE_EQUALITY: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"[^!=<>]==[^=]|[^!]==[^=]").expect("valid regex"));
 
 pub struct ImplicitCoercionDetector {
     #[allow(dead_code)] // Part of detector pattern, used for file scanning
@@ -33,25 +34,23 @@ impl ImplicitCoercionDetector {
         line: u32,
     ) -> Option<(String, usize, bool)> {
         let i = graph.interner();
-        graph
-            .find_function_at(file_path, line)
-            .map(|f| {
-                let callers = graph.get_callers(f.qn(i));
-                let caller_count = callers.len();
+        graph.find_function_at(file_path, line).map(|f| {
+            let callers = graph.get_callers(f.qn(i));
+            let caller_count = callers.len();
 
-                // Check if this is a route handler
-                let name_lower = f.node_name(i).to_lowercase();
-                let is_handler = name_lower.contains("handler")
-                    || name_lower.contains("route")
-                    || name_lower.contains("controller")
-                    || name_lower.starts_with("get")
-                    || name_lower.starts_with("post")
-                    || name_lower.starts_with("put")
-                    || name_lower.starts_with("delete")
-                    || name_lower.starts_with("handle");
+            // Check if this is a route handler
+            let name_lower = f.node_name(i).to_lowercase();
+            let is_handler = name_lower.contains("handler")
+                || name_lower.contains("route")
+                || name_lower.contains("controller")
+                || name_lower.starts_with("get")
+                || name_lower.starts_with("post")
+                || name_lower.starts_with("put")
+                || name_lower.starts_with("delete")
+                || name_lower.starts_with("handle");
 
-                (f.node_name(i).to_string(), caller_count, is_handler)
-            })
+            (f.node_name(i).to_string(), caller_count, is_handler)
+        })
     }
 
     /// Check if function is dead code (no callers, not an entry point)
@@ -84,7 +83,10 @@ impl Detector for ImplicitCoercionDetector {
         &["js", "ts", "jsx", "tsx"]
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let files = &ctx.as_file_provider();
         let mut findings = vec![];
@@ -212,7 +214,6 @@ impl Detector for ImplicitCoercionDetector {
     }
 }
 
-
 impl crate::detectors::RegisteredDetector for ImplicitCoercionDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
         std::sync::Arc::new(Self::new(init.repo_path))
@@ -232,10 +233,7 @@ mod tests {
             ("check.js", "function check(value) {\n    if (value == 'hello') {\n        return true;\n    }\n}\n"),
         ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
-        assert!(
-            !findings.is_empty(),
-            "Should detect == instead of ==="
-        );
+        assert!(!findings.is_empty(), "Should detect == instead of ===");
         assert!(
             findings[0].title.contains("Loose equality"),
             "Title should mention loose equality, got: {}",

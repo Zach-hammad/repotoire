@@ -15,13 +15,17 @@ use std::path::PathBuf;
 use std::sync::LazyLock;
 use tracing::info;
 
-static CSRF_EXEMPT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"@csrf_exempt|csrf_exempt\(").expect("valid regex"));
-static DEBUG_TRUE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"DEBUG\s*=\s*True").expect("valid regex"));
+static CSRF_EXEMPT: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"@csrf_exempt|csrf_exempt\(").expect("valid regex"));
+static DEBUG_TRUE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"DEBUG\s*=\s*True").expect("valid regex"));
 static RAW_SQL: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"\.raw\(|\.extra\(|RawSQL\(|cursor\.execute").expect("valid regex")
-    });
-static SECRET_KEY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"SECRET_KEY\s*=\s*['"][^'"]{10,}['"]"#).expect("valid regex"));
-static ALLOWED_HOSTS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"ALLOWED_HOSTS\s*=\s*\[\s*['"][*]['"]"#).expect("valid regex"));
+    Regex::new(r"\.raw\(|\.extra\(|RawSQL\(|cursor\.execute").expect("valid regex")
+});
+static SECRET_KEY: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"SECRET_KEY\s*=\s*['"][^'"]{10,}['"]"#).expect("valid regex"));
+static ALLOWED_HOSTS: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"ALLOWED_HOSTS\s*=\s*\[\s*['"][*]['"]"#).expect("valid regex"));
 
 pub struct DjangoSecurityDetector {
     #[allow(dead_code)] // Part of detector pattern, used for file scanning
@@ -40,7 +44,7 @@ impl DjangoSecurityDetector {
     ) -> Option<(String, usize, bool)> {
         let i = graph.interner();
         graph.find_function_at(file_path, line).map(|f| {
-                            let callers = graph.get_callers(f.qn(i));
+            let callers = graph.get_callers(f.qn(i));
             let name_lower = f.node_name(i).to_lowercase();
 
             // Check if this is a view function
@@ -92,7 +96,10 @@ impl Detector for DjangoSecurityDetector {
         crate::detectors::detector_context::ContentFlags::HAS_DJANGO
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let files = &ctx.as_file_provider();
         // Codebase-level pre-filter: skip if no file uses Django
@@ -336,7 +343,8 @@ impl Detector for DjangoSecurityDetector {
                             || lower_path.contains("db/models/query")
                             || lower_path.contains("db/migrations/")
                             || lower_path.contains("core/cache/backends/")
-                            || lower_path.contains("/migrations/") || lower_path.starts_with("migrations/")
+                            || lower_path.contains("/migrations/")
+                            || lower_path.starts_with("migrations/")
                             || lower_path.contains("contrib/postgres/")
                             || lower_path.contains("management/commands/")
                             || lower_path.ends_with("management.py")
@@ -435,7 +443,6 @@ impl Detector for DjangoSecurityDetector {
     }
 }
 
-
 impl crate::detectors::RegisteredDetector for DjangoSecurityDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
         std::sync::Arc::new(Self::new(init.repo_path))
@@ -462,7 +469,9 @@ mod tests {
             findings.iter().map(|f| &f.title).collect::<Vec<_>>()
         );
         assert!(
-            findings.iter().any(|f| f.cwe_id.as_deref() == Some("CWE-352")),
+            findings
+                .iter()
+                .any(|f| f.cwe_id.as_deref() == Some("CWE-352")),
             "Finding should have CWE-352"
         );
     }
@@ -472,9 +481,13 @@ mod tests {
         // File name must contain "settings" but not "dev" or "local"
         let store = GraphBuilder::new().freeze();
         let detector = DjangoSecurityDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("settings.py", "import os\n\nDEBUG = True\nALLOWED_HOSTS = []\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "settings.py",
+                "import os\n\nDEBUG = True\nALLOWED_HOSTS = []\n",
+            )],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.iter().any(|f| f.title.contains("DEBUG")),
@@ -523,9 +536,7 @@ mod tests {
         ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
-            findings
-                .iter()
-                .any(|f| f.title.contains("ALLOWED_HOSTS")),
+            findings.iter().any(|f| f.title.contains("ALLOWED_HOSTS")),
             "Should detect ALLOWED_HOSTS = ['*']. Titles: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>()
         );
@@ -556,9 +567,13 @@ mod tests {
     fn test_no_finding_for_debug_in_test_settings() {
         let store = GraphBuilder::new().freeze();
         let detector = DjangoSecurityDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("tests/settings.py", "DEBUG = True\nSECRET_KEY = 'test-secret-key-for-testing'\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "tests/settings.py",
+                "DEBUG = True\nSECRET_KEY = 'test-secret-key-for-testing'\n",
+            )],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
@@ -575,15 +590,18 @@ mod tests {
             ("queries.py", "def get_table_data(table_name):\n    return Model.objects.raw(\"SELECT * FROM \" + table_name)\n"),
         ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
-        let raw_sql: Vec<_> = findings.iter().filter(|f| f.title.contains("Raw SQL")).collect();
-        assert!(
-            !raw_sql.is_empty(),
-            "Should still detect raw SQL usage"
-        );
+        let raw_sql: Vec<_> = findings
+            .iter()
+            .filter(|f| f.title.contains("Raw SQL"))
+            .collect();
+        assert!(!raw_sql.is_empty(), "Should still detect raw SQL usage");
         assert!(
             !raw_sql.iter().any(|f| f.severity == Severity::Critical),
             "Raw SQL with '+ ' alone (no request./f-string) should not be Critical. Got: {:?}",
-            raw_sql.iter().map(|f| (&f.title, &f.severity)).collect::<Vec<_>>()
+            raw_sql
+                .iter()
+                .map(|f| (&f.title, &f.severity))
+                .collect::<Vec<_>>()
         );
     }
 
@@ -595,18 +613,31 @@ mod tests {
             ("db/backends/postgresql/introspection.py", "def get_table_list(self, cursor):\n    cursor.execute(\"SELECT c.relname FROM pg_catalog.pg_class c\")\n"),
         ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
-        let raw_sql_findings: Vec<_> = findings.iter().filter(|f| f.title.contains("Raw SQL")).collect();
-        assert!(raw_sql_findings.is_empty(), "Should not flag raw SQL in db/backends/. Found: {:?}",
-            raw_sql_findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+        let raw_sql_findings: Vec<_> = findings
+            .iter()
+            .filter(|f| f.title.contains("Raw SQL"))
+            .collect();
+        assert!(
+            raw_sql_findings.is_empty(),
+            "Should not flag raw SQL in db/backends/. Found: {:?}",
+            raw_sql_findings
+                .iter()
+                .map(|f| &f.title)
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
     fn test_still_detects_debug_in_production_settings() {
         let store = GraphBuilder::new().freeze();
         let detector = DjangoSecurityDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("settings.py", "import os\n\nDEBUG = True\nALLOWED_HOSTS = []\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "settings.py",
+                "import os\n\nDEBUG = True\nALLOWED_HOSTS = []\n",
+            )],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.iter().any(|f| f.title.contains("DEBUG")),
@@ -624,11 +655,17 @@ mod tests {
             ("contrib/postgres/operations.py", "def database_forwards(self):\n    cursor.execute(\"CREATE EXTENSION\")\n"),
         ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
-        let raw_sql_findings: Vec<_> = findings.iter().filter(|f| f.title.contains("Raw SQL")).collect();
+        let raw_sql_findings: Vec<_> = findings
+            .iter()
+            .filter(|f| f.title.contains("Raw SQL"))
+            .collect();
         assert!(
             raw_sql_findings.is_empty(),
             "Should not flag raw SQL in ORM internals. Found: {:?}",
-            raw_sql_findings.iter().map(|f| (&f.title, &f.affected_files)).collect::<Vec<_>>()
+            raw_sql_findings
+                .iter()
+                .map(|f| (&f.title, &f.affected_files))
+                .collect::<Vec<_>>()
         );
     }
 
@@ -640,7 +677,10 @@ mod tests {
             ("views/decorators/csrf.py", "from functools import wraps\n\ndef csrf_exempt(view_func):\n    @wraps(view_func)\n    def wrapper(*args, **kwargs):\n        return view_func(*args, **kwargs)\n    wrapper.csrf_exempt = True\n    return wrapper\n"),
         ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
-        let csrf_findings: Vec<_> = findings.iter().filter(|f| f.title.contains("CSRF")).collect();
+        let csrf_findings: Vec<_> = findings
+            .iter()
+            .filter(|f| f.title.contains("CSRF"))
+            .collect();
         assert!(
             csrf_findings.is_empty(),
             "Should not flag CSRF in decorator definition module. Found: {:?}",
@@ -656,7 +696,10 @@ mod tests {
             ("views/base.py", "class View:\n    # Copy possible attributes set by decorators, e.g. @csrf_exempt\n    pass\n"),
         ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
-        let csrf_findings: Vec<_> = findings.iter().filter(|f| f.title.contains("CSRF")).collect();
+        let csrf_findings: Vec<_> = findings
+            .iter()
+            .filter(|f| f.title.contains("CSRF"))
+            .collect();
         assert!(
             csrf_findings.is_empty(),
             "Should not flag CSRF mentioned in comments. Found: {:?}",
@@ -673,11 +716,17 @@ mod tests {
             ("contrib/sites/management.py", "def create_default_site(app_config):\n    cursor.execute(command)\n"),
         ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
-        let raw_sql_findings: Vec<_> = findings.iter().filter(|f| f.title.contains("Raw SQL")).collect();
+        let raw_sql_findings: Vec<_> = findings
+            .iter()
+            .filter(|f| f.title.contains("Raw SQL"))
+            .collect();
         assert!(
             raw_sql_findings.is_empty(),
             "Should not flag raw SQL in management commands. Found: {:?}",
-            raw_sql_findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+            raw_sql_findings
+                .iter()
+                .map(|f| &f.title)
+                .collect::<Vec<_>>()
         );
     }
 
@@ -691,9 +740,7 @@ mod tests {
             "views.py",
             "def search_users(request):\n    name = request.GET['name']\n    cursor.execute(f\"SELECT * FROM users WHERE name = '{name}'\")\n    return JsonResponse({'results': cursor.fetchall()})\n",
         )]);
-        let findings = detector
-            .detect(&ctx)
-            .expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         let raw_sql: Vec<_> = findings
             .iter()
             .filter(|f| f.title.contains("Raw SQL"))
@@ -720,9 +767,7 @@ mod tests {
             "queries.py",
             "def get_user(user_id):\n    cursor = connection.cursor()\n    cursor.execute(\"SELECT * FROM users WHERE id = %s\", [user_id])\n    return cursor.fetchone()\n",
         )]);
-        let findings = detector
-            .detect(&ctx)
-            .expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         let raw_sql: Vec<_> = findings
             .iter()
             .filter(|f| f.title.contains("Raw SQL"))
@@ -750,9 +795,7 @@ mod tests {
             "views.py",
             "from django.shortcuts import render\nfrom .models import Article\n\ndef article_list(request):\n    articles = Article.objects.filter(published=True).order_by('-date')\n    return render(request, 'articles/list.html', {'articles': articles})\n\ndef article_detail(request, pk):\n    article = Article.objects.get(pk=pk)\n    return render(request, 'articles/detail.html', {'article': article})\n",
         )]);
-        let findings = detector
-            .detect(&ctx)
-            .expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Safe ORM queries and template rendering should produce no findings, but got: {:?}",
@@ -768,13 +811,9 @@ mod tests {
             "settings.py",
             "SECRET_KEY = 'django-insecure-abc123xyz789def456ghi'\nDEBUG = False\nALLOWED_HOSTS = ['example.com']\n",
         )]);
-        let findings = detector
-            .detect(&ctx)
-            .expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
-            findings
-                .iter()
-                .any(|f| f.title.contains("SECRET_KEY")),
+            findings.iter().any(|f| f.title.contains("SECRET_KEY")),
             "Should detect hardcoded SECRET_KEY in production settings. Titles: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>()
         );

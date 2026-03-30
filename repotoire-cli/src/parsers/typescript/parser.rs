@@ -143,9 +143,12 @@ const IMPORT_QUERY_STR: &str = r#"
 /// Get or create cached function query for an extension
 pub(crate) fn get_func_query(ext: &str, language: &Language) -> &'static Query {
     match ext {
-        "ts" => TS_FUNC_QUERY.get_or_init(|| Query::new(language, FUNC_QUERY_STR).expect("valid function query")),
-        "tsx" => TSX_FUNC_QUERY.get_or_init(|| Query::new(language, FUNC_QUERY_STR).expect("valid function query")),
-        _ => JS_FUNC_QUERY.get_or_init(|| Query::new(language, FUNC_QUERY_STR).expect("valid function query")),
+        "ts" => TS_FUNC_QUERY
+            .get_or_init(|| Query::new(language, FUNC_QUERY_STR).expect("valid function query")),
+        "tsx" => TSX_FUNC_QUERY
+            .get_or_init(|| Query::new(language, FUNC_QUERY_STR).expect("valid function query")),
+        _ => JS_FUNC_QUERY
+            .get_or_init(|| Query::new(language, FUNC_QUERY_STR).expect("valid function query")),
     }
 }
 
@@ -153,14 +156,18 @@ pub(crate) fn get_func_query(ext: &str, language: &Language) -> &'static Query {
 pub(crate) fn get_class_query(ext: &str, language: &Language) -> &'static Query {
     match ext {
         "ts" => TS_CLASS_QUERY.get_or_init(|| {
-            Query::new(language, TS_CLASS_QUERY_STR)
-                .unwrap_or_else(|_| Query::new(language, JS_CLASS_QUERY_STR).expect("valid JS class query fallback"))
+            Query::new(language, TS_CLASS_QUERY_STR).unwrap_or_else(|_| {
+                Query::new(language, JS_CLASS_QUERY_STR).expect("valid JS class query fallback")
+            })
         }),
         "tsx" => TSX_CLASS_QUERY.get_or_init(|| {
-            Query::new(language, TS_CLASS_QUERY_STR)
-                .unwrap_or_else(|_| Query::new(language, JS_CLASS_QUERY_STR).expect("valid JS class query fallback"))
+            Query::new(language, TS_CLASS_QUERY_STR).unwrap_or_else(|_| {
+                Query::new(language, JS_CLASS_QUERY_STR).expect("valid JS class query fallback")
+            })
         }),
-        _ => JS_CLASS_QUERY.get_or_init(|| Query::new(language, JS_CLASS_QUERY_STR).expect("valid JS class query")),
+        _ => JS_CLASS_QUERY.get_or_init(|| {
+            Query::new(language, JS_CLASS_QUERY_STR).expect("valid JS class query")
+        }),
     }
 }
 
@@ -168,9 +175,12 @@ pub(crate) fn get_class_query(ext: &str, language: &Language) -> &'static Query 
 #[allow(dead_code)] // Prepared for import resolution
 pub(crate) fn get_import_query(ext: &str, language: &Language) -> &'static Query {
     match ext {
-        "ts" => TS_IMPORT_QUERY.get_or_init(|| Query::new(language, IMPORT_QUERY_STR).expect("valid import query")),
-        "tsx" => TSX_IMPORT_QUERY.get_or_init(|| Query::new(language, IMPORT_QUERY_STR).expect("valid import query")),
-        _ => JS_IMPORT_QUERY.get_or_init(|| Query::new(language, IMPORT_QUERY_STR).expect("valid import query")),
+        "ts" => TS_IMPORT_QUERY
+            .get_or_init(|| Query::new(language, IMPORT_QUERY_STR).expect("valid import query")),
+        "tsx" => TSX_IMPORT_QUERY
+            .get_or_init(|| Query::new(language, IMPORT_QUERY_STR).expect("valid import query")),
+        _ => JS_IMPORT_QUERY
+            .get_or_init(|| Query::new(language, IMPORT_QUERY_STR).expect("valid import query")),
     }
 }
 
@@ -191,7 +201,11 @@ pub fn parse_source(source: &str, path: &Path, ext: &str) -> Result<ParseResult>
 
 /// Parse TypeScript/JavaScript source code and return both the ParseResult and the tree-sitter Tree.
 /// Used by the pipeline to extract structural fingerprints without re-parsing.
-pub fn parse_source_with_tree(source: &str, path: &Path, ext: &str) -> Result<(ParseResult, tree_sitter::Tree)> {
+pub fn parse_source_with_tree(
+    source: &str,
+    path: &Path,
+    ext: &str,
+) -> Result<(ParseResult, tree_sitter::Tree)> {
     // Choose language and parser based on extension
     let language: Language = match ext {
         "ts" => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
@@ -202,9 +216,12 @@ pub fn parse_source_with_tree(source: &str, path: &Path, ext: &str) -> Result<(P
 
     let tree = match ext {
         "tsx" => TSX_PARSER.with(|cell| cell.borrow_mut().parse(source, None)),
-        "js" | "jsx" | "mjs" | "cjs" => JS_PARSER.with(|cell| cell.borrow_mut().parse(source, None)),
+        "js" | "jsx" | "mjs" | "cjs" => {
+            JS_PARSER.with(|cell| cell.borrow_mut().parse(source, None))
+        }
         _ => TS_PARSER.with(|cell| cell.borrow_mut().parse(source, None)),
-    }.context("Failed to parse source")?;
+    }
+    .context("Failed to parse source")?;
 
     let root = tree.root_node();
     let source_bytes = source.as_bytes();

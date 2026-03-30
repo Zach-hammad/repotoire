@@ -33,11 +33,7 @@ pub fn generate_narrative(ctx: &ReportContext) -> String {
 
     // 2. If critical findings > 0: surface the top critical finding.
     if h.findings_summary.critical > 0 {
-        if let Some(top) = h
-            .findings
-            .iter()
-            .find(|f| f.severity == Severity::Critical)
-        {
+        if let Some(top) = h.findings.iter().find(|f| f.severity == Severity::Critical) {
             let file = top
                 .affected_files
                 .first()
@@ -59,9 +55,17 @@ pub fn generate_narrative(ctx: &ReportContext) -> String {
             sentences.push(format!(
                 "Architecture is your weakest area — {} circular {} and {} single {} of failure.",
                 cycle_count,
-                if cycle_count == 1 { "dependency" } else { "dependencies" },
+                if cycle_count == 1 {
+                    "dependency"
+                } else {
+                    "dependencies"
+                },
                 art_point_count,
-                if art_point_count == 1 { "point" } else { "points" },
+                if art_point_count == 1 {
+                    "point"
+                } else {
+                    "points"
+                },
             ));
         }
     }
@@ -71,7 +75,11 @@ pub fn generate_narrative(ctx: &ReportContext) -> String {
         let bus_count = git.bus_factor_files.len();
         if h.total_files > 0 && bus_count > 0 {
             let pct = bus_count * 100 / h.total_files;
-            let orphaned = git.bus_factor_files.iter().filter(|(_, bf)| *bf == 0).count();
+            let orphaned = git
+                .bus_factor_files
+                .iter()
+                .filter(|(_, bf)| *bf == 0)
+                .count();
 
             if pct > 30 {
                 sentences.push(format!(

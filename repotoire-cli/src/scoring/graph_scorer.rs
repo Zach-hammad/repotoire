@@ -315,7 +315,11 @@ impl<'a> GraphScorer<'a> {
             let detector = finding.detector.to_lowercase();
 
             let is_security = self.is_security_finding(finding);
-            let security_mult = if is_security { self.config.scoring.security_multiplier } else { 1.0 };
+            let security_mult = if is_security {
+                self.config.scoring.security_multiplier
+            } else {
+                1.0
+            };
             let effective = base * security_mult;
 
             // Route findings to pillars based on category
@@ -323,13 +327,12 @@ impl<'a> GraphScorer<'a> {
 
             // Reduce architecture penalties for API surface findings —
             // high fan-in is expected for public API entry points (arXiv:2406.19254)
-            let api_discount = if pillar == Pillar::Architecture
-                && self.is_api_surface_finding(finding)
-            {
-                0.5
-            } else {
-                1.0
-            };
+            let api_discount =
+                if pillar == Pillar::Architecture && self.is_api_surface_finding(finding) {
+                    0.5
+                } else {
+                    1.0
+                };
 
             let (penalty, count) = match pillar {
                 Pillar::Quality => (&mut quality_penalty, &mut quality_count),
@@ -493,16 +496,41 @@ impl<'a> GraphScorer<'a> {
             (total, cross)
         };
 
-        let avg_coupling = if total_calls == 0 { 0.0 } else { cross_module_calls as f64 / total_calls as f64 };
+        let avg_coupling = if total_calls == 0 {
+            0.0
+        } else {
+            cross_module_calls as f64 / total_calls as f64
+        };
         let intra_module_calls = total_calls - cross_module_calls;
-        let avg_cohesion = if total_calls == 0 { 1.0 } else { intra_module_calls as f64 / total_calls as f64 };
+        let avg_cohesion = if total_calls == 0 {
+            1.0
+        } else {
+            intra_module_calls as f64 / total_calls as f64
+        };
         let import_cycles = self.graph.find_import_cycles();
         let cycle_count = import_cycles.len();
-        let simple_count = functions.iter().filter(|f| f.complexity_opt().unwrap_or(1) <= 10).count();
-        let simple_ratio = if functions.is_empty() { 1.0 } else { simple_count as f64 / functions.len() as f64 };
-        let test_files = files.iter().filter(|f| self.is_test_file(f.path(i))).count();
-        let test_ratio = if files.is_empty() { 0.0 } else { test_files as f64 / files.len() as f64 };
-        let total_loc: usize = files.iter().map(|f| f.get_i64("loc").unwrap_or(0) as usize).sum();
+        let simple_count = functions
+            .iter()
+            .filter(|f| f.complexity_opt().unwrap_or(1) <= 10)
+            .count();
+        let simple_ratio = if functions.is_empty() {
+            1.0
+        } else {
+            simple_count as f64 / functions.len() as f64
+        };
+        let test_files = files
+            .iter()
+            .filter(|f| self.is_test_file(f.path(i)))
+            .count();
+        let test_ratio = if files.is_empty() {
+            0.0
+        } else {
+            test_files as f64 / files.len() as f64
+        };
+        let total_loc: usize = files
+            .iter()
+            .map(|f| f.get_i64("loc").unwrap_or(0) as usize)
+            .sum();
 
         GraphMetrics {
             module_count: modules.len(),
@@ -625,7 +653,10 @@ impl<'a> GraphScorer<'a> {
 
     /// Calculate modularity bonus (low coupling is good)
     fn calculate_modularity_bonus(&self, metrics: &GraphMetrics) -> f64 {
-        let cm = self.config.project_type(self.repo_path).coupling_multiplier();
+        let cm = self
+            .config
+            .project_type(self.repo_path)
+            .coupling_multiplier();
         // Scale thresholds by coupling multiplier:
         // - Web (1.0x): full bonus at ≤0.3, none at ≥0.7
         // - Compiler (3.0x): full bonus at ≤0.9, none at ≥1.0
@@ -639,13 +670,15 @@ impl<'a> GraphScorer<'a> {
 
     /// Calculate cohesion bonus (high cohesion is good)
     fn calculate_cohesion_bonus(&self, metrics: &GraphMetrics) -> f64 {
-        let cm = self.config.project_type(self.repo_path).coupling_multiplier();
+        let cm = self
+            .config
+            .project_type(self.repo_path)
+            .coupling_multiplier();
         // High-coupling project types expect less cohesion
         let full_threshold = (0.7 / cm).max(0.15);
         let zero_threshold = (0.3 / cm).max(0.05);
         let range = (full_threshold - zero_threshold).max(0.01);
-        let cohesion_score =
-            ((metrics.avg_cohesion - zero_threshold) / range).clamp(0.0, 1.0);
+        let cohesion_score = ((metrics.avg_cohesion - zero_threshold) / range).clamp(0.0, 1.0);
         cohesion_score * MAX_COHESION_BONUS
     }
 
@@ -658,15 +691,17 @@ impl<'a> GraphScorer<'a> {
 
     /// Calculate complexity distribution bonus
     fn calculate_complexity_bonus(&self, metrics: &GraphMetrics) -> f64 {
-        let xm = self.config.project_type(self.repo_path).complexity_multiplier();
+        let xm = self
+            .config
+            .project_type(self.repo_path)
+            .complexity_multiplier();
         // Scale thresholds by complexity multiplier:
         // - Web (1.0x): full bonus at 90%+ simple, none at 50%
         // - Kernel (2.0x): full bonus at 45%+ simple, none at 25%
         let full_threshold = (0.9 / xm).max(0.3);
         let zero_threshold = (0.5 / xm).max(0.1);
         let range = (full_threshold - zero_threshold).max(0.01);
-        let score =
-            ((metrics.simple_function_ratio - zero_threshold) / range).clamp(0.0, 1.0);
+        let score = ((metrics.simple_function_ratio - zero_threshold) / range).clamp(0.0, 1.0);
         score * MAX_COMPLEXITY_DIST_BONUS
     }
 
@@ -896,15 +931,12 @@ mod tests {
         builder.add_node(CodeNode::file("src/main.rs"));
         builder.add_node(CodeNode::file("src/lib.rs"));
         builder.add_node(CodeNode::file("tests/test_main.rs")); // Test file
+        builder
+            .add_node(CodeNode::function("main", "src/main.rs").with_property("complexity", 5i64));
+        builder
+            .add_node(CodeNode::function("helper", "src/lib.rs").with_property("complexity", 3i64));
         builder.add_node(
-            CodeNode::function("main", "src/main.rs").with_property("complexity", 5i64),
-        );
-        builder.add_node(
-            CodeNode::function("helper", "src/lib.rs").with_property("complexity", 3i64),
-        );
-        builder.add_node(
-            CodeNode::function("test_main", "tests/test_main.rs")
-                .with_property("complexity", 2i64),
+            CodeNode::function("test_main", "tests/test_main.rs").with_property("complexity", 2i64),
         );
         let graph = builder.freeze();
 

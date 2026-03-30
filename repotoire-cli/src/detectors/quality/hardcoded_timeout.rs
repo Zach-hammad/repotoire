@@ -16,8 +16,8 @@ use std::sync::LazyLock;
 use tracing::info;
 
 static TIMEOUT_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"(?i)(timeout|sleep|delay|wait|setTimeout|setInterval|read_timeout|write_timeout|connect_timeout)\s*[\(=:]\s*(\d{4,})").expect("valid regex")
-    });
+    Regex::new(r"(?i)(timeout|sleep|delay|wait|setTimeout|setInterval|read_timeout|write_timeout|connect_timeout)\s*[\(=:]\s*(\d{4,})").expect("valid regex")
+});
 
 /// Format milliseconds to human-readable string
 fn format_duration(ms: u64) -> String {
@@ -108,7 +108,6 @@ impl HardcodedTimeoutDetector {
 
         ("General timeout".to_string(), false)
     }
-
 }
 
 impl Detector for HardcodedTimeoutDetector {
@@ -127,7 +126,10 @@ impl Detector for HardcodedTimeoutDetector {
         &["py", "js", "ts", "jsx", "tsx", "java", "go", "rs"]
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let files = &ctx.as_file_provider();
         let mut findings = vec![];
@@ -142,7 +144,9 @@ impl Detector for HardcodedTimeoutDetector {
         }
         let mut matches: Vec<TimeoutMatch> = Vec::new();
 
-        for path in files.files_with_extensions(&["py", "js", "ts", "java", "go", "rs", "rb", "jsx", "tsx"]) {
+        for path in
+            files.files_with_extensions(&["py", "js", "ts", "java", "go", "rs", "rb", "jsx", "tsx"])
+        {
             let path_str = path.to_string_lossy();
 
             // Skip test files and config files
@@ -157,9 +161,12 @@ impl Detector for HardcodedTimeoutDetector {
                 None => continue,
             };
             let raw_lower = raw.to_ascii_lowercase();
-            if !raw_lower.contains("timeout") && !raw_lower.contains("sleep")
-                && !raw_lower.contains("delay") && !raw_lower.contains("wait")
-                && !raw_lower.contains("setinterval") && !raw_lower.contains("settimeout")
+            if !raw_lower.contains("timeout")
+                && !raw_lower.contains("sleep")
+                && !raw_lower.contains("delay")
+                && !raw_lower.contains("wait")
+                && !raw_lower.contains("setinterval")
+                && !raw_lower.contains("settimeout")
             {
                 continue;
             }
@@ -201,8 +208,10 @@ impl Detector for HardcodedTimeoutDetector {
             let occurrences = occurrence_counts.get(&m.value).copied().unwrap_or(1);
             let (context, is_network) = Self::analyze_context(&m.line_text);
             let path_str = m.path.to_string_lossy();
-            let containing_func =
-                graph.find_function_at(&path_str, m.line_num).map(|f| f.node_name(crate::graph::interner::global_interner()).to_string());
+            let containing_func = graph.find_function_at(&path_str, m.line_num).map(|f| {
+                f.node_name(crate::graph::interner::global_interner())
+                    .to_string()
+            });
 
             let severity = if is_network || occurrences > 3 {
                 Severity::Medium
@@ -234,8 +243,12 @@ impl Detector for HardcodedTimeoutDetector {
                      from config import {}\n\
                      requests.get(url, timeout={}/1000)\n\
                      ```",
-                    occurrences, const_name, m.value, format_duration(m.value),
-                    const_name, const_name
+                    occurrences,
+                    const_name,
+                    m.value,
+                    format_duration(m.value),
+                    const_name,
+                    const_name
                 )
             } else if is_network {
                 format!(
@@ -252,7 +265,9 @@ impl Detector for HardcodedTimeoutDetector {
                      ```python\n\
                      {} = {}  # {}\n\
                      ```",
-                    const_name, m.value, format_duration(m.value)
+                    const_name,
+                    m.value,
+                    format_duration(m.value)
                 )
             };
 
@@ -274,7 +289,8 @@ impl Detector for HardcodedTimeoutDetector {
                 cwe_id: None,
                 why_it_matters: Some(
                     "Hardcoded timeouts are hard to find, tune, and change across environments. \
-                     Network timeouts especially need to be configurable based on deployment.".to_string()
+                     Network timeouts especially need to be configurable based on deployment."
+                        .to_string(),
                 ),
                 ..Default::default()
             });
@@ -287,7 +303,6 @@ impl Detector for HardcodedTimeoutDetector {
         Ok(findings)
     }
 }
-
 
 impl crate::detectors::RegisteredDetector for HardcodedTimeoutDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {

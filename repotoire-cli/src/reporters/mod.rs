@@ -10,18 +10,20 @@
 mod html;
 mod json;
 mod markdown;
-mod sarif;
-mod text;
 pub mod narrative;
 pub mod report_context;
+mod sarif;
 pub mod svg;
+mod text;
 
 use crate::models::HealthReport;
 use anyhow::{anyhow, Result};
 use std::str::FromStr;
 
 /// Supported output formats
-#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum, serde::Serialize, serde::Deserialize,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum OutputFormat {
     Text,
@@ -153,7 +155,9 @@ pub(crate) mod tests {
             style_profile: None,
         };
         let output = report_with_context(&ctx, OutputFormat::Text).unwrap();
-        assert!(output.contains("Score:") || output.contains("score") || output.contains("Repotoire"));
+        assert!(
+            output.contains("Score:") || output.contains("score") || output.contains("Repotoire")
+        );
     }
 
     #[test]

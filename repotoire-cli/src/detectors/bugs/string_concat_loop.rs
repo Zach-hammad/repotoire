@@ -17,17 +17,18 @@ use std::sync::LazyLock;
 use tracing::info;
 
 static LOOP_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"(?i)(for\s+\w+\s+in|\.forEach|\.map\(|\.each|for\s*\(|while\s*\()")
-            .expect("valid regex")
-    });
+    Regex::new(r"(?i)(for\s+\w+\s+in|\.forEach|\.map\(|\.each|for\s*\(|while\s*\()")
+        .expect("valid regex")
+});
 static STRING_CONCAT: LazyLock<Regex> = LazyLock::new(|| {
-        // Only match += with string literal or f-string
-        // Fix: 'f' must be followed by a quote to be an f-string prefix
-        Regex::new(r#"\w+\s*\+=\s*(?:["'`]|f["'])"#)
-            .expect("valid regex")
-    });
-static FOR_VAR_PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"for\s+(\w+)\s+in").expect("valid regex"));
-static CONCAT_VAR_PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(\w+)\s*\+=").expect("valid regex"));
+    // Only match += with string literal or f-string
+    // Fix: 'f' must be followed by a quote to be an f-string prefix
+    Regex::new(r#"\w+\s*\+=\s*(?:["'`]|f["'])"#).expect("valid regex")
+});
+static FOR_VAR_PATTERN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"for\s+(\w+)\s+in").expect("valid regex"));
+static CONCAT_VAR_PATTERN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(\w+)\s*\+=").expect("valid regex"));
 
 /// Extract the variable name from a `+=` line (the identifier before `+=`)
 pub struct StringConcatLoopDetector {
@@ -44,15 +45,18 @@ impl StringConcatLoopDetector {
     fn find_concat_functions(&self, graph: &dyn crate::graph::GraphQuery) -> HashSet<String> {
         let i = graph.interner();
         let mut concat_funcs = HashSet::new();
-        let mut file_lines: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+        let mut file_lines: std::collections::HashMap<String, Vec<String>> =
+            std::collections::HashMap::new();
 
         for func in graph.get_functions_shared().iter() {
-            let lines = file_lines.entry(func.path(i).to_string()).or_insert_with(|| {
-                crate::cache::global_cache()
-                    .content(std::path::Path::new(func.path(i)))
-                    .map(|c| c.lines().map(String::from).collect())
-                    .unwrap_or_default()
-            });
+            let lines = file_lines
+                .entry(func.path(i).to_string())
+                .or_insert_with(|| {
+                    crate::cache::global_cache()
+                        .content(std::path::Path::new(func.path(i)))
+                        .map(|c| c.lines().map(String::from).collect())
+                        .unwrap_or_default()
+                });
 
             let start = func.line_start.saturating_sub(1) as usize;
             let end = (func.line_end as usize).min(lines.len());
@@ -127,7 +131,10 @@ impl Detector for StringConcatLoopDetector {
         &["py", "js", "ts", "jsx", "tsx", "java", "go"]
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let files = &ctx.as_file_provider();
         let i = graph.interner();
@@ -157,18 +164,19 @@ impl Detector for StringConcatLoopDetector {
 
                 // Helper closure: flush accumulated concats, creating findings
                 // only for variables with 2+ concatenations in the same loop.
-                let flush_loop_concats = |concats: &mut HashMap<String, (usize, u32)>,
-                                               findings: &mut Vec<Finding>,
-                                               loop_start_line: usize,
-                                               file_path: &std::path::Path,
-                                               extension: &str| {
-                    // Sort by variable name for deterministic finding order
-                    let mut entries: Vec<_> = concats.drain().collect();
-                    entries.sort_by(|a, b| a.0.cmp(&b.0));
-                    for (var_name, (first_line, count)) in entries {
-                        if count >= 2 {
-                            let suggestion = Self::get_suggestion(extension);
-                            findings.push(Finding {
+                let flush_loop_concats =
+                    |concats: &mut HashMap<String, (usize, u32)>,
+                     findings: &mut Vec<Finding>,
+                     loop_start_line: usize,
+                     file_path: &std::path::Path,
+                     extension: &str| {
+                        // Sort by variable name for deterministic finding order
+                        let mut entries: Vec<_> = concats.drain().collect();
+                        entries.sort_by(|a, b| a.0.cmp(&b.0));
+                        for (var_name, (first_line, count)) in entries {
+                            if count >= 2 {
+                                let suggestion = Self::get_suggestion(extension);
+                                findings.push(Finding {
                                 id: String::new(),
                                 detector: "StringConcatLoopDetector".to_string(),
                                 severity: Severity::Medium,
@@ -193,9 +201,9 @@ impl Detector for StringConcatLoopDetector {
                                 ),
                                 ..Default::default()
                             });
+                            }
                         }
-                    }
-                };
+                    };
 
                 for (i, line) in all_lines.iter().enumerate() {
                     if LOOP_PATTERN.is_match(line) {
@@ -276,9 +284,7 @@ impl Detector for StringConcatLoopDetector {
                                     .get(1)
                                     .map(|m| m.as_str().to_string())
                                     .unwrap_or_default();
-                                let entry = loop_concats
-                                    .entry(var_name)
-                                    .or_insert((i + 1, 0));
+                                let entry = loop_concats.entry(var_name).or_insert((i + 1, 0));
                                 entry.1 += 1;
                             }
                         }
@@ -287,13 +293,7 @@ impl Detector for StringConcatLoopDetector {
 
                 // End of file — flush any remaining loop concats
                 if in_loop {
-                    flush_loop_concats(
-                        &mut loop_concats,
-                        &mut findings,
-                        loop_line,
-                        path,
-                        ext,
-                    );
+                    flush_loop_concats(&mut loop_concats, &mut findings, loop_line, path, ext);
                 }
             }
         }
@@ -314,12 +314,14 @@ impl Detector for StringConcatLoopDetector {
                 }
 
                 // Check if function contains a loop (per-file line caching)
-                let lines = graph_file_lines.entry(func.path(i).to_string()).or_insert_with(|| {
-                    crate::cache::global_cache()
-                        .content(std::path::Path::new(func.path(i)))
-                        .map(|c| c.lines().map(String::from).collect())
-                        .unwrap_or_default()
-                });
+                let lines = graph_file_lines
+                    .entry(func.path(i).to_string())
+                    .or_insert_with(|| {
+                        crate::cache::global_cache()
+                            .content(std::path::Path::new(func.path(i)))
+                            .map(|c| c.lines().map(String::from).collect())
+                            .unwrap_or_default()
+                    });
 
                 let start = func.line_start.saturating_sub(1) as usize;
                 let end = (func.line_end as usize).min(lines.len());
@@ -375,7 +377,6 @@ impl Detector for StringConcatLoopDetector {
         Ok(findings)
     }
 }
-
 
 impl crate::detectors::RegisteredDetector for StringConcatLoopDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
@@ -482,9 +483,10 @@ mod tests {
     fn test_no_finding_for_media_iadd() {
         let store = GraphBuilder::new().freeze();
         let detector = StringConcatLoopDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("forms.py", "for fs in formsets:\n    media += fs.media\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![("forms.py", "for fs in formsets:\n    media += fs.media\n")],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
@@ -497,9 +499,13 @@ mod tests {
     fn test_no_finding_for_concat_after_loop() {
         let store = GraphBuilder::new().freeze();
         let detector = StringConcatLoopDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("builder.py", "for item in items:\n    process(item)\n\nresult += \"_suffix\"\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "builder.py",
+                "for item in items:\n    process(item)\n\nresult += \"_suffix\"\n",
+            )],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
@@ -526,9 +532,10 @@ mod tests {
     fn test_no_finding_for_single_concat_per_iteration() {
         let store = GraphBuilder::new().freeze();
         let detector = StringConcatLoopDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("views.py", "for item in items:\n    url += \"/\"\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![("views.py", "for item in items:\n    url += \"/\"\n")],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),

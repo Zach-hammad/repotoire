@@ -126,7 +126,8 @@ pub fn train(config: &TrainConfig) -> Result<TrainResult, String> {
             epoch_loss += loss * chunk.len() as f32;
 
             // Count correct
-            correct += chunk.iter()
+            correct += chunk
+                .iter()
                 .filter(|(f, label)| model.predict(f).is_true_positive == *label)
                 .count();
         }
@@ -215,11 +216,18 @@ fn evaluate_validation(model: &FpClassifier, val_data: &[(Features, bool)]) -> (
     for (f, label) in val_data {
         let pred = model.predict(f);
         correct += usize::from(pred.is_true_positive == *label);
-        let prob = if *label { pred.tp_probability } else { pred.fp_probability };
+        let prob = if *label {
+            pred.tp_probability
+        } else {
+            pred.fp_probability
+        };
         loss -= prob.max(1e-7).ln();
     }
 
-    (loss / val_data.len() as f32, correct as f32 / val_data.len() as f32)
+    (
+        loss / val_data.len() as f32,
+        correct as f32 / val_data.len() as f32,
+    )
 }
 
 /// Train a GBDT classifier on labeled data
@@ -243,7 +251,10 @@ pub fn train_gbdt_model(_config: &TrainConfig) -> Result<TrainResult, String> {
         ));
     }
 
-    tracing::info!("Loaded {} labeled examples for GBDT training", examples.len());
+    tracing::info!(
+        "Loaded {} labeled examples for GBDT training",
+        examples.len()
+    );
 
     let extractor = FeatureExtractorV2::new();
     let graph = crate::graph::builder::GraphBuilder::new().freeze();
@@ -260,13 +271,7 @@ pub fn train_gbdt_model(_config: &TrainConfig) -> Result<TrainResult, String> {
         .map(|ex| if ex.is_true_positive { 1.0 } else { -1.0 })
         .collect();
 
-    let model = gbdt_model::train_gbdt(
-        &features,
-        &labels,
-        100,
-        6,
-        0.1,
-    )?;
+    let model = gbdt_model::train_gbdt(&features, &labels, 100, 6, 0.1)?;
 
     let model_path = dirs::data_dir()
         .unwrap_or_else(|| PathBuf::from("."))

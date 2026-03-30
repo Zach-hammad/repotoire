@@ -167,8 +167,11 @@ impl EmptyCatchDetector {
 
                             // Broad catch patterns that deserve higher severity
                             let broad_catches = [
-                                "except:", "except Exception:", "except BaseException:",
-                                "except Exception as", "except BaseException as",
+                                "except:",
+                                "except Exception:",
+                                "except BaseException:",
+                                "except Exception as",
+                                "except BaseException as",
                             ];
                             // Check if this is a broad catch (no specific exception named)
                             let is_broad_catch = except_body.is_empty()
@@ -196,9 +199,20 @@ impl EmptyCatchDetector {
             if is_empty_catch {
                 // --- Pattern A: Skip empty catches in cleanup/teardown methods ---
                 let cleanup_methods: &[&str] = &[
-                    "close", "_close", "__del__", "__exit__", "__aexit__",
-                    "shutdown", "dispose", "cleanup", "teardown", "finalize",
-                    "_cleanup", "_teardown", "_dispose", "_shutdown",
+                    "close",
+                    "_close",
+                    "__del__",
+                    "__exit__",
+                    "__aexit__",
+                    "shutdown",
+                    "dispose",
+                    "cleanup",
+                    "teardown",
+                    "finalize",
+                    "_cleanup",
+                    "_teardown",
+                    "_dispose",
+                    "_shutdown",
                 ];
                 let mut in_cleanup = false;
                 if ext == "py" {
@@ -208,11 +222,7 @@ impl EmptyCatchDetector {
                         if lt.starts_with("def ") {
                             // Extract function name: "def name(...)"
                             if let Some(name_part) = lt.strip_prefix("def ") {
-                                let func_name = name_part
-                                    .split('(')
-                                    .next()
-                                    .unwrap_or("")
-                                    .trim();
+                                let func_name = name_part.split('(').next().unwrap_or("").trim();
                                 if cleanup_methods.contains(&func_name) {
                                     in_cleanup = true;
                                 }
@@ -258,10 +268,19 @@ impl EmptyCatchDetector {
 
                 // --- Pattern C: Skip safe single-line probes with specific exceptions ---
                 let safe_exception_types: &[&str] = &[
-                    "KeyError", "AttributeError", "TypeError", "ValueError",
-                    "FileNotFoundError", "OSError", "PermissionError",
-                    "NotImplementedError", "StopIteration", "UnicodeDecodeError",
-                    "UnicodeEncodeError", "LookupError", "IndexError",
+                    "KeyError",
+                    "AttributeError",
+                    "TypeError",
+                    "ValueError",
+                    "FileNotFoundError",
+                    "OSError",
+                    "PermissionError",
+                    "NotImplementedError",
+                    "StopIteration",
+                    "UnicodeDecodeError",
+                    "UnicodeEncodeError",
+                    "LookupError",
+                    "IndexError",
                 ];
                 if ext == "py" && try_body_lines.len() <= 2 {
                     // Extract the exception types from the except clause
@@ -272,11 +291,8 @@ impl EmptyCatchDetector {
                         .unwrap_or("")
                         .trim();
                     // Remove "as <var>" suffix if present
-                    let except_types_str = except_types_str
-                        .split(" as ")
-                        .next()
-                        .unwrap_or("")
-                        .trim();
+                    let except_types_str =
+                        except_types_str.split(" as ").next().unwrap_or("").trim();
                     // Only check when there are specific exception types (not bare except or Exception)
                     if !except_types_str.is_empty()
                         && except_types_str != "Exception"
@@ -384,10 +400,15 @@ impl Detector for EmptyCatchDetector {
     }
 
     fn file_extensions(&self) -> &'static [&'static str] {
-        &["py", "js", "ts", "jsx", "tsx", "rb", "java", "go", "rs", "c", "cpp", "cs"]
+        &[
+            "py", "js", "ts", "jsx", "tsx", "rb", "java", "go", "rs", "c", "cpp", "cs",
+        ]
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let files = &ctx.as_file_provider();
         let mut findings = vec![];
@@ -400,7 +421,9 @@ impl Detector for EmptyCatchDetector {
             .map(|f| (f.node_name(gi).to_string(), f.qn(gi).to_string()))
             .collect();
 
-        for path in files.files_with_extensions(&["py", "js", "ts", "jsx", "tsx", "java", "cs", "cpp"]) {
+        for path in
+            files.files_with_extensions(&["py", "js", "ts", "jsx", "tsx", "java", "cs", "cpp"])
+        {
             if findings.len() >= self.max_findings {
                 break;
             }
@@ -415,7 +438,6 @@ impl Detector for EmptyCatchDetector {
         Ok(findings)
     }
 }
-
 
 impl crate::detectors::RegisteredDetector for EmptyCatchDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
@@ -432,9 +454,13 @@ mod tests {
     fn test_detects_empty_except_pass_in_python() {
         let store = GraphBuilder::new().freeze();
         let detector = EmptyCatchDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("handler.py", "def process():\n    try:\n        do_something()\n    except:\n        pass\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "handler.py",
+                "def process():\n    try:\n        do_something()\n    except:\n        pass\n",
+            )],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
@@ -466,9 +492,13 @@ mod tests {
     fn test_no_finding_for_except_importerror_pass() {
         let store = GraphBuilder::new().freeze();
         let detector = EmptyCatchDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("optional.py", "try:\n    import yaml\nexcept ImportError:\n    pass\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "optional.py",
+                "try:\n    import yaml\nexcept ImportError:\n    pass\n",
+            )],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
@@ -481,9 +511,13 @@ mod tests {
     fn test_no_finding_for_except_keyerror_pass_single_line() {
         let store = GraphBuilder::new().freeze();
         let detector = EmptyCatchDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("lookup.py", "try:\n    value = cache[key]\nexcept KeyError:\n    pass\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "lookup.py",
+                "try:\n    value = cache[key]\nexcept KeyError:\n    pass\n",
+            )],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
@@ -496,9 +530,10 @@ mod tests {
     fn test_still_detects_bare_except_pass() {
         let store = GraphBuilder::new().freeze();
         let detector = EmptyCatchDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("bad.py", "try:\n    do_something()\nexcept:\n    pass\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![("bad.py", "try:\n    do_something()\nexcept:\n    pass\n")],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
@@ -515,9 +550,13 @@ mod tests {
     fn test_still_detects_except_exception_pass() {
         let store = GraphBuilder::new().freeze();
         let detector = EmptyCatchDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("bad.py", "try:\n    do_something()\nexcept Exception:\n    pass\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "bad.py",
+                "try:\n    do_something()\nexcept Exception:\n    pass\n",
+            )],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
@@ -539,9 +578,14 @@ mod tests {
         ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(!findings.is_empty(), "Should still detect empty catch");
-        assert!(findings.iter().all(|f| f.severity == Severity::Low),
+        assert!(
+            findings.iter().all(|f| f.severity == Severity::Low),
             "Specific named exception should be Low severity. Got: {:?}",
-            findings.iter().map(|f| (&f.title, &f.severity)).collect::<Vec<_>>());
+            findings
+                .iter()
+                .map(|f| (&f.title, &f.severity))
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -553,9 +597,14 @@ mod tests {
         ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(!findings.is_empty(), "Should detect broad except");
-        assert!(findings.iter().any(|f| f.severity != Severity::Low),
+        assert!(
+            findings.iter().any(|f| f.severity != Severity::Low),
             "Broad 'except Exception:' should NOT be Low severity. Got: {:?}",
-            findings.iter().map(|f| (&f.title, &f.severity)).collect::<Vec<_>>());
+            findings
+                .iter()
+                .map(|f| (&f.title, &f.severity))
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]

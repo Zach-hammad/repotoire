@@ -202,7 +202,11 @@ pub fn compute_debt(
     }
 
     // 3. Sort by risk descending
-    results.sort_by(|a, b| b.risk_score.partial_cmp(&a.risk_score).unwrap_or(std::cmp::Ordering::Equal));
+    results.sort_by(|a, b| {
+        b.risk_score
+            .partial_cmp(&a.risk_score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     results
 }
 
@@ -213,8 +217,8 @@ pub fn compute_debt(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::{CodeEdge, CodeNode, NodeKind};
     use crate::graph::builder::GraphBuilder;
+    use crate::graph::{CodeEdge, CodeNode, NodeKind};
     use std::collections::HashMap;
     use std::path::PathBuf;
 
@@ -230,8 +234,7 @@ mod tests {
 
         // Functions
         builder.add_node(
-            CodeNode::new(NodeKind::Function, "main", "src/main.rs")
-                .with_qualified_name("main"),
+            CodeNode::new(NodeKind::Function, "main", "src/main.rs").with_qualified_name("main"),
         );
         builder.add_node(
             CodeNode::new(NodeKind::Function, "helper", "src/main.rs")
@@ -290,10 +293,7 @@ mod tests {
         let d = &debts[0];
         assert_eq!(d.file_path, "src/main.rs");
         assert!(d.risk_score > 0.0, "risk_score should be positive");
-        assert!(
-            d.risk_score <= 100.0,
-            "risk_score should be at most 100"
-        );
+        assert!(d.risk_score <= 100.0, "risk_score should be at most 100");
         // finding_density should be non-zero
         assert!(d.finding_density > 0.0);
         // coupling: 2 functions * (3 + 2) = 10

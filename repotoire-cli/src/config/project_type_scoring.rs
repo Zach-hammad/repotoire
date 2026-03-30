@@ -8,7 +8,9 @@ fn read_cargo_toml(repo_path: &Path) -> Option<String> {
 
 /// Score Cargo.toml dependencies: add `points` for each matching dep
 fn score_cargo_deps(repo_path: &Path, deps: &[&str], points: u32) -> u32 {
-    let Some(content) = read_cargo_toml(repo_path) else { return 0 };
+    let Some(content) = read_cargo_toml(repo_path) else {
+        return 0;
+    };
     deps.iter().filter(|dep| content.contains(*dep)).count() as u32 * points
 }
 
@@ -76,8 +78,17 @@ pub(super) fn score_framework_markers(repo_path: &Path) -> u32 {
         }
         // Project name matches a known Python framework
         const PY_FRAMEWORKS: &[&str] = &[
-            "flask", "django", "fastapi", "starlette", "tornado", "sanic",
-            "bottle", "pyramid", "falcon", "aiohttp", "quart",
+            "flask",
+            "django",
+            "fastapi",
+            "starlette",
+            "tornado",
+            "sanic",
+            "bottle",
+            "pyramid",
+            "falcon",
+            "aiohttp",
+            "quart",
         ];
         for fw in PY_FRAMEWORKS {
             if lower.contains(&format!("name = \"{}\"", fw)) {
@@ -90,7 +101,13 @@ pub(super) fn score_framework_markers(repo_path: &Path) -> u32 {
     if let Some(content) = read_cargo_toml(repo_path) {
         let lower = content.to_lowercase();
         const RS_FRAMEWORKS: &[&str] = &[
-            "axum", "actix-web", "rocket", "warp", "tide", "gotham", "poem",
+            "axum",
+            "actix-web",
+            "rocket",
+            "warp",
+            "tide",
+            "gotham",
+            "poem",
         ];
         for fw in RS_FRAMEWORKS {
             if lower.contains(&format!("name = \"{}\"", fw)) {
@@ -248,7 +265,11 @@ pub(super) fn score_game_markers(repo_path: &Path) -> u32 {
     }
 
     // Check for game-specific dependencies
-    score += score_cargo_deps(repo_path, &["bevy", "ggez", "amethyst", "macroquad", "fyrox", "godot"], 5);
+    score += score_cargo_deps(
+        repo_path,
+        &["bevy", "ggez", "amethyst", "macroquad", "fyrox", "godot"],
+        5,
+    );
 
     score
 }
@@ -287,10 +308,7 @@ pub(super) fn score_cli_markers(repo_path: &Path) -> u32 {
         let Ok(content) = std::fs::read_to_string(&file_path) else {
             continue;
         };
-        if content.contains("click")
-            || content.contains("typer")
-            || content.contains("argparse")
-        {
+        if content.contains("click") || content.contains("typer") || content.contains("argparse") {
             score += 3;
         }
     }
@@ -400,7 +418,9 @@ pub(super) fn score_web_markers(repo_path: &Path) -> u32 {
     let requirements = repo_path.join("requirements.txt");
     let pyproject = repo_path.join("pyproject.toml");
     for file_path in [requirements, pyproject] {
-        let Ok(content) = std::fs::read_to_string(&file_path) else { continue; };
+        let Ok(content) = std::fs::read_to_string(&file_path) else {
+            continue;
+        };
         let web_deps = [
             "flask",
             "django",

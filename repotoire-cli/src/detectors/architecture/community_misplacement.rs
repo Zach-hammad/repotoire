@@ -123,10 +123,8 @@ impl Detector for CommunityMisplacementDetector {
         let graph = ctx.graph;
         let gi = graph.interner();
 
-        let min_community_size: usize =
-            self.config.get_option_or("min_community_size", 5);
-        let max_outlier_ratio: f64 =
-            self.config.get_option_or("max_outlier_ratio", 0.2);
+        let min_community_size: usize = self.config.get_option_or("min_community_size", 5);
+        let max_outlier_ratio: f64 = self.config.get_option_or("max_outlier_ratio", 0.2);
 
         // Step 1: Iterate all function NodeIndexes, collect community assignments.
         // Group functions by community → HashMap<usize, Vec<NodeIndex>>.
@@ -355,16 +353,10 @@ mod tests {
         );
 
         // repotoire-cli/... → repotoire-cli
-        assert_eq!(
-            package_scope("repotoire-cli/src/main.rs"),
-            "repotoire-cli"
-        );
+        assert_eq!(package_scope("repotoire-cli/src/main.rs"), "repotoire-cli");
 
         // repotoire/web/... → repotoire/web
-        assert_eq!(
-            package_scope("repotoire/web/src/app.tsx"),
-            "repotoire/web"
-        );
+        assert_eq!(package_scope("repotoire/web/src/app.tsx"), "repotoire/web");
 
         // fallback: first path component
         assert_eq!(package_scope("src/api/handlers.rs"), "src");
@@ -452,27 +444,17 @@ mod tests {
         let mut commits = Vec::new();
         for auth in &auth_fns {
             for _ in 0..5 {
-                commits.push((
-                    now,
-                    vec![
-                        "src/utils/helper.py".to_string(),
-                        auth.1.clone(),
-                    ],
-                ));
+                commits.push((now, vec!["src/utils/helper.py".to_string(), auth.1.clone()]));
             }
         }
         // Auth files also co-change with each other
         for i in 0..5 {
             for _ in 0..3 {
-                commits.push((
-                    now,
-                    vec![auth_fns[i].1.clone(), auth_fns[i + 1].1.clone()],
-                ));
+                commits.push((now, vec![auth_fns[i].1.clone(), auth_fns[i + 1].1.clone()]));
             }
         }
 
-        let co_change =
-            crate::git::co_change::CoChangeMatrix::from_commits(&commits, &config, now);
+        let co_change = crate::git::co_change::CoChangeMatrix::from_commits(&commits, &config, now);
         let graph = builder.freeze_with_co_change(&co_change);
 
         let detector = CommunityMisplacementDetector::new();

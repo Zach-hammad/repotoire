@@ -203,9 +203,7 @@ pub fn train_gbdt(
     let mut training_data: Vec<Data> = features
         .iter()
         .zip(labels.iter())
-        .map(|(f, &label)| {
-            Data::new_training_data(features_to_f32(f), 1.0_f32, label as f32, None)
-        })
+        .map(|(f, &label)| Data::new_training_data(features_to_f32(f), 1.0_f32, label as f32, None))
         .collect();
 
     gbdt.fit(&mut training_data);
@@ -302,8 +300,7 @@ mod tests {
         }
 
         // Train a small model.
-        let model =
-            train_gbdt(&features, &labels, 10, 3, 0.3).expect("training should succeed");
+        let model = train_gbdt(&features, &labels, 10, 3, 0.3).expect("training should succeed");
 
         // Wrap in classifier.
         let classifier = GbdtClassifier::from_trained(model);
@@ -376,8 +373,7 @@ mod tests {
             labels.push(if i < 5 { 1.0 } else { -1.0 });
         }
 
-        let model =
-            train_gbdt(&features, &labels, 5, 2, 0.3).expect("training should succeed");
+        let model = train_gbdt(&features, &labels, 5, 2, 0.3).expect("training should succeed");
 
         // Save to a temp file.
         let tmp = tempfile::NamedTempFile::new().expect("create temp file");
@@ -412,8 +408,7 @@ mod tests {
             labels.push(if i < 5 { 1.0 } else { -1.0 });
         }
 
-        let model =
-            train_gbdt(&features, &labels, 5, 2, 0.3).expect("training should succeed");
+        let model = train_gbdt(&features, &labels, 5, 2, 0.3).expect("training should succeed");
 
         // Serialise to JSON.
         let json = serde_json::to_string(&model).expect("serialise should succeed");
@@ -537,8 +532,8 @@ mod tests {
 
         // Very few trees + low learning rate = conservative model that mostly
         // passes through findings and only filters extreme FP patterns
-        let model = super::train_gbdt(&features, &labels, 8, 2, 0.03)
-            .expect("training should succeed");
+        let model =
+            super::train_gbdt(&features, &labels, 8, 2, 0.03).expect("training should succeed");
 
         let json = serde_json::to_string(&model).expect("serialize should succeed");
 
@@ -547,7 +542,11 @@ mod tests {
             .join("seed_model.json");
         std::fs::create_dir_all(model_path.parent().unwrap()).unwrap();
         std::fs::write(&model_path, &json).unwrap();
-        println!("Seed model written to {} ({} bytes)", model_path.display(), json.len());
+        println!(
+            "Seed model written to {} ({} bytes)",
+            model_path.display(),
+            json.len()
+        );
 
         // Verify it loads and produces reasonable predictions
         let loaded = GbdtClassifier::from_json(&json).expect("should load from JSON");
@@ -571,7 +570,10 @@ mod tests {
         generic[22] = 2.0; // normal depth
         generic[24] = 1.0; // in src
         let pred_generic = loaded.predict(&FeaturesV2::new(generic));
-        println!("Generic medium finding prediction: {:.4}", pred_generic.tp_probability);
+        println!(
+            "Generic medium finding prediction: {:.4}",
+            pred_generic.tp_probability
+        );
         // Generic finding should still pass filter threshold (0.35 for security, 0.52 for quality)
         assert!(
             pred_generic.tp_probability >= 0.35,
@@ -590,8 +592,7 @@ mod tests {
             labels.push(if i < 5 { 1.0 } else { -1.0 });
         }
 
-        let model =
-            train_gbdt(&features, &labels, 5, 2, 0.3).expect("training should succeed");
+        let model = train_gbdt(&features, &labels, 5, 2, 0.3).expect("training should succeed");
         let classifier = GbdtClassifier::from_trained(model);
 
         // Empty batch should return empty results.

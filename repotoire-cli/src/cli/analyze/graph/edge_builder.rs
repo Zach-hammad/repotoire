@@ -152,7 +152,6 @@ pub(crate) const AMBIGUOUS_METHOD_NAMES: &[&str] = &[
     "with",
 ];
 
-
 pub(super) fn build_call_edges_fast(
     edges: &mut Vec<(String, String, CodeEdge)>,
     result: &ParseResult,
@@ -186,9 +185,7 @@ pub(super) fn build_call_edges_fast(
         // just the method name without receiver type. Resolving "find" globally
         // would conflate str::find, Iterator::find, and user-defined find() into
         // one node, creating massive false-positive fan-in/fan-out counts.
-        if callee_module.is_none()
-            && AMBIGUOUS_METHOD_NAMES.contains(&callee_name)
-        {
+        if callee_module.is_none() && AMBIGUOUS_METHOD_NAMES.contains(&callee_name) {
             continue;
         }
 
@@ -231,11 +228,12 @@ fn resolve_callee_cross_file(
     global_func_map.get(callee_name).cloned()
 }
 
-
 fn first_other_file(candidates: Option<&Vec<(String, usize)>>, exclude: &str) -> Option<String> {
-    candidates?.iter().find(|(p, _)| p != exclude).map(|(p, _)| p.clone())
+    candidates?
+        .iter()
+        .find(|(p, _)| p != exclude)
+        .map(|(p, _)| p.clone())
 }
-
 
 pub(super) fn build_import_edges_fast(
     edges: &mut Vec<(String, String, CodeEdge)>,
@@ -256,10 +254,15 @@ pub(super) fn build_import_edges_fast(
         let python_path = clean_import.replace('.', "/");
 
         // Try fast lookup paths in order of specificity
-        let matched_file = first_other_file(module_lookup.by_pattern.get(clean_import), relative_str)
-            .or_else(|| first_other_file(module_lookup.by_pattern.get(&python_path), relative_str))
-            .or_else(|| first_other_file(module_lookup.by_stem.get(first_module), relative_str))
-            .or_else(|| first_other_file(module_lookup.by_stem.get(clean_import), relative_str));
+        let matched_file =
+            first_other_file(module_lookup.by_pattern.get(clean_import), relative_str)
+                .or_else(|| {
+                    first_other_file(module_lookup.by_pattern.get(&python_path), relative_str)
+                })
+                .or_else(|| first_other_file(module_lookup.by_stem.get(first_module), relative_str))
+                .or_else(|| {
+                    first_other_file(module_lookup.by_stem.get(clean_import), relative_str)
+                });
 
         if let Some(target_file) = matched_file {
             let mut import_edge = CodeEdge::imports();

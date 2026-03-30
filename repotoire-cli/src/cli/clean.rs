@@ -58,10 +58,15 @@ pub fn run(path: &Path, dry_run: bool) -> Result<()> {
     for (kind, dir) in &to_remove {
         // For legacy .repotoire dirs, preserve style-profile.json
         // For legacy dirs, save style-profile.json before removal
-        let profile_backup = (kind == "Legacy").then(|| {
-            let profile = dir.join("style-profile.json");
-            profile.exists().then(|| std::fs::read(&profile).ok()).flatten()
-        }).flatten();
+        let profile_backup = (kind == "Legacy")
+            .then(|| {
+                let profile = dir.join("style-profile.json");
+                profile
+                    .exists()
+                    .then(|| std::fs::read(&profile).ok())
+                    .flatten()
+            })
+            .flatten();
 
         if let Err(e) = std::fs::remove_dir_all(dir) {
             eprintln!("Failed to remove {}: {}", dir.display(), e);

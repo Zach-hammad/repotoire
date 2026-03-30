@@ -58,7 +58,11 @@ pub fn format_ecosystem_context(ctx: &EcosystemContext) -> String {
     let pct = (ctx.score_percentile.round() as u64).clamp(1, 99);
 
     // Add "early data" qualifier for small samples
-    let qualifier = if ctx.sample_size < 50 { " (early data — limited sample)" } else { "" };
+    let qualifier = if ctx.sample_size < 50 {
+        " (early data — limited sample)"
+    } else {
+        ""
+    };
 
     let score_line = format!(
         "  Score:         better than {}% of {}{}",
@@ -160,7 +164,10 @@ pub fn format_benchmark_full(
         let mut lines = vec!["── Graph Health ───────────────────────────────────".to_string()];
         lines.push(format!("  Modularity:      {}", percentile_to_top(mod_pct)));
         lines.push(format!("  Avg degree:      {}", percentile_to_top(deg_pct)));
-        lines.push(format!("  Cycle-free:      {:.0}% of projects have zero SCCs", scc_pct * 100.0));
+        lines.push(format!(
+            "  Cycle-free:      {:.0}% of projects have zero SCCs",
+            scc_pct * 100.0
+        ));
         lines.push(border.to_string());
         sections.push(lines.join("\n"));
     }
@@ -172,7 +179,11 @@ pub fn format_benchmark_full(
             lines.push("  (no detector data available)".to_string());
         } else {
             for det in data.top_detectors.iter().take(10) {
-                lines.push(format!("  {:<32} {:.0}% of repos", det.name, det.pct_repos_with_findings * 100.0));
+                lines.push(format!(
+                    "  {:<32} {:.0}% of repos",
+                    det.name,
+                    det.pct_repos_with_findings * 100.0
+                ));
             }
         }
         lines.push(border.to_string());
@@ -188,7 +199,9 @@ pub fn format_benchmark_full(
             for acc in data.detector_accuracy.iter().take(10) {
                 lines.push(format!(
                     "  {:<32} TP rate: {:.0}%  ({} feedback)",
-                    acc.name, acc.true_positive_rate * 100.0, acc.feedback_count
+                    acc.name,
+                    acc.true_positive_rate * 100.0,
+                    acc.feedback_count
                 ));
             }
         }
@@ -304,9 +317,18 @@ mod tests {
             trend: None,
         };
         let output = format_ecosystem_context(&ctx);
-        assert!(output.contains("early data"), "Small samples should show early data qualifier");
-        assert!(output.contains("limited sample"), "Small samples should show limited sample note");
-        assert!(output.contains("better than 95%"), "Should show clamped percentile");
+        assert!(
+            output.contains("early data"),
+            "Small samples should show early data qualifier"
+        );
+        assert!(
+            output.contains("limited sample"),
+            "Small samples should show limited sample note"
+        );
+        assert!(
+            output.contains("better than 95%"),
+            "Should show clamped percentile"
+        );
     }
 
     #[test]
@@ -321,7 +343,10 @@ mod tests {
             trend: None,
         };
         let output = format_ecosystem_context(&ctx);
-        assert!(!output.contains("early data"), "Large samples should not show qualifier");
+        assert!(
+            !output.contains("early data"),
+            "Large samples should not show qualifier"
+        );
     }
 
     #[test]
@@ -397,23 +422,64 @@ mod tests {
         };
         let data = BenchmarkData {
             schema_version: 1,
-            segment: BenchmarkSegment { language: Some("TypeScript".into()), kloc_bucket: None },
+            segment: BenchmarkSegment {
+                language: Some("TypeScript".into()),
+                kloc_bucket: None,
+            },
             sample_size: 3000,
             updated_at: "2026-01-01".into(),
-            score: PercentileDistribution { p25: 40.0, p50: 55.0, p75: 70.0, p90: 85.0 },
-            pillar_structure: PercentileDistribution { p25: 40.0, p50: 55.0, p75: 70.0, p90: 85.0 },
-            pillar_quality: PercentileDistribution { p25: 40.0, p50: 55.0, p75: 70.0, p90: 85.0 },
-            pillar_architecture: PercentileDistribution { p25: 40.0, p50: 55.0, p75: 70.0, p90: 85.0 },
-            graph_modularity: PercentileDistribution { p25: 0.2, p50: 0.4, p75: 0.6, p90: 0.8 },
-            graph_avg_degree: PercentileDistribution { p25: 1.0, p50: 2.0, p75: 3.0, p90: 5.0 },
-            graph_scc_count: SccDistribution { pct_zero: 0.65, p50: 1.0, p75: 3.0, p90: 7.0 },
+            score: PercentileDistribution {
+                p25: 40.0,
+                p50: 55.0,
+                p75: 70.0,
+                p90: 85.0,
+            },
+            pillar_structure: PercentileDistribution {
+                p25: 40.0,
+                p50: 55.0,
+                p75: 70.0,
+                p90: 85.0,
+            },
+            pillar_quality: PercentileDistribution {
+                p25: 40.0,
+                p50: 55.0,
+                p75: 70.0,
+                p90: 85.0,
+            },
+            pillar_architecture: PercentileDistribution {
+                p25: 40.0,
+                p50: 55.0,
+                p75: 70.0,
+                p90: 85.0,
+            },
+            graph_modularity: PercentileDistribution {
+                p25: 0.2,
+                p50: 0.4,
+                p75: 0.6,
+                p90: 0.8,
+            },
+            graph_avg_degree: PercentileDistribution {
+                p25: 1.0,
+                p50: 2.0,
+                p75: 3.0,
+                p90: 5.0,
+            },
+            graph_scc_count: SccDistribution {
+                pct_zero: 0.65,
+                p50: 1.0,
+                p75: 3.0,
+                p90: 7.0,
+            },
             grade_distribution: std::collections::HashMap::new(),
-            top_detectors: vec![
-                DetectorStat { name: "god-class".into(), pct_repos_with_findings: 0.42 },
-            ],
-            detector_accuracy: vec![
-                DetectorAccuracy { name: "god-class".into(), true_positive_rate: 0.88, feedback_count: 150 },
-            ],
+            top_detectors: vec![DetectorStat {
+                name: "god-class".into(),
+                pct_repos_with_findings: 0.42,
+            }],
+            detector_accuracy: vec![DetectorAccuracy {
+                name: "god-class".into(),
+                true_positive_rate: 0.88,
+                feedback_count: 150,
+            }],
             avg_improvement_per_analysis: 1.2,
         };
         let output = format_benchmark_full(&ctx, &data, None);

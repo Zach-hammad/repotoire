@@ -130,18 +130,12 @@ pub(crate) fn compute_content_flags(content: &str) -> ContentFlags {
     }
 
     // HAS_IMPORT
-    if content.contains("import ")
-        || content.contains("require(")
-        || content.contains("from ")
-    {
+    if content.contains("import ") || content.contains("require(") || content.contains("from ") {
         flags.set(ContentFlags::HAS_IMPORT);
     }
 
     // HAS_EVAL
-    if content.contains("eval(")
-        || content.contains("exec(")
-        || content.contains("Function(")
-    {
+    if content.contains("eval(") || content.contains("exec(") || content.contains("Function(") {
         flags.set(ContentFlags::HAS_EVAL);
     }
 
@@ -441,24 +435,27 @@ impl DetectorContext {
             content_flags.insert(rel, flags);
         }
 
-        (Self {
-            callers_by_qn,
-            callees_by_qn,
-            class_children,
-            file_contents,
-            content_flags,
-            class_contexts: None,
-            value_store,
-            repo_path: repo_path.to_path_buf(),
-        }, file_data_for_index)
+        (
+            Self {
+                callers_by_qn,
+                callees_by_qn,
+                class_children,
+                file_contents,
+                content_flags,
+                class_contexts: None,
+                value_store,
+                repo_path: repo_path.to_path_buf(),
+            },
+            file_data_for_index,
+        )
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::store_models::{CodeEdge, CodeNode};
     use crate::graph::builder::GraphBuilder;
+    use crate::graph::store_models::{CodeEdge, CodeNode};
 
     #[test]
     fn test_empty_graph_produces_empty_context() {
@@ -477,7 +474,8 @@ mod tests {
         let file_path = dir.path().join("test.py");
         std::fs::write(&file_path, "def hello(): pass").unwrap();
 
-        let (ctx, _file_data) = DetectorContext::build(&graph, &[file_path.clone()], None, dir.path());
+        let (ctx, _file_data) =
+            DetectorContext::build(&graph, &[file_path.clone()], None, dir.path());
         assert_eq!(ctx.file_contents.len(), 1);
         let rel_path = file_path.strip_prefix(dir.path()).unwrap().to_path_buf();
         assert!(ctx.file_contents.contains_key(&rel_path));
@@ -497,12 +495,10 @@ mod tests {
     fn test_callers_callees_populated() {
         let mut graph = GraphBuilder::new();
 
-        graph.add_node(
-            CodeNode::function("caller", "test.py").with_qualified_name("module.caller"),
-        );
-        graph.add_node(
-            CodeNode::function("callee", "test.py").with_qualified_name("module.callee"),
-        );
+        graph
+            .add_node(CodeNode::function("caller", "test.py").with_qualified_name("module.caller"));
+        graph
+            .add_node(CodeNode::function("callee", "test.py").with_qualified_name("module.callee"));
         graph.add_edge_by_name("module.caller", "module.callee", CodeEdge::calls());
 
         let (ctx, _file_data) = DetectorContext::build(&graph, &[], None, Path::new("/tmp"));
@@ -520,12 +516,8 @@ mod tests {
     fn test_class_children_populated() {
         let mut graph = GraphBuilder::new();
 
-        graph.add_node(
-            CodeNode::class("Parent", "test.py").with_qualified_name("module.Parent"),
-        );
-        graph.add_node(
-            CodeNode::class("Child", "test.py").with_qualified_name("module.Child"),
-        );
+        graph.add_node(CodeNode::class("Parent", "test.py").with_qualified_name("module.Parent"));
+        graph.add_node(CodeNode::class("Child", "test.py").with_qualified_name("module.Child"));
         graph.add_edge_by_name("module.Child", "module.Parent", CodeEdge::inherits());
 
         let (ctx, _file_data) = DetectorContext::build(&graph, &[], None, Path::new("/tmp"));
@@ -537,15 +529,9 @@ mod tests {
     fn test_multiple_callers_for_same_callee() {
         let mut graph = GraphBuilder::new();
 
-        graph.add_node(
-            CodeNode::function("a", "test.py").with_qualified_name("mod.a"),
-        );
-        graph.add_node(
-            CodeNode::function("b", "test.py").with_qualified_name("mod.b"),
-        );
-        graph.add_node(
-            CodeNode::function("target", "test.py").with_qualified_name("mod.target"),
-        );
+        graph.add_node(CodeNode::function("a", "test.py").with_qualified_name("mod.a"));
+        graph.add_node(CodeNode::function("b", "test.py").with_qualified_name("mod.b"));
+        graph.add_node(CodeNode::function("target", "test.py").with_qualified_name("mod.target"));
         graph.add_edge_by_name("mod.a", "mod.target", CodeEdge::calls());
         graph.add_edge_by_name("mod.b", "mod.target", CodeEdge::calls());
 
@@ -560,15 +546,9 @@ mod tests {
     fn test_multiple_children_for_same_parent() {
         let mut graph = GraphBuilder::new();
 
-        graph.add_node(
-            CodeNode::class("Base", "test.py").with_qualified_name("mod.Base"),
-        );
-        graph.add_node(
-            CodeNode::class("ChildA", "test.py").with_qualified_name("mod.ChildA"),
-        );
-        graph.add_node(
-            CodeNode::class("ChildB", "test.py").with_qualified_name("mod.ChildB"),
-        );
+        graph.add_node(CodeNode::class("Base", "test.py").with_qualified_name("mod.Base"));
+        graph.add_node(CodeNode::class("ChildA", "test.py").with_qualified_name("mod.ChildA"));
+        graph.add_node(CodeNode::class("ChildB", "test.py").with_qualified_name("mod.ChildB"));
         graph.add_edge_by_name("mod.ChildA", "mod.Base", CodeEdge::inherits());
         graph.add_edge_by_name("mod.ChildB", "mod.Base", CodeEdge::inherits());
 
@@ -619,9 +599,7 @@ mod tests {
 
     #[test]
     fn test_content_flags_multiple_categories() {
-        let flags = super::compute_content_flags(
-            "const f = open(path.join(dir, file), 'r')",
-        );
+        let flags = super::compute_content_flags("const f = open(path.join(dir, file), 'r')");
         assert!(flags.has(ContentFlags::FILE_OPS));
         assert!(flags.has(ContentFlags::PATH_OPS));
     }
@@ -637,7 +615,12 @@ mod tests {
         let safe_file = dir.path().join("safe.py");
         std::fs::write(&safe_file, "x = 1 + 2").unwrap();
 
-        let (ctx, _file_data) = DetectorContext::build(&graph, &[py_file.clone(), safe_file.clone()], None, dir.path());
+        let (ctx, _file_data) = DetectorContext::build(
+            &graph,
+            &[py_file.clone(), safe_file.clone()],
+            None,
+            dir.path(),
+        );
 
         // app.py should have both FILE_OPS and PATH_OPS flags
         let rel_py = py_file.strip_prefix(dir.path()).unwrap().to_path_buf();

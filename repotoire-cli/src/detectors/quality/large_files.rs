@@ -81,7 +81,12 @@ impl LargeFilesDetector {
         // Find the largest function
         let largest_func = functions
             .iter()
-            .map(|f| (f.node_name(i).to_string(), f.line_end.saturating_sub(f.line_start)))
+            .map(|f| {
+                (
+                    f.node_name(i).to_string(),
+                    f.line_end.saturating_sub(f.line_start),
+                )
+            })
             .max_by_key(|(_, size)| *size);
 
         // Group functions by prefix to suggest split points
@@ -120,15 +125,22 @@ impl Detector for LargeFilesDetector {
     }
 
     fn file_extensions(&self) -> &'static [&'static str] {
-        &["py", "js", "ts", "jsx", "tsx", "rb", "java", "go", "rs", "c", "cpp", "cs"]
+        &[
+            "py", "js", "ts", "jsx", "tsx", "rb", "java", "go", "rs", "c", "cpp", "cs",
+        ]
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let files = &ctx.as_file_provider();
         let mut findings = vec![];
 
-        for path in files.files_with_extensions(&["py", "js", "ts", "jsx", "tsx", "rs", "go", "java", "cs", "cpp", "c", "h", "rb", "php"]) {
+        for path in files.files_with_extensions(&[
+            "py", "js", "ts", "jsx", "tsx", "rs", "go", "java", "cs", "cpp", "c", "h", "rb", "php",
+        ]) {
             if findings.len() >= self.max_findings {
                 break;
             }
@@ -279,15 +291,14 @@ mod tests {
     #[test]
     fn test_detects_large_file() {
         // Default threshold is 800 lines; write 850
-        let content: String = (0..850)
-            .map(|i| format!("x_{} = {}\n", i, i))
-            .collect();
+        let content: String = (0..850).map(|i| format!("x_{} = {}\n", i, i)).collect();
 
         let store = GraphBuilder::new().freeze();
         let detector = LargeFilesDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("big_module.py", &content),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![("big_module.py", &content)],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
@@ -302,15 +313,14 @@ mod tests {
 
     #[test]
     fn test_no_finding_for_small_file() {
-        let content: String = (0..100)
-            .map(|i| format!("x_{} = {}\n", i, i))
-            .collect();
+        let content: String = (0..100).map(|i| format!("x_{} = {}\n", i, i)).collect();
 
         let store = GraphBuilder::new().freeze();
         let detector = LargeFilesDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("small_module.py", &content),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![("small_module.py", &content)],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),

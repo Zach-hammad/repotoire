@@ -26,7 +26,17 @@ pub fn deterministic_finding_id(detector: &str, file: &str, line: u32, _title: &
 
 /// Severity levels for findings
 #[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+    Default,
     clap::ValueEnum,
 )]
 #[serde(rename_all = "lowercase")]
@@ -70,7 +80,8 @@ impl std::str::FromStr for Severity {
 }
 
 /// Deserialize a BTreeMap that may be `null` in JSON (treat null as empty map)
-fn deserialize_null_as_empty_map<'de, D>( // repotoire:ignore[surprisal]
+fn deserialize_null_as_empty_map<'de, D>(
+    // repotoire:ignore[surprisal]
     deserializer: D,
 ) -> Result<std::collections::BTreeMap<String, String>, D::Error>
 where
@@ -119,7 +130,11 @@ pub struct Finding {
     pub deterministic: bool,
     /// Threshold metadata for adaptive explainability
     /// Keys: threshold_source, effective_threshold, actual_value, default_threshold
-    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty", deserialize_with = "deserialize_null_as_empty_map")]
+    #[serde(
+        default,
+        skip_serializing_if = "std::collections::BTreeMap::is_empty",
+        deserialize_with = "deserialize_null_as_empty_map"
+    )]
     pub threshold_metadata: std::collections::BTreeMap<String, String>,
 }
 
@@ -197,7 +212,9 @@ impl FindingsSummary {
 }
 
 /// Letter grades for code health (13 levels: A+ through F).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default,
+)]
 pub enum Grade {
     #[default]
     F,
@@ -370,20 +387,25 @@ mod tests {
         let json = serde_json::to_string(&finding).expect("serialize finding");
         let back: Finding = serde_json::from_str(&json).expect("deserialize finding");
         assert_eq!(back.id, "test-1");
-        assert_eq!(back.threshold_metadata.get("key").expect("key exists"), "value");
+        assert_eq!(
+            back.threshold_metadata.get("key").expect("key exists"),
+            "value"
+        );
     }
 
     #[test]
     fn test_finding_deserialize_null_threshold_metadata() {
         let json = r#"{"id":"t1","detector":"D","severity":"high","title":"T","description":"","affected_files":[],"threshold_metadata":null}"#;
-        let finding: Finding = serde_json::from_str(json).expect("deserialize finding with null metadata");
+        let finding: Finding =
+            serde_json::from_str(json).expect("deserialize finding with null metadata");
         assert!(finding.threshold_metadata.is_empty());
     }
 
     #[test]
     fn test_finding_deserialize_missing_threshold_metadata() {
         let json = r#"{"id":"t1","detector":"D","severity":"high","title":"T","description":"","affected_files":[]}"#;
-        let finding: Finding = serde_json::from_str(json).expect("deserialize finding with missing metadata");
+        let finding: Finding =
+            serde_json::from_str(json).expect("deserialize finding with missing metadata");
         assert!(finding.threshold_metadata.is_empty());
     }
 
@@ -399,11 +421,26 @@ mod tests {
     #[test]
     fn test_findings_summary_from_findings() {
         let findings = vec![
-            Finding { severity: Severity::Critical, ..Default::default() },
-            Finding { severity: Severity::High, ..Default::default() },
-            Finding { severity: Severity::High, ..Default::default() },
-            Finding { severity: Severity::Medium, ..Default::default() },
-            Finding { severity: Severity::Low, ..Default::default() },
+            Finding {
+                severity: Severity::Critical,
+                ..Default::default()
+            },
+            Finding {
+                severity: Severity::High,
+                ..Default::default()
+            },
+            Finding {
+                severity: Severity::High,
+                ..Default::default()
+            },
+            Finding {
+                severity: Severity::Medium,
+                ..Default::default()
+            },
+            Finding {
+                severity: Severity::Low,
+                ..Default::default()
+            },
         ];
         let summary = FindingsSummary::from_findings(&findings);
         assert_eq!(summary.critical, 1);
@@ -417,14 +454,20 @@ mod tests {
 
     #[test]
     fn test_with_default_confidence_sets_when_none() {
-        let finding = Finding { confidence: None, ..Default::default() };
+        let finding = Finding {
+            confidence: None,
+            ..Default::default()
+        };
         let finding = finding.with_default_confidence(0.85);
         assert_eq!(finding.confidence, Some(0.85));
     }
 
     #[test]
     fn test_with_default_confidence_preserves_existing() {
-        let finding = Finding { confidence: Some(0.90), ..Default::default() };
+        let finding = Finding {
+            confidence: Some(0.90),
+            ..Default::default()
+        };
         let finding = finding.with_default_confidence(0.50);
         assert_eq!(finding.confidence, Some(0.90));
     }
@@ -433,13 +476,19 @@ mod tests {
 
     #[test]
     fn test_effective_confidence_returns_set_value() {
-        let finding = Finding { confidence: Some(0.42), ..Default::default() };
+        let finding = Finding {
+            confidence: Some(0.42),
+            ..Default::default()
+        };
         assert!((finding.effective_confidence() - 0.42).abs() < f64::EPSILON);
     }
 
     #[test]
     fn test_effective_confidence_returns_default_when_none() {
-        let finding = Finding { confidence: None, ..Default::default() };
+        let finding = Finding {
+            confidence: None,
+            ..Default::default()
+        };
         assert!((finding.effective_confidence() - 0.70).abs() < f64::EPSILON);
     }
 
@@ -447,37 +496,56 @@ mod tests {
 
     #[test]
     fn test_default_confidence_architecture() {
-        assert!((Finding::default_confidence_for_category(Some("architecture")) - 0.85).abs() < f64::EPSILON);
+        assert!(
+            (Finding::default_confidence_for_category(Some("architecture")) - 0.85).abs()
+                < f64::EPSILON
+        );
     }
 
     #[test]
     fn test_default_confidence_security() {
-        assert!((Finding::default_confidence_for_category(Some("security")) - 0.75).abs() < f64::EPSILON);
+        assert!(
+            (Finding::default_confidence_for_category(Some("security")) - 0.75).abs()
+                < f64::EPSILON
+        );
     }
 
     #[test]
     fn test_default_confidence_design() {
-        assert!((Finding::default_confidence_for_category(Some("design")) - 0.65).abs() < f64::EPSILON);
+        assert!(
+            (Finding::default_confidence_for_category(Some("design")) - 0.65).abs() < f64::EPSILON
+        );
     }
 
     #[test]
     fn test_default_confidence_dead_code_hyphen() {
-        assert!((Finding::default_confidence_for_category(Some("dead-code")) - 0.70).abs() < f64::EPSILON);
+        assert!(
+            (Finding::default_confidence_for_category(Some("dead-code")) - 0.70).abs()
+                < f64::EPSILON
+        );
     }
 
     #[test]
     fn test_default_confidence_dead_code_underscore() {
-        assert!((Finding::default_confidence_for_category(Some("dead_code")) - 0.70).abs() < f64::EPSILON);
+        assert!(
+            (Finding::default_confidence_for_category(Some("dead_code")) - 0.70).abs()
+                < f64::EPSILON
+        );
     }
 
     #[test]
     fn test_default_confidence_ai_watchdog() {
-        assert!((Finding::default_confidence_for_category(Some("ai_watchdog")) - 0.60).abs() < f64::EPSILON);
+        assert!(
+            (Finding::default_confidence_for_category(Some("ai_watchdog")) - 0.60).abs()
+                < f64::EPSILON
+        );
     }
 
     #[test]
     fn test_default_confidence_unknown_category() {
-        assert!((Finding::default_confidence_for_category(Some("testing")) - 0.70).abs() < f64::EPSILON);
+        assert!(
+            (Finding::default_confidence_for_category(Some("testing")) - 0.70).abs() < f64::EPSILON
+        );
     }
 
     #[test]

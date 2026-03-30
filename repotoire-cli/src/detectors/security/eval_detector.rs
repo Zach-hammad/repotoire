@@ -112,17 +112,17 @@ impl EvalDetector {
         ))
         .expect("valid regex: pattern built from hardcoded constants");
 
-        let fstring_arg_pattern =
-            Regex::new(&format!(r#"({func_names})\s*\(\s*f["']"#)).expect("valid regex: pattern built from hardcoded constants");
+        let fstring_arg_pattern = Regex::new(&format!(r#"({func_names})\s*\(\s*f["']"#))
+            .expect("valid regex: pattern built from hardcoded constants");
 
-        let concat_arg_pattern =
-            Regex::new(&format!(r"({func_names})\s*\([^)]*\+")).expect("valid regex: pattern built from hardcoded constants");
+        let concat_arg_pattern = Regex::new(&format!(r"({func_names})\s*\([^)]*\+"))
+            .expect("valid regex: pattern built from hardcoded constants");
 
-        let format_arg_pattern =
-            Regex::new(&format!(r"({func_names})\s*\([^)]*\.format\s*\(")).expect("valid regex: pattern built from hardcoded constants");
+        let format_arg_pattern = Regex::new(&format!(r"({func_names})\s*\([^)]*\.format\s*\("))
+            .expect("valid regex: pattern built from hardcoded constants");
 
-        let percent_arg_pattern =
-            Regex::new(&format!(r"({func_names})\s*\([^)]*%\s*")).expect("valid regex: pattern built from hardcoded constants");
+        let percent_arg_pattern = Regex::new(&format!(r"({func_names})\s*\([^)]*%\s*"))
+            .expect("valid regex: pattern built from hardcoded constants");
 
         let shell_true_pattern =
             Regex::new(r"(?i)\b(call|run|Popen|check_output|check_call)\s*\([^)]*shell\s*=\s*True")
@@ -225,16 +225,20 @@ impl EvalDetector {
         // — these are NOT Python's builtin eval()
         let has_simple_exec = if has_simple_exec && line.contains("eval(") {
             // Check if eval( is preceded by a dot (method call like obj.eval(...))
-            let eval_preceded_by_dot = line.find("eval(").map(|pos| {
-                pos > 0 && line[..pos].trim_end().ends_with('.')
-            }).unwrap_or(false);
+            let eval_preceded_by_dot = line
+                .find("eval(")
+                .map(|pos| pos > 0 && line[..pos].trim_end().ends_with('.'))
+                .unwrap_or(false);
             // Check if eval( is preceded by 'def' (method definition like def eval(self))
-            let eval_preceded_by_def = line.find("eval(").map(|pos| {
-                pos > 0 && line[..pos].trim_end().ends_with("def")
-            }).unwrap_or(false);
+            let eval_preceded_by_def = line
+                .find("eval(")
+                .map(|pos| pos > 0 && line[..pos].trim_end().ends_with("def"))
+                .unwrap_or(false);
             if eval_preceded_by_dot || eval_preceded_by_def {
                 // Remove "eval" from consideration, check if other exec functions remain
-                CODE_EXEC_FUNCTIONS.iter().any(|f| *f != "eval" && line.contains(f))
+                CODE_EXEC_FUNCTIONS
+                    .iter()
+                    .any(|f| *f != "eval" && line.contains(f))
             } else {
                 true
             }
@@ -273,8 +277,10 @@ impl EvalDetector {
 
         // Skip subprocess.run/Popen/call WITHOUT shell=True — list args are safe
         if has_shell_exec && !line.contains("shell=True") && !line.contains("shell = True") {
-            let is_subprocess = lower.contains("subprocess.run") || lower.contains("subprocess.popen")
-                || lower.contains("subprocess.call") || lower.contains("subprocess.check_call")
+            let is_subprocess = lower.contains("subprocess.run")
+                || lower.contains("subprocess.popen")
+                || lower.contains("subprocess.call")
+                || lower.contains("subprocess.check_call")
                 || lower.contains("subprocess.check_output");
             if is_subprocess {
                 return None;
@@ -626,7 +632,10 @@ impl Detector for EvalDetector {
         crate::detectors::detector_context::ContentFlags::HAS_EVAL
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         debug!("Starting eval/exec detection");
 
@@ -638,7 +647,8 @@ impl Detector for EvalDetector {
         let mut taint_results = if let Some(cross) = self.precomputed_cross.get() {
             cross.clone()
         } else {
-            self.taint_analyzer.trace_taint(graph, TaintCategory::CodeInjection)
+            self.taint_analyzer
+                .trace_taint(graph, TaintCategory::CodeInjection)
         };
         let intra_paths = if let Some(intra) = self.precomputed_intra.get() {
             intra.clone()
@@ -713,13 +723,15 @@ mod tests {
 
     #[test]
     fn test_detects_eval_with_variable() {
-        let content = "def process(user_input):\n    result = eval(user_input)\n    return result\n";
+        let content =
+            "def process(user_input):\n    result = eval(user_input)\n    return result\n";
 
         let store = GraphBuilder::new().freeze();
         let detector = EvalDetector::with_repository_path(PathBuf::from("/mock/repo"));
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("handler.py", content),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![("handler.py", content)],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
@@ -734,9 +746,10 @@ mod tests {
 
         let store = GraphBuilder::new().freeze();
         let detector = EvalDetector::with_repository_path(PathBuf::from("/mock/repo"));
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("management/commands/shell.py", content),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![("management/commands/shell.py", content)],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
@@ -751,13 +764,20 @@ mod tests {
 
         let store = GraphBuilder::new().freeze();
         let detector = EvalDetector::with_repository_path(PathBuf::from("/mock/repo"));
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("smartif.py", content),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![("smartif.py", content)],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
-        let eval_findings: Vec<_> = findings.iter().filter(|f| f.title.contains("eval")).collect();
-        assert!(eval_findings.is_empty(), "Should not flag .eval() method call. Found: {:?}",
-            eval_findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+        let eval_findings: Vec<_> = findings
+            .iter()
+            .filter(|f| f.title.contains("eval"))
+            .collect();
+        assert!(
+            eval_findings.is_empty(),
+            "Should not flag .eval() method call. Found: {:?}",
+            eval_findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -766,15 +786,28 @@ mod tests {
 
         let store = GraphBuilder::new().freeze();
         let detector = EvalDetector::with_repository_path(PathBuf::from("/mock/repo"));
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("runner.py", content),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![("runner.py", content)],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
-        let subprocess_findings: Vec<_> = findings.iter().filter(|f| {
-            f.title.contains("subprocess") || f.title.contains("command") || f.title.contains("Shell") || f.title.contains("shell")
-        }).collect();
-        assert!(subprocess_findings.is_empty(), "Should not flag subprocess.run without shell=True. Found: {:?}",
-            subprocess_findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+        let subprocess_findings: Vec<_> = findings
+            .iter()
+            .filter(|f| {
+                f.title.contains("subprocess")
+                    || f.title.contains("command")
+                    || f.title.contains("Shell")
+                    || f.title.contains("shell")
+            })
+            .collect();
+        assert!(
+            subprocess_findings.is_empty(),
+            "Should not flag subprocess.run without shell=True. Found: {:?}",
+            subprocess_findings
+                .iter()
+                .map(|f| &f.title)
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -783,9 +816,10 @@ mod tests {
 
         let store = GraphBuilder::new().freeze();
         let detector = EvalDetector::with_repository_path(PathBuf::from("/mock/repo"));
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("safe.py", content),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![("safe.py", content)],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),

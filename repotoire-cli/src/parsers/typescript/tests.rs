@@ -118,7 +118,8 @@ function simple(): number {
 }
 "#;
     let path = PathBuf::from("test.ts");
-    let result = parse_source(source, &path, "ts").expect("should parse simple function for complexity");
+    let result =
+        parse_source(source, &path, "ts").expect("should parse simple function for complexity");
 
     let func = &result.functions[0];
     assert_eq!(func.name, "simple");
@@ -350,7 +351,10 @@ function add(a: number, b: number): number {
     let func = &result.functions[0];
     assert_eq!(func.name, "add");
     assert!(func.doc_comment.is_some(), "Should have JSDoc");
-    let doc = func.doc_comment.as_ref().expect("doc_comment should be Some");
+    let doc = func
+        .doc_comment
+        .as_ref()
+        .expect("doc_comment should be Some");
     assert!(doc.contains("Adds two numbers"), "Got: {}", doc);
 }
 
@@ -363,9 +367,20 @@ const multiply = (a: number, b: number): number => a * b;
     let path = PathBuf::from("test.ts");
     let result = parse_source(source, &path, "ts").expect("should parse arrow function JSDoc");
 
-    let func = result.functions.iter().find(|f| f.name == "multiply").expect("should find multiply function");
-    assert!(func.doc_comment.is_some(), "Arrow function should have JSDoc");
-    assert!(func.doc_comment.as_ref().expect("doc_comment should be Some").contains("Multiplies"));
+    let func = result
+        .functions
+        .iter()
+        .find(|f| f.name == "multiply")
+        .expect("should find multiply function");
+    assert!(
+        func.doc_comment.is_some(),
+        "Arrow function should have JSDoc"
+    );
+    assert!(func
+        .doc_comment
+        .as_ref()
+        .expect("doc_comment should be Some")
+        .contains("Multiplies"));
 }
 
 #[test]
@@ -382,14 +397,24 @@ function helperFunction() {
     let path = PathBuf::from("test.tsx");
     let result = parse_source(source, &path, "tsx").expect("should parse TSX components");
 
-    let component = result.functions.iter().find(|f| f.name == "MyComponent").expect("should find MyComponent");
+    let component = result
+        .functions
+        .iter()
+        .find(|f| f.name == "MyComponent")
+        .expect("should find MyComponent");
     assert!(
-        component.annotations.contains(&"react:component".to_string()),
+        component
+            .annotations
+            .contains(&"react:component".to_string()),
         "Should detect React component, got: {:?}",
         component.annotations
     );
 
-    let helper = result.functions.iter().find(|f| f.name == "helperFunction").expect("should find helperFunction");
+    let helper = result
+        .functions
+        .iter()
+        .find(|f| f.name == "helperFunction")
+        .expect("should find helperFunction");
     assert!(
         !helper.annotations.contains(&"react:component".to_string()),
         "helperFunction should not be a React component"
@@ -411,14 +436,24 @@ function Counter() {
     let path = PathBuf::from("test.tsx");
     let result = parse_source(source, &path, "tsx").expect("should parse React hooks");
 
-    let counter = result.functions.iter().find(|f| f.name == "Counter").expect("should find Counter");
+    let counter = result
+        .functions
+        .iter()
+        .find(|f| f.name == "Counter")
+        .expect("should find Counter");
     assert!(
-        counter.annotations.iter().any(|a| a == "react:hook:useState"),
+        counter
+            .annotations
+            .iter()
+            .any(|a| a == "react:hook:useState"),
         "Should detect useState hook, got: {:?}",
         counter.annotations
     );
     assert!(
-        counter.annotations.iter().any(|a| a == "react:hook:useEffect"),
+        counter
+            .annotations
+            .iter()
+            .any(|a| a == "react:hook:useEffect"),
         "Should detect useEffect hook, got: {:?}",
         counter.annotations
     );
@@ -458,7 +493,10 @@ class NoDecorators {
         .find(|c| c.name == "UserController")
         .expect("should find UserController class");
     assert!(
-        controller.annotations.iter().any(|a| a.contains("Controller")),
+        controller
+            .annotations
+            .iter()
+            .any(|a| a.contains("Controller")),
         "UserController should have @Controller annotation, got: {:?}",
         controller.annotations
     );
@@ -639,32 +677,54 @@ class InternalService {
     let result = parse_source(source, &path, "ts").expect("should parse TS");
 
     // Methods in exported class
-    let get_user = result.functions.iter().find(|f| f.name == "getUser").expect("should find getUser");
+    let get_user = result
+        .functions
+        .iter()
+        .find(|f| f.name == "getUser")
+        .expect("should find getUser");
     assert!(
         get_user.annotations.contains(&"exported".to_string()),
-        "public method in exported class should be exported, got: {:?}", get_user.annotations
+        "public method in exported class should be exported, got: {:?}",
+        get_user.annotations
     );
 
-    let secret = result.functions.iter().find(|f| f.name == "secretMethod").expect("should find secretMethod");
+    let secret = result
+        .functions
+        .iter()
+        .find(|f| f.name == "secretMethod")
+        .expect("should find secretMethod");
     assert!(
         !secret.annotations.contains(&"exported".to_string()),
         "private method should not be exported"
     );
 
-    let helper = result.functions.iter().find(|f| f.name == "helperMethod").expect("should find helperMethod");
+    let helper = result
+        .functions
+        .iter()
+        .find(|f| f.name == "helperMethod")
+        .expect("should find helperMethod");
     assert!(
         !helper.annotations.contains(&"exported".to_string()),
         "protected method should not be exported"
     );
 
-    let default_m = result.functions.iter().find(|f| f.name == "defaultMethod").expect("should find defaultMethod");
+    let default_m = result
+        .functions
+        .iter()
+        .find(|f| f.name == "defaultMethod")
+        .expect("should find defaultMethod");
     assert!(
         default_m.annotations.contains(&"exported".to_string()),
-        "default (public) method in exported class should be exported, got: {:?}", default_m.annotations
+        "default (public) method in exported class should be exported, got: {:?}",
+        default_m.annotations
     );
 
     // Methods in non-exported class
-    let do_stuff = result.functions.iter().find(|f| f.name == "doStuff").expect("should find doStuff");
+    let do_stuff = result
+        .functions
+        .iter()
+        .find(|f| f.name == "doStuff")
+        .expect("should find doStuff");
     assert!(
         !do_stuff.annotations.contains(&"exported".to_string()),
         "method in non-exported class should not be exported"

@@ -17,10 +17,11 @@ use std::sync::LazyLock;
 use tracing::info;
 
 static BOOL_ARGS: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"\w+\s*\([^)]*\b(true|false|True|False)\s*,\s*(true|false|True|False)")
-            .expect("valid regex")
-    });
-static FUNC_CALL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(\w+)\s*\(").expect("valid regex"));
+    Regex::new(r"\w+\s*\([^)]*\b(true|false|True|False)\s*,\s*(true|false|True|False)")
+        .expect("valid regex")
+});
+static FUNC_CALL: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(\w+)\s*\(").expect("valid regex"));
 
 pub struct BooleanTrapDetector {
     #[allow(dead_code)] // Part of detector pattern, used for file scanning
@@ -57,7 +58,10 @@ impl Detector for BooleanTrapDetector {
         &["py", "js", "ts", "jsx", "tsx", "java", "go", "rs"]
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let files = &ctx.as_file_provider();
         let i = graph.interner();
@@ -67,14 +71,18 @@ impl Detector for BooleanTrapDetector {
         // First pass: collect all boolean trap calls and count per function
         let mut trap_calls: Vec<(PathBuf, u32, String, usize)> = Vec::new();
 
-        for path in files.files_with_extensions(&["py", "js", "ts", "jsx", "tsx", "java", "go", "rs"]) {
+        for path in
+            files.files_with_extensions(&["py", "js", "ts", "jsx", "tsx", "java", "go", "rs"])
+        {
             // Cheap pre-filter: skip files without boolean literals
             let raw = match files.content(path) {
                 Some(c) => c,
                 None => continue,
             };
-            if !raw.contains("true") && !raw.contains("True")
-                && !raw.contains("false") && !raw.contains("False")
+            if !raw.contains("true")
+                && !raw.contains("True")
+                && !raw.contains("false")
+                && !raw.contains("False")
             {
                 continue;
             }
@@ -116,10 +124,11 @@ impl Detector for BooleanTrapDetector {
         } else {
             Some(graph.get_functions_shared())
         };
-        let func_by_name: Option<std::collections::HashMap<&str, &crate::graph::store_models::CodeNode>> =
-            all_funcs.as_ref().map(|funcs| {
-                funcs.iter().map(|f| (f.node_name(i), f)).collect()
-            });
+        let func_by_name: Option<
+            std::collections::HashMap<&str, &crate::graph::store_models::CodeNode>,
+        > = all_funcs
+            .as_ref()
+            .map(|funcs| funcs.iter().map(|f| (f.node_name(i), f)).collect());
 
         // Second pass: create findings with graph context
         for (path, line_num, func_name, bool_count) in trap_calls {
@@ -130,7 +139,9 @@ impl Detector for BooleanTrapDetector {
             let call_count = func_call_counts.get(&func_name).copied().unwrap_or(1);
 
             // Find the function definition in graph — O(1) lookup
-            let func_def = func_by_name.as_ref().and_then(|m| m.get(func_name.as_str()).copied());
+            let func_def = func_by_name
+                .as_ref()
+                .and_then(|m| m.get(func_name.as_str()).copied());
 
             // Build context
             let mut notes = Vec::new();
@@ -147,7 +158,8 @@ impl Detector for BooleanTrapDetector {
             }
 
             if let Some(def) = func_def {
-                if let Some(params_str) = graph.extra_props(def.qualified_name)
+                if let Some(params_str) = graph
+                    .extra_props(def.qualified_name)
                     .and_then(|ep| ep.params)
                     .map(|key| i.resolve(key).to_string())
                 {
@@ -236,7 +248,6 @@ impl Detector for BooleanTrapDetector {
     }
 }
 
-
 impl crate::detectors::RegisteredDetector for BooleanTrapDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
         std::sync::Arc::new(Self::new(init.repo_path))
@@ -252,9 +263,10 @@ mod tests {
     fn test_detects_boolean_trap() {
         let store = GraphBuilder::new().freeze();
         let detector = BooleanTrapDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("caller.py", "def main():\n    process(data, True, False)\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![("caller.py", "def main():\n    process(data, True, False)\n")],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
@@ -272,9 +284,10 @@ mod tests {
         // Only one boolean argument - no trap
         let store = GraphBuilder::new().freeze();
         let detector = BooleanTrapDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("caller.py", "def main():\n    process(data, True)\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![("caller.py", "def main():\n    process(data, True)\n")],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),

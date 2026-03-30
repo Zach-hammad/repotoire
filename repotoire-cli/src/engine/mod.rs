@@ -41,12 +41,12 @@ mod report_context;
 pub mod stages;
 pub mod state;
 
-use anyhow::Context;
 use crate::config::{load_project_config, ProjectConfig};
 use crate::graph::frozen::CodeGraph;
 use crate::graph::GraphQuery;
 use crate::models::{Finding, Grade};
 use crate::scoring::ScoreBreakdown;
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -86,7 +86,9 @@ impl Default for AnalysisConfig {
 pub enum AnalysisMode {
     #[default]
     Cold,
-    Incremental { files_changed: usize },
+    Incremental {
+        files_changed: usize,
+    },
     Cached,
 }
 
@@ -230,9 +232,7 @@ impl AnalysisEngine {
     /// This is only available during in-process incremental analysis.
     /// After load() from disk, this returns None.
     pub fn graph_builder(&self) -> Option<&crate::graph::builder::GraphBuilder> {
-        self.state
-            .as_ref()
-            .and_then(|s| s.mutable_graph.as_ref())
+        self.state.as_ref().and_then(|s| s.mutable_graph.as_ref())
     }
 
     /// Returns a reference to the project configuration.
@@ -361,12 +361,10 @@ impl AnalysisEngine {
         // Stage 4.5: Ownership enrich — DOA-based file ownership from git history
         let ownership_model = if !config.no_git && self.project_config.ownership.enabled {
             let ownership_out = timed(&mut timings, "ownership_enrich", || {
-                ownership_enrich::ownership_enrich_stage(
-                    &ownership_enrich::OwnershipEnrichInput {
-                        repo_path: &self.repo_path,
-                        ownership_config: self.project_config.ownership.to_runtime(),
-                    },
-                )
+                ownership_enrich::ownership_enrich_stage(&ownership_enrich::OwnershipEnrichInput {
+                    repo_path: &self.repo_path,
+                    ownership_config: self.project_config.ownership.to_runtime(),
+                })
             })?;
             Some(Arc::new(ownership_out.model))
         } else {
@@ -586,7 +584,8 @@ impl AnalysisEngine {
                 std::collections::HashMap::new()
             });
 
-            let co_change: Option<Arc<crate::git::co_change::CoChangeMatrix>> = prev_co_change.take();
+            let co_change: Option<Arc<crate::git::co_change::CoChangeMatrix>> =
+                prev_co_change.take();
 
             (frozen, file_churn, co_change)
         };
@@ -594,12 +593,10 @@ impl AnalysisEngine {
         // Stage 4.5: Ownership enrich — DOA-based file ownership from git history
         let ownership_model = if !config.no_git && self.project_config.ownership.enabled {
             let ownership_out = timed(&mut timings, "ownership_enrich", || {
-                ownership_enrich::ownership_enrich_stage(
-                    &ownership_enrich::OwnershipEnrichInput {
-                        repo_path: &self.repo_path,
-                        ownership_config: self.project_config.ownership.to_runtime(),
-                    },
-                )
+                ownership_enrich::ownership_enrich_stage(&ownership_enrich::OwnershipEnrichInput {
+                    repo_path: &self.repo_path,
+                    ownership_config: self.project_config.ownership.to_runtime(),
+                })
             })?;
             Some(Arc::new(ownership_out.model))
         } else {
@@ -659,7 +656,7 @@ impl AnalysisEngine {
         // Stage 7: Postprocess — deduplicate, suppress, filter findings
         let postprocess_out = timed(&mut timings, "postprocess", || {
             postprocess::postprocess_stage(postprocess::PostprocessInput {
-                findings: detect_out.findings,  // only NEW findings
+                findings: detect_out.findings, // only NEW findings
                 project_config: &self.project_config,
                 graph: frozen.graph.as_ref(),
                 all_files: &all_files,
@@ -675,10 +672,14 @@ impl AnalysisEngine {
 
         // Merge parse stats: delta parse stats + cached totals for full codebase picture.
         // The delta only parsed changed files, but stats should reflect the whole codebase.
-        let total_functions = prev_state.last_stats.total_functions
+        let total_functions = prev_state
+            .last_stats
+            .total_functions
             .saturating_sub(parse_out.stats.total_functions)
             .saturating_add(parse_out.stats.total_functions);
-        let total_classes = prev_state.last_stats.total_classes
+        let total_classes = prev_state
+            .last_stats
+            .total_classes
             .saturating_sub(parse_out.stats.total_classes)
             .saturating_add(parse_out.stats.total_classes);
         // For LOC, use the cached total and adjust. Since we only parsed delta files,
@@ -754,8 +755,12 @@ impl AnalysisEngine {
             None => return Ok(()), // nothing to save
         };
 
-        std::fs::create_dir_all(session_path)
-            .with_context(|| format!("Failed to create session directory: {}", session_path.display()))?;
+        std::fs::create_dir_all(session_path).with_context(|| {
+            format!(
+                "Failed to create session directory: {}",
+                session_path.display()
+            )
+        })?;
 
         // Build serializable metadata
         let meta = state::SessionMeta {
@@ -771,15 +776,16 @@ impl AnalysisEngine {
             last_stats: state.last_stats.clone(),
         };
 
-        let json = serde_json::to_string(&meta)
-            .context("Failed to serialize engine session")?;
+        let json = serde_json::to_string(&meta).context("Failed to serialize engine session")?;
         let meta_path = session_path.join("engine_session.json");
         std::fs::write(&meta_path, json)
             .with_context(|| format!("Failed to write {}", meta_path.display()))?;
 
         // Save graph via CodeGraph's bincode persistence
         let graph_path = session_path.join("graph.bin");
-        state.graph.save_cache(&graph_path)
+        state
+            .graph
+            .save_cache(&graph_path)
             .context("Failed to save graph cache")?;
 
         Ok(())
@@ -800,8 +806,8 @@ impl AnalysisEngine {
         let meta_path = session_path.join("engine_session.json");
         let json = std::fs::read_to_string(&meta_path)
             .with_context(|| format!("Failed to read {}", meta_path.display()))?;
-        let meta: state::SessionMeta = serde_json::from_str(&json)
-            .context("Failed to deserialize engine session")?;
+        let meta: state::SessionMeta =
+            serde_json::from_str(&json).context("Failed to deserialize engine session")?;
 
         // Version checks
         if meta.version != state::SESSION_VERSION {
@@ -821,11 +827,9 @@ impl AnalysisEngine {
 
         // Load graph from CodeGraph bincode cache
         let graph_path = session_path.join("graph.bin");
-        let graph = CodeGraph::load_cache(&graph_path)
-            .ok_or_else(|| anyhow::anyhow!(
-                "Failed to load graph cache from {}",
-                graph_path.display()
-            ))?;
+        let graph = CodeGraph::load_cache(&graph_path).ok_or_else(|| {
+            anyhow::anyhow!("Failed to load graph cache from {}", graph_path.display())
+        })?;
 
         let state = state::EngineState {
             file_hashes: meta.file_hashes,
@@ -859,7 +863,6 @@ impl AnalysisEngine {
             ownership_model: None,
         })
     }
-
 }
 
 /// Time a closure and record its duration in the timings map.

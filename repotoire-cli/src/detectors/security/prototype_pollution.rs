@@ -15,14 +15,14 @@ use std::sync::LazyLock;
 use tracing::info;
 
 static POLLUTION_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"(__proto__|prototype\s*\[|Object\.assign\(|\.extend\(|lodash\.merge|_\.merge|deepmerge|Object\.setPrototypeOf|Reflect\.set)").expect("valid regex")
-    });
+    Regex::new(r"(__proto__|prototype\s*\[|Object\.assign\(|\.extend\(|lodash\.merge|_\.merge|deepmerge|Object\.setPrototypeOf|Reflect\.set)").expect("valid regex")
+});
 static USER_INPUT: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"(req\.(body|query|params|headers)|request\.(body|query)|ctx\.(request|body)|input|JSON\.parse)").expect("valid regex")
-    });
+    Regex::new(r"(req\.(body|query|params|headers)|request\.(body|query)|ctx\.(request|body)|input|JSON\.parse)").expect("valid regex")
+});
 static SANITIZATION: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"(hasOwnProperty|Object\.keys|Object\.create\(null\)|delete.*__proto__|filter|sanitize|validate|clean)").expect("valid regex")
-    });
+    Regex::new(r"(hasOwnProperty|Object\.keys|Object\.create\(null\)|delete.*__proto__|filter|sanitize|validate|clean)").expect("valid regex")
+});
 
 /// Categorize the pollution pattern
 fn categorize_pattern(line: &str) -> (&'static str, &'static str) {
@@ -156,7 +156,10 @@ impl Detector for PrototypePollutionDetector {
 
     // No content_requirements — JS-specific, extension is the primary filter
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let files = &ctx.as_file_provider();
         let mut findings = vec![];
@@ -198,8 +201,14 @@ impl Detector for PrototypePollutionDetector {
                     let has_sanitization = Self::has_sanitization(&lines, i);
                     let containing_func =
                         graph.find_function_at(&path_str, (i + 1) as u32).map(|f| {
-                            let callers = graph.get_callers(f.qn(crate::graph::interner::global_interner())).len();
-                            (f.node_name(crate::graph::interner::global_interner()).to_string(), callers)
+                            let callers = graph
+                                .get_callers(f.qn(crate::graph::interner::global_interner()))
+                                .len();
+                            (
+                                f.node_name(crate::graph::interner::global_interner())
+                                    .to_string(),
+                                callers,
+                            )
                         });
 
                     // Check if function receives external data via graph
@@ -366,7 +375,6 @@ impl Detector for PrototypePollutionDetector {
     }
 }
 
-
 impl crate::detectors::RegisteredDetector for PrototypePollutionDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
         std::sync::Arc::new(Self::new(init.repo_path))
@@ -382,15 +390,21 @@ mod tests {
     fn test_detects_proto_pollution_with_user_input() {
         let store = GraphBuilder::new().freeze();
         let detector = PrototypePollutionDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("server.js", "\nconst data = req.body;\nObject.assign(config, data);\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "server.js",
+                "\nconst data = req.body;\nObject.assign(config, data);\n",
+            )],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect Object.assign with user input from req.body"
         );
-        assert!(findings.iter().any(|f| f.detector == "PrototypePollutionDetector"));
+        assert!(findings
+            .iter()
+            .any(|f| f.detector == "PrototypePollutionDetector"));
     }
 
     #[test]

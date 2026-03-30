@@ -4,7 +4,7 @@ use super::xml_escape;
 
 pub struct BarItem {
     pub label: String,
-    pub value: f64, // 0.0 - 1.0
+    pub value: f64,    // 0.0 - 1.0
     pub color: String, // hex color
 }
 
@@ -57,8 +57,16 @@ mod tests {
     #[test]
     fn test_bar_chart_renders_svg() {
         let items = vec![
-            BarItem { label: "src/auth".into(), value: 0.8, color: "#ef4444".into() },
-            BarItem { label: "src/api".into(), value: 0.4, color: "#f97316".into() },
+            BarItem {
+                label: "src/auth".into(),
+                value: 0.8,
+                color: "#ef4444".into(),
+            },
+            BarItem {
+                label: "src/api".into(),
+                value: 0.4,
+                color: "#f97316".into(),
+            },
         ];
         let svg = render_bar_chart(&items, "Bus Factor Risk", 600.0, 0.0);
         assert!(svg.contains("<svg"));

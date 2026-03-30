@@ -20,7 +20,6 @@ pub mod streaming;
 pub mod lightweight;
 pub mod lightweight_parser;
 
-
 // Re-export lightweight types for convenience
 pub use lightweight_parser::parse_file_lightweight;
 
@@ -61,9 +60,7 @@ static FP_CACHE: LazyLock<dashmap::DashMap<String, Vec<CachedFunctionFP>>> =
 
 /// Read all cached function fingerprints for a file.
 pub fn get_cached_fps(file_path: &str) -> Option<Vec<CachedFunctionFP>> {
-    FP_CACHE
-        .get(file_path)
-        .map(|entry| entry.value().clone())
+    FP_CACHE.get(file_path).map(|entry| entry.value().clone())
 }
 
 /// Clear the fingerprint cache (called between analysis runs).
@@ -157,7 +154,9 @@ fn parse_file_inner(path: &Path, extract_values: bool) -> Result<ParseResult> {
 
     let (mut parsed, tree) = match ext {
         // Python
-        "py" | "pyi" => python::parse_source_with_tree(&source, path).map(|(r, t)| (Ok(r), Some(t)))?,
+        "py" | "pyi" => {
+            python::parse_source_with_tree(&source, path).map(|(r, t)| (Ok(r), Some(t)))?
+        }
 
         // TypeScript/JavaScript
         "ts" | "tsx" | "js" | "jsx" | "mjs" | "cjs" => {
@@ -291,7 +290,9 @@ fn extract_full_fps(
     for fp in &mut fps {
         if !fp.normalized_bigrams.is_empty() {
             fp.minhash_sig = Some(
-                crate::detectors::ast_fingerprint::compute_minhash_signature(&fp.normalized_bigrams),
+                crate::detectors::ast_fingerprint::compute_minhash_signature(
+                    &fp.normalized_bigrams,
+                ),
             );
         }
     }
@@ -315,7 +316,11 @@ fn collect_full_fps_recursive(
         let line_start = node.start_position().row as u32 + 1; // tree-sitter is 0-based
         let name = node
             .child_by_field_name("name")
-            .map(|n| n.utf8_text(source.as_bytes()).unwrap_or_default().to_string())
+            .map(|n| {
+                n.utf8_text(source.as_bytes())
+                    .unwrap_or_default()
+                    .to_string()
+            })
             .unwrap_or_default();
 
         if let Some(&line_end) = func_set.get(&(name.clone(), line_start)) {
@@ -568,7 +573,11 @@ impl ParseResult {
             if let Some(ref mut self_raw) = self.raw_values {
                 self_raw.module_constants.extend(other_raw.module_constants);
                 for (k, v) in other_raw.function_assignments {
-                    self_raw.function_assignments.entry(k).or_default().extend(v);
+                    self_raw
+                        .function_assignments
+                        .entry(k)
+                        .or_default()
+                        .extend(v);
                 }
                 for (k, v) in other_raw.return_expressions {
                     self_raw.return_expressions.insert(k, v);
@@ -787,11 +796,7 @@ int add(int a, int b);
     fn test_parse_typescript_extracts_values() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("test.ts");
-        std::fs::write(
-            &file,
-            "const MAX = 100;\nfunction foo() { return MAX; }\n",
-        )
-        .unwrap();
+        std::fs::write(&file, "const MAX = 100;\nfunction foo() { return MAX; }\n").unwrap();
         let result = parse_file_with_values(&file).unwrap();
         let raw = result
             .raw_values

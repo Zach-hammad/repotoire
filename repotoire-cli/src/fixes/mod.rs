@@ -195,7 +195,8 @@ fn fix_empty_catch(finding: &Finding, repo_path: &Path) -> Option<RuleFix> {
         if i + 1 == line_num {
             patch_lines.push(format!("-{}", line));
             patch_lines.push(format!("+{}", new_catch));
-            let next_is_pass = lines.get(i + 1)
+            let next_is_pass = lines
+                .get(i + 1)
                 .map(|l| l.trim() == "pass" || l.trim() == "...")
                 .unwrap_or(false);
             if next_is_pass {

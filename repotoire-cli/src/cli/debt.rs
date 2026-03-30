@@ -48,8 +48,12 @@ fn load_graph(path: &Path) -> Result<CodeGraph> {
         );
     }
 
-    CodeGraph::load_cache(&graph_path)
-        .ok_or_else(|| anyhow::anyhow!("Failed to load graph cache (corrupt or version mismatch). Run {} again.", style("repotoire analyze").cyan()))
+    CodeGraph::load_cache(&graph_path).ok_or_else(|| {
+        anyhow::anyhow!(
+            "Failed to load graph cache (corrupt or version mismatch). Run {} again.",
+            style("repotoire analyze").cyan()
+        )
+    })
 }
 
 /// Run the `repotoire debt` command.

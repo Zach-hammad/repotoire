@@ -2,9 +2,9 @@
 
 pub(crate) mod analyze;
 mod benchmark;
-pub(crate) mod diff;
 mod clean;
 mod debt;
+pub(crate) mod diff;
 mod doctor;
 mod embedded_scripts;
 mod findings;
@@ -520,7 +520,8 @@ fn extract_command_name(cmd: &Option<Commands>) -> (String, Option<String>) {
 }
 
 /// Run the CLI with parsed arguments
-pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> { // repotoire:ignore[AIComplexitySpikeDetector]
+pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> {
+    // repotoire:ignore[AIComplexitySpikeDetector]
     // Initialize global rayon thread pool with 8MB stack per thread.
     // Tree-sitter parsing of deeply nested C/C++ code (e.g., CPython) can
     // overflow the default 2MB stack. This also benefits recursive detectors.
@@ -577,7 +578,9 @@ pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> { // 
             // Deprecation warning for --since
             if since.is_some() {
                 eprintln!("\x1b[33mWarning: --since is deprecated and will be removed in a future version.\x1b[0m");
-                eprintln!("\x1b[33m         Incremental mode automatically skips unchanged files.\x1b[0m");
+                eprintln!(
+                    "\x1b[33m         Incremental mode automatically skips unchanged files.\x1b[0m"
+                );
                 eprintln!("\x1b[33m         Use `repotoire diff <ref>` to compare against a branch/tag.\x1b[0m");
             }
 
@@ -699,9 +702,18 @@ pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> { // 
 
         Some(Commands::Doctor) => doctor::run(),
 
-        Some(Commands::Watch { severity, all_detectors }) => {
-            watch::run(&cli.path, severity, all_detectors, cli.workers, false, false, &telemetry)
-        }
+        Some(Commands::Watch {
+            severity,
+            all_detectors,
+        }) => watch::run(
+            &cli.path,
+            severity,
+            all_detectors,
+            cli.workers,
+            false,
+            false,
+            &telemetry,
+        ),
         Some(Commands::Calibrate) => run_calibrate(&cli.path),
         Some(Commands::Clean { dry_run }) => clean::run(&cli.path, dry_run),
 
@@ -790,7 +802,11 @@ pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> { // 
                         ..Default::default()
                     };
                     let props = serde_json::to_value(&event).unwrap_or_default();
-                    crate::telemetry::posthog::capture_queued("detector_feedback", distinct_id, props);
+                    crate::telemetry::posthog::capture_queued(
+                        "detector_feedback",
+                        distinct_id,
+                        props,
+                    );
                 }
             }
 
@@ -832,13 +848,9 @@ pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> { // 
             Ok(())
         }
 
-        Some(Commands::Benchmark { format }) => {
-            benchmark::run(&cli.path, format, &telemetry)
-        }
+        Some(Commands::Benchmark { format }) => benchmark::run(&cli.path, format, &telemetry),
 
-        Some(Commands::Debt { filter, top }) => {
-            debt::run(&cli.path, filter.as_deref(), top)
-        }
+        Some(Commands::Debt { filter, top }) => debt::run(&cli.path, filter.as_deref(), top),
 
         Some(Commands::Lsp) => {
             let rt = tokio::runtime::Runtime::new()?;
@@ -849,9 +861,7 @@ pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> { // 
             ))
         }
 
-        Some(Commands::Worker) => {
-            crate::cli::worker::run()
-        }
+        Some(Commands::Worker) => crate::cli::worker::run(),
 
         None => {
             // Check if the path looks like an unknown subcommand

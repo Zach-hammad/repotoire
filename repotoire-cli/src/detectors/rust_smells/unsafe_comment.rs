@@ -38,7 +38,10 @@ impl Detector for UnsafeWithoutSafetyCommentDetector {
         &["rs"]
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let files = &ctx.as_file_provider();
         let mut findings = vec![];
 

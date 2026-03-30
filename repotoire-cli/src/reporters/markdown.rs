@@ -87,7 +87,9 @@ fn render_toc() -> String {
 
 fn render_summary(report: &HealthReport) -> String {
     let assessment = match report.grade {
-        Grade::APlus | Grade::A | Grade::AMinus => "Excellent - Code is well-structured and maintainable",
+        Grade::APlus | Grade::A | Grade::AMinus => {
+            "Excellent - Code is well-structured and maintainable"
+        }
         Grade::BPlus | Grade::B | Grade::BMinus => "Good - Minor improvements recommended",
         Grade::CPlus | Grade::C | Grade::CMinus => "Fair - Several issues should be addressed",
         Grade::DPlus | Grade::D | Grade::DMinus => "Poor - Significant refactoring needed",

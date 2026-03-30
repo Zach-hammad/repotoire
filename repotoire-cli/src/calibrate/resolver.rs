@@ -63,10 +63,16 @@ impl ThresholdResolver {
 
     /// Get the source label for a metric threshold
     pub fn source(&self, kind: MetricKind) -> &'static str {
-        let is_adaptive = self.profile.as_ref()
+        let is_adaptive = self
+            .profile
+            .as_ref()
             .and_then(|p| p.get(kind))
             .is_some_and(|d| d.confident);
-        if is_adaptive { "adaptive" } else { "default" }
+        if is_adaptive {
+            "adaptive"
+        } else {
+            "default"
+        }
     }
 
     /// Build explainability metadata for a finding.
@@ -294,7 +300,9 @@ mod tests {
         let explanation = resolver.explain(MetricKind::Complexity, 55.0, 10.0);
         assert_eq!(explanation.threshold_source, "adaptive");
         assert!(explanation.percentile_info.is_some());
-        let info = explanation.percentile_info.expect("percentile info present");
+        let info = explanation
+            .percentile_info
+            .expect("percentile info present");
         assert!(info.contains("p90="));
         assert!(info.contains("p95="));
         assert!(info.contains("mean="));
@@ -360,4 +368,3 @@ mod tests {
         assert!(meta.iter().any(|(k, _)| k == "default_threshold"));
     }
 }
-

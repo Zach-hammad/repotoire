@@ -74,8 +74,7 @@ fn test_js_template_sql_detection() {
 
     // Should detect JavaScript template literal SQL injection
     assert_eq!(
-        detector
-            .check_line_for_patterns(r#"db.query(`SELECT * FROM users WHERE id = ${userId}`)"#),
+        detector.check_line_for_patterns(r#"db.query(`SELECT * FROM users WHERE id = ${userId}`)"#),
         Some(("js_template", false))
     );
 
@@ -158,8 +157,7 @@ fn test_parameterized_query_co_occurrence_reduces_severity() {
     let detector = SQLInjectionDetector::new();
 
     // Template literal with ${where} but also has @make placeholder
-    let line =
-        r#"db.query(`SELECT COUNT(*) as count FROM vehicles ${where} AND make = @make`)"#;
+    let line = r#"db.query(`SELECT COUNT(*) as count FROM vehicles ${where} AND make = @make`)"#;
 
     if let Some((pattern_type, is_likely_fp)) = detector.check_line_for_patterns(line) {
         assert_eq!(pattern_type, "js_template");
@@ -181,9 +179,14 @@ fn test_placeholder_generation_pattern_skipped() {
         r#"const placeholders = ids.map(() => '?').join(','); db.query(`SELECT * FROM vehicles WHERE id IN (${placeholders})`)"#
     ).is_none(), "Should skip placeholder generation pattern");
 
-    assert!(detector.check_line_for_patterns(
-        r#"db.query(`SELECT * FROM items WHERE id IN (${ids.map(() => '?').join(',')})`)"#
-    ).is_none(), "Should skip inline placeholder generation");
+    assert!(
+        detector
+            .check_line_for_patterns(
+                r#"db.query(`SELECT * FROM items WHERE id IN (${ids.map(() => '?').join(',')})`)"#
+            )
+            .is_none(),
+        "Should skip inline placeholder generation"
+    );
 
     assert!(detector.check_line_for_patterns(
         r#"const qs = Array(10).fill('?').join(','); stmt = `SELECT * FROM t WHERE id IN (${qs})`"#
@@ -202,11 +205,10 @@ fn test_sql_structure_variable_detection() {
     assert!(detector.is_sql_structure_variable(r#"`SELECT * FROM users ${conditions}`"#));
 
     // Should NOT detect regular variable names
-    assert!(!detector
-        .is_sql_structure_variable(r#"`SELECT * FROM users WHERE name = ${userName}`"#));
     assert!(
-        !detector.is_sql_structure_variable(r#"`SELECT * FROM users WHERE id = ${userId}`"#)
+        !detector.is_sql_structure_variable(r#"`SELECT * FROM users WHERE name = ${userName}`"#)
     );
+    assert!(!detector.is_sql_structure_variable(r#"`SELECT * FROM users WHERE id = ${userId}`"#));
 }
 
 #[test]
@@ -298,8 +300,7 @@ fn test_better_sqlite3_patterns() {
     // These should NOT be flagged as SQL injection (prepared statements are safe)
     // Note: is_safe_orm_pattern would handle these if better-sqlite3 is in detected frameworks
     // For now, we test that prepare() with placeholders is recognized
-    let line1 =
-        r#"const stmt = db.prepare('SELECT * FROM users WHERE id = ?'); stmt.get(userId);"#;
+    let line1 = r#"const stmt = db.prepare('SELECT * FROM users WHERE id = ?'); stmt.get(userId);"#;
     let line2 = r#"db.prepare('SELECT * FROM users WHERE id = @id').all({ id: userId });"#;
 
     // These use static SQL with prepare(), no interpolation, so our pattern won't match
@@ -322,12 +323,8 @@ fn test_excludes_db_backend_paths() {
     assert!(detector.should_exclude(std::path::Path::new(
         "django/db/backends/postgresql/introspection.py"
     )));
-    assert!(detector.should_exclude(std::path::Path::new(
-        "django/db/models/sql/compiler.py"
-    )));
-    assert!(detector.should_exclude(std::path::Path::new(
-        "django/core/cache/backends/db.py"
-    )));
+    assert!(detector.should_exclude(std::path::Path::new("django/db/models/sql/compiler.py")));
+    assert!(detector.should_exclude(std::path::Path::new("django/core/cache/backends/db.py")));
     // Should NOT exclude application code
     assert!(!detector.should_exclude(std::path::Path::new("myapp/views.py")));
 }

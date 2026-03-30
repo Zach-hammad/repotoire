@@ -58,7 +58,8 @@ pub(super) fn detect_language(file_path: &str) -> &'static str {
 /// Get language-specific fix examples
 pub(super) fn get_fix_examples(language: &str) -> &'static str {
     match language {
-        "javascript" => "**Recommended fixes**:\n\n\
+        "javascript" => {
+            "**Recommended fixes**:\n\n\
             1. **Use parameterized queries** (preferred):\n\
                ```javascript\n\
                // Instead of:\n\
@@ -81,8 +82,10 @@ pub(super) fn get_fix_examples(language: &str) -> &'static str {
                  [userId]\n\
                );\n\
                ```\n\n\
-            4. **Validate and sanitize input** when parameterization is not possible.",
-        "go" => "**Recommended fixes**:\n\n\
+            4. **Validate and sanitize input** when parameterization is not possible."
+        }
+        "go" => {
+            "**Recommended fixes**:\n\n\
             1. **Use parameterized queries** (preferred):\n\
                ```go\n\
                // Instead of:\n\
@@ -101,8 +104,10 @@ pub(super) fn get_fix_examples(language: &str) -> &'static str {
                query := \"SELECT * FROM users WHERE id = :id\"\n\
                rows, err := db.NamedQuery(query, map[string]interface{}{\"id\": id})\n\
                ```\n\n\
-            4. **Validate and sanitize input** when parameterization is not possible.",
-        "java" => "**Recommended fixes**:\n\n\
+            4. **Validate and sanitize input** when parameterization is not possible."
+        }
+        "java" => {
+            "**Recommended fixes**:\n\n\
             1. **Use PreparedStatement** (preferred):\n\
                ```java\n\
                // Instead of:\n\
@@ -122,8 +127,10 @@ pub(super) fn get_fix_examples(language: &str) -> &'static str {
                em.createQuery(\"SELECT u FROM User u WHERE u.id = :id\")\n\
                  .setParameter(\"id\", id);\n\
                ```\n\n\
-            3. **Validate and sanitize input** when parameterization is not possible.",
-        _ => "**Recommended fixes**:\n\n\
+            3. **Validate and sanitize input** when parameterization is not possible."
+        }
+        _ => {
+            "**Recommended fixes**:\n\n\
             1. **Use parameterized queries** (preferred):\n\
                ```python\n\
                # Instead of:\n\
@@ -145,6 +152,7 @@ pub(super) fn get_fix_examples(language: &str) -> &'static str {
                # Use:\n\
                engine.execute(text(\"SELECT * FROM users WHERE id = :id\"), {\"id\": user_id})\n\
                ```\n\n\
-            4. **Validate and sanitize input** when parameterization is not possible.",
+            4. **Validate and sanitize input** when parameterization is not possible."
+        }
     }
 }

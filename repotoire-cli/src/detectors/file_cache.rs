@@ -96,6 +96,8 @@ mod tests {
     #[test]
     fn test_file_cache_returns_none_for_missing_file() {
         let cache = FileContentCache::new();
-        assert!(cache.get_or_read(Path::new("/nonexistent/file.py")).is_none());
+        assert!(cache
+            .get_or_read(Path::new("/nonexistent/file.py"))
+            .is_none());
     }
 }

@@ -14,10 +14,10 @@ use std::path::PathBuf;
 use std::sync::LazyLock;
 use tracing::info;
 
-static PYTHON_IMPORT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?:from\s+[\w.]+\s+)?import\s+(.+)").expect("valid regex"));
-static JS_IMPORT: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r#"import\s+(?:\{([^}]+)\}|(\w+))\s+from"#).expect("valid regex")
-    });
+static PYTHON_IMPORT: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?:from\s+[\w.]+\s+)?import\s+(.+)").expect("valid regex"));
+static JS_IMPORT: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"import\s+(?:\{([^}]+)\}|(\w+))\s+from"#).expect("valid regex"));
 static WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b(\w+)\b").expect("valid regex"));
 
 /// Detects unused imports
@@ -104,17 +104,15 @@ impl UnusedImportsDetector {
 
     /// Extract symbols listed in __all__ = [...]
     fn extract_all_exports(content: &str) -> HashSet<String> {
-        static ALL_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-            Regex::new(r#"__all__\s*=\s*\[([^\]]+)\]"#).expect("valid regex")
-        });
+        static ALL_PATTERN: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(r#"__all__\s*=\s*\[([^\]]+)\]"#).expect("valid regex"));
         let pattern = &*ALL_PATTERN;
 
         let mut exports = HashSet::new();
         if let Some(caps) = pattern.captures(content) {
             if let Some(items) = caps.get(1) {
-                static ITEM_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-                    Regex::new(r#"["'](\w+)["']"#).expect("valid regex")
-                });
+                static ITEM_PATTERN: LazyLock<Regex> =
+                    LazyLock::new(|| Regex::new(r#"["'](\w+)["']"#).expect("valid regex"));
                 let item_re = &*ITEM_PATTERN;
                 for m in item_re.captures_iter(items.as_str()) {
                     if let Some(name) = m.get(1) {
@@ -160,7 +158,10 @@ impl Detector for UnusedImportsDetector {
         crate::detectors::detector_context::ContentFlags::HAS_IMPORT
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let files = &ctx.as_file_provider();
         let mut findings = vec![];
         let mut unused_per_file: HashMap<PathBuf, Vec<(String, u32)>> = HashMap::new();
@@ -220,7 +221,11 @@ impl Detector for UnusedImportsDetector {
                 let mut type_checking_indent: usize = 0;
 
                 for (line_num, line) in lines.iter().enumerate() {
-                    let prev_line = if line_num > 0 { Some(lines[line_num - 1]) } else { None };
+                    let prev_line = if line_num > 0 {
+                        Some(lines[line_num - 1])
+                    } else {
+                        None
+                    };
                     if crate::detectors::is_line_suppressed(line, prev_line) {
                         continue;
                     }
@@ -269,7 +274,8 @@ impl Detector for UnusedImportsDetector {
                             }
 
                             // Handle multi-line imports: from X import (\n    A,\n    B,\n)
-                            let effective_line = if trimmed.contains("(") && !trimmed.contains(")") {
+                            let effective_line = if trimmed.contains("(") && !trimmed.contains(")")
+                            {
                                 let mut accumulated = trimmed.to_string();
                                 let mut j = line_num + 1;
                                 while j < lines.len() {
@@ -408,7 +414,6 @@ impl Detector for UnusedImportsDetector {
     }
 }
 
-
 impl crate::detectors::RegisteredDetector for UnusedImportsDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
         std::sync::Arc::new(Self::new(init.repo_path))
@@ -432,7 +437,10 @@ mod tests {
 
         let store = GraphBuilder::new().freeze();
         let detector = UnusedImportsDetector::new(dir.path());
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
@@ -453,7 +461,10 @@ mod tests {
 
         let store = GraphBuilder::new().freeze();
         let detector = UnusedImportsDetector::new(dir.path());
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
@@ -473,7 +484,8 @@ mod tests {
             ("typed.py", "from __future__ import annotations\nfrom typing import TYPE_CHECKING\n\nif TYPE_CHECKING:\n    from models import UserModel\n    from services import AuthService\n\ndef greet() -> str:\n    return \"hello\"\n"),
         ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
-        let tc_findings: Vec<_> = findings.iter()
+        let tc_findings: Vec<_> = findings
+            .iter()
             .filter(|f| f.title.contains("UserModel") || f.title.contains("AuthService"))
             .collect();
         assert!(
@@ -502,9 +514,10 @@ mod tests {
     fn test_still_detects_unused_import() {
         let store = GraphBuilder::new().freeze();
         let detector = UnusedImportsDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("unused.py", "import os\nimport sys\n\nprint(sys.argv)\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![("unused.py", "import os\nimport sys\n\nprint(sys.argv)\n")],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),

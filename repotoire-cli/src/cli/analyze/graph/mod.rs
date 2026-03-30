@@ -17,11 +17,11 @@ use edge_builder::{build_call_edges_fast, build_import_edges_fast};
 use module_lookup::ModuleLookup;
 use node_factory::{build_class_node, build_func_node, emit_decorator_call_edge};
 
+use crate::graph::builder::GraphBuilder;
+use crate::graph::interner::{global_interner, StrKey};
 use crate::graph::store_models::{
     ExtraProps, FLAG_ADDRESS_TAKEN, FLAG_HAS_DECORATORS, FLAG_IS_ASYNC, FLAG_IS_EXPORTED,
 };
-use crate::graph::builder::GraphBuilder;
-use crate::graph::interner::{StrKey, global_interner};
 use crate::graph::{CodeEdge, CodeNode, NodeKind};
 use crate::models::{Class, Function};
 use crate::parsers::streaming::{
@@ -73,7 +73,8 @@ fn estimate_graph_capacity(parse_results: &[(PathBuf, Arc<ParseResult>)]) -> (us
         let file_nodes = 1 + pr.functions.len() + pr.classes.len();
         estimated_nodes += file_nodes;
         // Contains edges (1 per function/class) + call edges + import edges
-        estimated_edges += pr.functions.len() + pr.classes.len() + pr.calls.len() + pr.imports.len();
+        estimated_edges +=
+            pr.functions.len() + pr.classes.len() + pr.calls.len() + pr.imports.len();
     }
     // Add a safety margin for cross-file call resolution edges
     estimated_edges = estimated_edges.saturating_add(estimated_nodes);
@@ -124,7 +125,10 @@ pub fn build_graph(
             let mut edges: Vec<(String, String, CodeEdge)> = Vec::new();
             let mut extra_props_batch: Vec<(StrKey, ExtraProps)> = Vec::new();
             // File node — compute LOC from max line_end of functions/classes
-            let file_loc = result.functions.iter().map(|f| f.line_end)
+            let file_loc = result
+                .functions
+                .iter()
+                .map(|f| f.line_end)
                 .chain(result.classes.iter().map(|c| c.line_end))
                 .max()
                 .unwrap_or(0);
@@ -273,7 +277,9 @@ pub fn build_graph(
 
             // Trait implementation edges (type implements trait)
             for (type_name, trait_name) in &result.trait_impls {
-                if let Some(type_qn) = result.classes.iter()
+                if let Some(type_qn) = result
+                    .classes
+                    .iter()
                     .find(|c| c.name == *type_name)
                     .map(|c| c.qualified_name.clone())
                 {
@@ -299,7 +305,14 @@ pub fn build_graph(
                 graph_bar.set_position(count as u64);
             }
 
-            (relative_str, file_nodes, func_nodes, class_nodes, edges, extra_props_batch)
+            (
+                relative_str,
+                file_nodes,
+                func_nodes,
+                class_nodes,
+                edges,
+                extra_props_batch,
+            )
         })
         .collect();
 
@@ -327,9 +340,8 @@ pub fn build_graph(
 
     // Batch insert all nodes
     graph_bar.set_message("Inserting nodes...");
-    let mut combined_nodes = Vec::with_capacity(
-        all_file_nodes.len() + all_func_nodes.len() + all_class_nodes.len(),
-    );
+    let mut combined_nodes =
+        Vec::with_capacity(all_file_nodes.len() + all_func_nodes.len() + all_class_nodes.len());
     combined_nodes.extend(all_file_nodes);
     combined_nodes.extend(all_func_nodes);
     combined_nodes.extend(all_class_nodes);
@@ -412,7 +424,10 @@ pub(super) fn build_graph_chunked(
                 let mut edges: Vec<(String, String, CodeEdge)> = Vec::new();
                 let mut extra_props_batch: Vec<(StrKey, ExtraProps)> = Vec::new();
                 // File node — compute LOC from max line_end of functions/classes
-                let file_loc = result.functions.iter().map(|f| f.line_end)
+                let file_loc = result
+                    .functions
+                    .iter()
+                    .map(|f| f.line_end)
                     .chain(result.classes.iter().map(|c| c.line_end))
                     .max()
                     .unwrap_or(0);
@@ -510,7 +525,9 @@ pub(super) fn build_graph_chunked(
 
                 // Trait implementation edges (type implements trait)
                 for (type_name, trait_name) in &result.trait_impls {
-                    if let Some(type_qn) = result.classes.iter()
+                    if let Some(type_qn) = result
+                        .classes
+                        .iter()
                         .find(|c| c.name == *type_name)
                         .map(|c| c.qualified_name.clone())
                     {
@@ -536,7 +553,14 @@ pub(super) fn build_graph_chunked(
                     graph_bar.set_position(count as u64);
                 }
 
-                (relative_str, file_nodes, func_nodes, class_nodes, edges, extra_props_batch)
+                (
+                    relative_str,
+                    file_nodes,
+                    func_nodes,
+                    class_nodes,
+                    edges,
+                    extra_props_batch,
+                )
             })
             .collect();
 
@@ -594,7 +618,6 @@ pub(super) fn build_global_function_map(
     }
     final_map
 }
-
 
 pub(super) fn save_graph_stats(graph: &GraphBuilder, repo_path: &Path) -> Result<()> {
     let graph_stats = serde_json::json!({
@@ -848,11 +871,14 @@ impl<'a> StreamingGraphBuilder for StreamingGraphBuilderImpl<'a> {
 
         // Trait implementation edges (type implements trait)
         for (type_name, trait_name) in &info.trait_impls {
-            if let Some(type_qn) = info.classes.iter()
+            if let Some(type_qn) = info
+                .classes
+                .iter()
                 .find(|c| c.name == *type_name)
                 .map(|c| c.qualified_name.clone())
             {
-                self.edges.push((type_qn, trait_name.clone(), CodeEdge::inherits()));
+                self.edges
+                    .push((type_qn, trait_name.clone(), CodeEdge::inherits()));
             }
         }
 
@@ -879,7 +905,9 @@ impl<'a> StreamingGraphBuilder for StreamingGraphBuilderImpl<'a> {
         // Collect import edges (resolve using module index)
         for import in &info.imports {
             let matches = self.module_index.find_matches(&import.path);
-            let Some(target) = matches.first() else { continue };
+            let Some(target) = matches.first() else {
+                continue;
+            };
             if target == &info.relative_path {
                 continue;
             }
@@ -904,8 +932,8 @@ impl<'a> StreamingGraphBuilder for StreamingGraphBuilderImpl<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::node_factory::module_qn_from_path;
+    use super::*;
     use crate::graph::builder::GraphBuilder;
     use crate::models::Function;
     use crate::parsers::ParseResult;
@@ -958,24 +986,14 @@ mod tests {
         let mut edges: Vec<(String, String, CodeEdge)> = Vec::new();
 
         // Decorated function — should create edge from file to function
-        emit_decorator_call_edge(
-            "app.routes.index:5",
-            "app/routes.py",
-            true,
-            &mut edges,
-        );
+        emit_decorator_call_edge("app.routes.index:5", "app/routes.py", true, &mut edges);
 
         assert_eq!(edges.len(), 1);
         assert_eq!(edges[0].0, "app/routes.py"); // File node is the caller
         assert_eq!(edges[0].1, "app.routes.index:5");
 
         // Second decorated function in the same module
-        emit_decorator_call_edge(
-            "app.routes.about:20",
-            "app/routes.py",
-            true,
-            &mut edges,
-        );
+        emit_decorator_call_edge("app.routes.about:20", "app/routes.py", true, &mut edges);
 
         // Two edges, both from the same file node
         assert_eq!(edges.len(), 2);
@@ -987,12 +1005,7 @@ mod tests {
     fn test_emit_decorator_call_edge_skips_undecorated() {
         let mut edges: Vec<(String, String, CodeEdge)> = Vec::new();
 
-        emit_decorator_call_edge(
-            "app.routes.helper:10",
-            "app/routes.py",
-            false,
-            &mut edges,
-        );
+        emit_decorator_call_edge("app.routes.helper:10", "app/routes.py", false, &mut edges);
 
         assert!(edges.is_empty());
     }
@@ -1018,7 +1031,10 @@ mod tests {
         let i = global_interner();
         let rel_key = i.intern(relative_str);
         let empty = i.empty_key();
-        let file_loc = result.functions.iter().map(|f| f.line_end)
+        let file_loc = result
+            .functions
+            .iter()
+            .map(|f| f.line_end)
             .chain(result.classes.iter().map(|c| c.line_end))
             .max()
             .unwrap_or(0);

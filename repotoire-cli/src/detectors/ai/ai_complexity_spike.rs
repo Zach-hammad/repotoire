@@ -31,16 +31,32 @@ const DEFAULT_MIN_COMPLEXITY: i64 = 20;
 
 /// Generic/meaningless function name prefixes/words that indicate low-effort naming
 const GENERIC_NAMES: &[&str] = &[
-    "process", "handle", "execute", "run", "do", "go", "work",
-    "func", "helper", "impl", "inner", "main_logic",
-    "do_something", "do_work", "process_data",
+    "process",
+    "handle",
+    "execute",
+    "run",
+    "do",
+    "go",
+    "work",
+    "func",
+    "helper",
+    "impl",
+    "inner",
+    "main_logic",
+    "do_something",
+    "do_work",
+    "process_data",
 ];
 
 /// Returns true if the function name is generic/meaningless.
 fn is_generic_name(name: &str) -> bool {
     let lower = name.to_lowercase();
-    GENERIC_NAMES.iter().any(|g| lower == *g || lower.starts_with(&format!("{}_", g)))
-        || (lower.starts_with("func") && lower.len() > 4 && lower[4..].chars().all(|c| c.is_ascii_digit()))
+    GENERIC_NAMES
+        .iter()
+        .any(|g| lower == *g || lower.starts_with(&format!("{}_", g)))
+        || (lower.starts_with("func")
+            && lower.len() > 4
+            && lower[4..].chars().all(|c| c.is_ascii_digit()))
 }
 
 /// Statistical baseline for codebase complexity
@@ -206,10 +222,7 @@ impl AIComplexitySpikeDetector {
                 &spike.commit_sha[..7.min(spike.commit_sha.len())]
             )
         } else {
-            format!(
-                "Complexity Outlier: {}",
-                spike.function_name
-            )
+            format!("Complexity Outlier: {}", spike.function_name)
         };
 
         let description = self.build_description(spike, baseline);
@@ -378,10 +391,15 @@ impl Detector for AIComplexitySpikeDetector {
     }
 
     fn file_extensions(&self) -> &'static [&'static str] {
-        &["py", "js", "ts", "jsx", "tsx", "java", "go", "rs", "c", "cpp", "cs"]
+        &[
+            "py", "js", "ts", "jsx", "tsx", "java", "go", "rs", "c", "cpp", "cs",
+        ]
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let i = graph.interner();
         use std::collections::HashSet;
@@ -390,7 +408,10 @@ impl Detector for AIComplexitySpikeDetector {
 
         // Calculate baseline complexity
         let functions = graph.get_functions_shared();
-        let complexities: Vec<i64> = functions.iter().filter_map(|f| f.complexity_opt()).collect();
+        let complexities: Vec<i64> = functions
+            .iter()
+            .filter_map(|f| f.complexity_opt())
+            .collect();
 
         if complexities.is_empty() {
             return Ok(vec![]);
@@ -472,7 +493,8 @@ impl Detector for AIComplexitySpikeDetector {
                     crate::cache::global_cache().content(std::path::Path::new(func.path(i)))
                 {
                     is_ast_code = crate::detectors::content_classifier::is_ast_manipulation_code(
-                        func.node_name(i), &content,
+                        func.node_name(i),
+                        &content,
                     );
                 }
             }
@@ -489,7 +511,11 @@ impl Detector for AIComplexitySpikeDetector {
                 } else {
                     threshold
                 };
-                let min_complexity: i64 = if is_ast_code { 35 } else { DEFAULT_MIN_COMPLEXITY };
+                let min_complexity: i64 = if is_ast_code {
+                    35
+                } else {
+                    DEFAULT_MIN_COMPLEXITY
+                };
 
                 if complexity as f64 > effective_threshold && complexity > min_complexity {
                     let z_score = if std_dev > 0.0 {
@@ -567,7 +593,7 @@ impl crate::detectors::RegisteredDetector for AIComplexitySpikeDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::{CodeNode};
+    use crate::graph::CodeNode;
 
     #[test]
     fn test_compute_baseline() {
@@ -665,8 +691,13 @@ mod tests {
         }
 
         let detector = AIComplexitySpikeDetector::new();
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
-        let findings = detector.detect(&ctx).expect("should detect complexity outlier");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![],
+        );
+        let findings = detector
+            .detect(&ctx)
+            .expect("should detect complexity outlier");
 
         assert!(
             !findings.is_empty(),
@@ -694,8 +725,13 @@ mod tests {
         }
 
         let detector = AIComplexitySpikeDetector::new();
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
-        let findings = detector.detect(&ctx).expect("should detect normal complexity");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![],
+        );
+        let findings = detector
+            .detect(&ctx)
+            .expect("should detect normal complexity");
 
         assert!(
             findings.is_empty(),

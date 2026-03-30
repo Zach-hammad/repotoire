@@ -16,7 +16,9 @@ use std::path::PathBuf;
 use std::sync::LazyLock;
 use tracing::info;
 
-static IP_PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"["']?(127\.0\.0\.1|0\.0\.0\.0|localhost|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|192\.168\.\d+\.\d+)["']?"#).expect("valid regex"));
+static IP_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"["']?(127\.0\.0\.1|0\.0\.0\.0|localhost|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|192\.168\.\d+\.\d+)["']?"#).expect("valid regex")
+});
 
 pub struct HardcodedIpsDetector {
     #[allow(dead_code)] // Part of detector pattern, used for file scanning
@@ -62,7 +64,6 @@ impl HardcodedIpsDetector {
 
         ("General usage".to_string(), false)
     }
-
 }
 
 impl Detector for HardcodedIpsDetector {
@@ -78,10 +79,15 @@ impl Detector for HardcodedIpsDetector {
     }
 
     fn file_extensions(&self) -> &'static [&'static str] {
-        &["py", "js", "ts", "jsx", "tsx", "rb", "php", "java", "go", "rs", "c", "cpp"]
+        &[
+            "py", "js", "ts", "jsx", "tsx", "rb", "php", "java", "go", "rs", "c", "cpp",
+        ]
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let files = &ctx.as_file_provider();
         let mut findings = vec![];
@@ -96,7 +102,9 @@ impl Detector for HardcodedIpsDetector {
         }
         let mut matches: Vec<IpMatch> = Vec::new();
 
-        for path in files.files_with_extensions(&["py", "js", "ts", "java", "go", "rs", "rb", "php", "cs", "c", "cpp"]) {
+        for path in files.files_with_extensions(&[
+            "py", "js", "ts", "java", "go", "rs", "rb", "php", "cs", "c", "cpp",
+        ]) {
             // Skip config files where this is expected
             let fname = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
             if fname.contains("config")
@@ -115,8 +123,12 @@ impl Detector for HardcodedIpsDetector {
                 Some(c) => c,
                 None => continue,
             };
-            if !raw.contains("127.") && !raw.contains("0.0.0") && !raw.contains("10.")
-                && !raw.contains("172.") && !raw.contains("192.168") && !raw.contains("localhost")
+            if !raw.contains("127.")
+                && !raw.contains("0.0.0")
+                && !raw.contains("10.")
+                && !raw.contains("172.")
+                && !raw.contains("192.168")
+                && !raw.contains("localhost")
             {
                 continue;
             }
@@ -170,8 +182,10 @@ impl Detector for HardcodedIpsDetector {
             let occurrences = ip_occurrences.get(&m.ip).copied().unwrap_or(1);
             let (context, is_risky) = Self::analyze_context(&m.line_text);
             let path_str = m.path.to_string_lossy();
-            let containing_func =
-                graph.find_function_at(&path_str, m.line_num).map(|f| f.node_name(crate::graph::interner::global_interner()).to_string());
+            let containing_func = graph.find_function_at(&path_str, m.line_num).map(|f| {
+                f.node_name(crate::graph::interner::global_interner())
+                    .to_string()
+            });
 
             let severity = if is_risky {
                 Severity::High
@@ -248,7 +262,6 @@ impl Detector for HardcodedIpsDetector {
         Ok(findings)
     }
 }
-
 
 impl crate::detectors::RegisteredDetector for HardcodedIpsDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {

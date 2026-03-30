@@ -17,10 +17,10 @@ pub(crate) mod files;
 pub(crate) mod graph;
 pub(crate) mod output;
 pub(crate) mod postprocess;
-use output::{cache_results, check_fail_threshold, format_and_output};
 #[allow(unused_imports)] // used in compute_language_stats via trait method dispatch
 use crate::graph::traits::GraphQueryExt as _;
 use crate::reporters;
+use output::{cache_results, check_fail_threshold, format_and_output};
 
 use anyhow::Result;
 use console::style;
@@ -90,7 +90,10 @@ pub fn run_engine(
     telemetry: &crate::telemetry::Telemetry,
 ) -> Result<()> {
     let start_time = Instant::now();
-    let quiet_mode = matches!(output.format, reporters::OutputFormat::Json | reporters::OutputFormat::Sarif);
+    let quiet_mode = matches!(
+        output.format,
+        reporters::OutputFormat::Json | reporters::OutputFormat::Sarif
+    );
 
     // Clear per-run caches (important for long-running server modes)
     crate::parsers::clear_structural_fingerprint_cache();
@@ -135,7 +138,14 @@ pub fn run_engine(
         }
     };
 
-    let prepared = prepare_report(&mut engine, &result, result.findings.clone(), path, &output, quiet_mode)?;
+    let prepared = prepare_report(
+        &mut engine,
+        &result,
+        result.findings.clone(),
+        path,
+        &output,
+        quiet_mode,
+    )?;
     let PreparedReport {
         report,
         all_findings,
@@ -168,7 +178,8 @@ pub fn run_engine(
 
     // Compute language stats from parsed files (NOT findings, which change with --severity)
     let lang_loc_precomputed = compute_language_stats(&engine, all_findings);
-    let precomputed_primary_language = lang_loc_precomputed.iter()
+    let precomputed_primary_language = lang_loc_precomputed
+        .iter()
         .max_by_key(|(_, count)| *count)
         .map(|(lang, _)| lang.to_lowercase())
         .unwrap_or_else(|| "unknown".to_string());
@@ -184,16 +195,35 @@ pub fn run_engine(
     );
 
     // Optional outputs, telemetry, caching, and session persistence
-    emit_optional_output(&output, &all_findings, report, &result, &engine, quiet_mode, start_time, mode_label)?;
+    emit_optional_output(
+        &output,
+        &all_findings,
+        report,
+        &result,
+        &engine,
+        quiet_mode,
+        start_time,
+        mode_label,
+    )?;
     send_telemetry(
-        telemetry, path, &result.score, &result.stats, &all_findings,
-        &lang_loc_precomputed, &precomputed_primary_language, &engine, mode_label, start_time,
+        telemetry,
+        path,
+        &result.score,
+        &result.stats,
+        &all_findings,
+        &lang_loc_precomputed,
+        &precomputed_primary_language,
+        &engine,
+        mode_label,
+        start_time,
     );
     {
         let repotoire_dir = repotoire_dir.clone();
         let health_report = report.clone();
         let all_findings_clone = all_findings.clone();
-        std::thread::spawn(move || { let _ = cache_results(&repotoire_dir, &health_report, &all_findings_clone); });
+        std::thread::spawn(move || {
+            let _ = cache_results(&repotoire_dir, &health_report, &all_findings_clone);
+        });
     }
     let _ = engine.save(&session_dir);
     check_fail_threshold(output.fail_on, report)?;
@@ -218,7 +248,10 @@ fn emit_optional_output(
         sidecar_report.findings = all_findings.to_vec();
         sidecar_report.findings_summary =
             crate::models::FindingsSummary::from_findings(all_findings);
-        let json_output = crate::reporters::report_with_format(&sidecar_report, crate::reporters::OutputFormat::Json)?;
+        let json_output = crate::reporters::report_with_format(
+            &sidecar_report,
+            crate::reporters::OutputFormat::Json,
+        )?;
         std::fs::write(sidecar_path, &json_output)?;
         eprintln!("JSON sidecar written to: {}", sidecar_path.display());
     }
@@ -227,13 +260,18 @@ fn emit_optional_output(
     if output.explain_score {
         if let Some(graph) = engine.graph() {
             let scorer = crate::scoring::GraphScorer::new(
-                graph, engine.project_config(), engine.repo_path(),
+                graph,
+                engine.project_config(),
+                engine.repo_path(),
             );
             let explanation = scorer.explain(&result.score.breakdown);
             match output.format {
                 reporters::OutputFormat::Json => {
                     let explain_json = build_explain_json(&explanation, &result.score.breakdown);
-                    eprintln!("{}", serde_json::to_string_pretty(&explain_json).unwrap_or_default());
+                    eprintln!(
+                        "{}",
+                        serde_json::to_string_pretty(&explain_json).unwrap_or_default()
+                    );
                 }
                 _ => {
                     println!("\n{}", style("─".repeat(60)).dim());
@@ -258,7 +296,11 @@ fn emit_optional_output(
     if !quiet_mode {
         let elapsed = start_time.elapsed();
         let icon_done = if output.no_emoji { "" } else { "✨ " };
-        eprintln!("\n{}Analysis complete in {:.2}s", style(icon_done).bold(), elapsed.as_secs_f64());
+        eprintln!(
+            "\n{}Analysis complete in {:.2}s",
+            style(icon_done).bold(),
+            elapsed.as_secs_f64()
+        );
     }
 
     Ok(())
@@ -286,10 +328,17 @@ fn handle_empty_repo(
         );
         let elapsed = start_time.elapsed();
         let icon_done = if output.no_emoji { "" } else { "✨ " };
-        eprintln!("{}Done in {:.2}s", style(icon_done).bold(), elapsed.as_secs_f64());
+        eprintln!(
+            "{}Done in {:.2}s",
+            style(icon_done).bold(),
+            elapsed.as_secs_f64()
+        );
     }
     // For JSON/SARIF, still output valid empty structure
-    if matches!(output.format, reporters::OutputFormat::Json | reporters::OutputFormat::Sarif) {
+    if matches!(
+        output.format,
+        reporters::OutputFormat::Json | reporters::OutputFormat::Sarif
+    ) {
         let empty_report = crate::models::HealthReport {
             overall_score: 0.0,
             grade: crate::models::Grade::F,
@@ -372,11 +421,7 @@ fn prepare_report(
     quiet_mode: bool,
 ) -> Result<PreparedReport> {
     // Consumer-side filtering: min_confidence (engine postprocess skips this)
-    postprocess::filter_by_min_confidence(
-        &mut findings,
-        output.min_confidence,
-        output.show_all,
-    );
+    postprocess::filter_by_min_confidence(&mut findings, output.min_confidence, output.show_all);
 
     // Consumer-side ranking (engine postprocess skips this)
     if output.rank {
@@ -393,7 +438,12 @@ fn prepare_report(
                 Ok(count) => {
                     if !quiet_mode {
                         let icon = if output.no_emoji { "" } else { "\u{1f4ca} " };
-                        println!("{}Exported {} training samples to {}", icon, count, export_path.display());
+                        println!(
+                            "{}Exported {} training samples to {}",
+                            icon,
+                            count,
+                            export_path.display()
+                        );
                     }
                 }
                 Err(e) => {
@@ -409,7 +459,9 @@ fn prepare_report(
 
     // Paginate — structured formats (JSON, SARIF) default to all findings
     let effective_per_page = match output.format {
-        reporters::OutputFormat::Json | reporters::OutputFormat::Sarif if output.per_page == 20 => 0,
+        reporters::OutputFormat::Json | reporters::OutputFormat::Sarif if output.per_page == 20 => {
+            0
+        }
         _ => output.per_page,
     };
     let (paginated_findings, pagination_info) =
@@ -433,8 +485,8 @@ fn prepare_report(
 
     // Ensure cache dir exists
     let canon_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-    let repotoire_dir = crate::cache::ensure_cache_dir(&canon_path)
-        .unwrap_or_else(|_| path.join(".repotoire"));
+    let repotoire_dir =
+        crate::cache::ensure_cache_dir(&canon_path).unwrap_or_else(|_| path.join(".repotoire"));
 
     // Build rich report context (graph + git + snippets)
     let format_enum = output.format;
@@ -487,9 +539,11 @@ fn format_and_display_report(
             cache_results(repotoire_dir, report, all_findings)?;
 
             // Show pagination info (text terminal only — suppress for HTML and file output)
-            let suppress_pagination = format_enum == reporters::OutputFormat::Html
-                || output.output_path.is_some();
-            if let Some((current_page, total_pages, per_page, total)) = pagination_info.filter(|_| !suppress_pagination) {
+            let suppress_pagination =
+                format_enum == reporters::OutputFormat::Html || output.output_path.is_some();
+            if let Some((current_page, total_pages, per_page, total)) =
+                pagination_info.filter(|_| !suppress_pagination)
+            {
                 let page_icon = if output.no_emoji { "" } else { "\u{1f4d1} " };
                 println!(
                     "\n{}Showing page {} of {} ({} findings per page, {} total)",
@@ -541,34 +595,49 @@ fn display_ecosystem_context(
         if !quiet_mode && output_format == reporters::OutputFormat::Text {
             let total_kloc = total_loc as f64 / 1000.0;
 
-            if let Some(data) = crate::telemetry::benchmarks::fetch_benchmarks(primary_language, total_kloc) {
+            if let Some(data) =
+                crate::telemetry::benchmarks::fetch_benchmarks(primary_language, total_kloc)
+            {
                 let score_pct = crate::telemetry::benchmarks::interpolate_percentile(
-                    score.overall, &data.score
+                    score.overall,
+                    &data.score,
                 );
                 let pillar_pcts = Some(crate::telemetry::display::PillarPercentiles {
                     structure: crate::telemetry::benchmarks::interpolate_percentile(
-                        score.breakdown.structure.final_score, &data.pillar_structure
+                        score.breakdown.structure.final_score,
+                        &data.pillar_structure,
                     ),
                     quality: crate::telemetry::benchmarks::interpolate_percentile(
-                        score.breakdown.quality.final_score, &data.pillar_quality
+                        score.breakdown.quality.final_score,
+                        &data.pillar_quality,
                     ),
                     architecture: crate::telemetry::benchmarks::interpolate_percentile(
-                        score.breakdown.architecture.final_score, &data.pillar_architecture
+                        score.breakdown.architecture.final_score,
+                        &data.pillar_architecture,
                     ),
                 });
                 let ctx = crate::telemetry::display::EcosystemContext {
                     score_percentile: score_pct,
-                    comparison_group: format!("{} projects", data.segment.language.as_deref().unwrap_or("all")),
+                    comparison_group: format!(
+                        "{} projects",
+                        data.segment.language.as_deref().unwrap_or("all")
+                    ),
                     sample_size: data.sample_size,
                     pillar_percentiles: pillar_pcts,
                     modularity_percentile: None,
                     coupling_percentile: None,
                     trend: None,
                 };
-                println!("{}", crate::telemetry::display::format_ecosystem_context(&ctx));
+                println!(
+                    "{}",
+                    crate::telemetry::display::format_ecosystem_context(&ctx)
+                );
             }
             // Telemetry footer
-            println!("  {}", style("telemetry: on (repotoire config telemetry off to disable)").dim());
+            println!(
+                "  {}",
+                style("telemetry: on (repotoire config telemetry off to disable)").dim()
+            );
         }
     } else if !quiet_mode && output_format == reporters::OutputFormat::Text {
         // Show tip once (only on text output)
@@ -613,12 +682,17 @@ fn send_telemetry(
 
     // Build findings maps
     let mut findings_by_severity = std::collections::HashMap::new();
-    let mut findings_by_detector: std::collections::HashMap<String, std::collections::HashMap<String, u64>> = std::collections::HashMap::new();
+    let mut findings_by_detector: std::collections::HashMap<
+        String,
+        std::collections::HashMap<String, u64>,
+    > = std::collections::HashMap::new();
     let mut findings_by_category = std::collections::HashMap::new();
     for f in all_findings {
         let sev = f.severity.to_string();
         *findings_by_severity.entry(sev.clone()).or_insert(0u64) += 1;
-        *findings_by_category.entry(f.category.clone().unwrap_or_default()).or_insert(0u64) += 1;
+        *findings_by_category
+            .entry(f.category.clone().unwrap_or_default())
+            .or_insert(0u64) += 1;
         findings_by_detector
             .entry(f.detector.clone())
             .or_default()
@@ -630,7 +704,10 @@ fn send_telemetry(
     // Language stats
     let total_lang: u64 = lang_loc_precomputed.values().sum();
     let primary_language_ratio = if total_lang > 0 {
-        *lang_loc_precomputed.get(precomputed_primary_language).unwrap_or(&0) as f64 / total_lang as f64
+        *lang_loc_precomputed
+            .get(precomputed_primary_language)
+            .unwrap_or(&0) as f64
+            / total_lang as f64
     } else {
         0.0
     };
@@ -643,27 +720,37 @@ fn send_telemetry(
         .collect();
 
     // Graph primitives
-    let (graph_nodes, graph_edges, graph_modularity, graph_scc_count, graph_avg_degree, graph_articulation_points) =
-        if let Some(graph) = engine.code_graph() {
-            let nodes = graph.node_count() as u64;
-            let edges = graph.edge_count() as u64;
-            let modularity = graph.graph_modularity();
-            let scc_count = graph.call_cycles().len() as u64;
-            let avg_degree = if nodes > 0 { edges as f64 / nodes as f64 } else { 0.0 };
-            let artic = graph.articulation_points().len() as u64;
-            (nodes, edges, modularity, scc_count, avg_degree, artic)
+    let (
+        graph_nodes,
+        graph_edges,
+        graph_modularity,
+        graph_scc_count,
+        graph_avg_degree,
+        graph_articulation_points,
+    ) = if let Some(graph) = engine.code_graph() {
+        let nodes = graph.node_count() as u64;
+        let edges = graph.edge_count() as u64;
+        let modularity = graph.graph_modularity();
+        let scc_count = graph.call_cycles().len() as u64;
+        let avg_degree = if nodes > 0 {
+            edges as f64 / nodes as f64
         } else {
-            (0, 0, 0.0, 0, 0.0, 0)
+            0.0
         };
+        let artic = graph.articulation_points().len() as u64;
+        (nodes, edges, modularity, scc_count, avg_degree, artic)
+    } else {
+        (0, 0, 0.0, 0, 0.0, 0)
+    };
 
     // Calibration data
     let (calibration_total, calibration_at_default, calibration_outliers) =
         if let Some(profile) = engine.style_profile() {
             let total = profile.metrics.len() as u32;
-            let at_default = profile.metrics.values()
-                .filter(|d| !d.confident)
-                .count() as u32;
-            let mut deviations: Vec<(String, f64, f64)> = profile.metrics.iter()
+            let at_default = profile.metrics.values().filter(|d| !d.confident).count() as u32;
+            let mut deviations: Vec<(String, f64, f64)> = profile
+                .metrics
+                .iter()
                 .filter(|(_, d)| d.confident && d.mean > 0.0)
                 .map(|(kind, d)| {
                     let deviation = ((d.p95 - d.mean) / d.mean).abs();
@@ -671,7 +758,8 @@ fn send_telemetry(
                 })
                 .collect();
             deviations.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
-            let outliers: std::collections::HashMap<String, f64> = deviations.into_iter()
+            let outliers: std::collections::HashMap<String, f64> = deviations
+                .into_iter()
                 .take(10)
                 .map(|(k, v, _)| (k, v))
                 .collect();

@@ -16,11 +16,11 @@ use std::sync::LazyLock;
 use tracing::info;
 
 static ASYNC_FUNC: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"(?i)(async\s+def|async\s+function|async\s+fn)").expect("valid regex")
-    });
+    Regex::new(r"(?i)(async\s+def|async\s+function|async\s+fn)").expect("valid regex")
+});
 static BLOCKING: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"(?i)(time\.sleep|Thread\.sleep|readFileSync|writeFileSync|execSync|spawnSync|requests\.(get|post|put|delete|head|patch)|urllib\.request|urlopen|subprocess\.(run|call|check_output)|os\.system|std::thread::sleep|std::fs::(read|write)|open\([^)]+\)\.read)").expect("valid regex")
-    });
+    Regex::new(r"(?i)(time\.sleep|Thread\.sleep|readFileSync|writeFileSync|execSync|spawnSync|requests\.(get|post|put|delete|head|patch)|urllib\.request|urlopen|subprocess\.(run|call|check_output)|os\.system|std::thread::sleep|std::fs::(read|write)|open\([^)]+\)\.read)").expect("valid regex")
+});
 
 /// Get async alternative for a blocking call
 fn get_async_alternative(blocking_call: &str) -> &'static str {
@@ -77,15 +77,18 @@ impl SyncInAsyncDetector {
     fn find_blocking_functions(&self, graph: &dyn crate::graph::GraphQuery) -> HashSet<String> {
         let i = graph.interner();
         let mut blocking_funcs = HashSet::new();
-        let mut file_lines: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+        let mut file_lines: std::collections::HashMap<String, Vec<String>> =
+            std::collections::HashMap::new();
 
         for func in graph.get_functions_shared().iter() {
-            let lines = file_lines.entry(func.path(i).to_string()).or_insert_with(|| {
-                crate::cache::global_cache()
-                    .masked_content(std::path::Path::new(func.path(i)))
-                    .map(|c| c.lines().map(String::from).collect())
-                    .unwrap_or_default()
-            });
+            let lines = file_lines
+                .entry(func.path(i).to_string())
+                .or_insert_with(|| {
+                    crate::cache::global_cache()
+                        .masked_content(std::path::Path::new(func.path(i)))
+                        .map(|c| c.lines().map(String::from).collect())
+                        .unwrap_or_default()
+                });
 
             let start = func.line_start.saturating_sub(1) as usize;
             let end = (func.line_end as usize).min(lines.len());
@@ -127,9 +130,10 @@ impl SyncInAsyncDetector {
         file_path: &str,
         line: u32,
     ) -> Option<String> {
-        graph
-            .find_function_at(file_path, line)
-            .map(|f| f.node_name(crate::graph::interner::global_interner()).to_string())
+        graph.find_function_at(file_path, line).map(|f| {
+            f.node_name(crate::graph::interner::global_interner())
+                .to_string()
+        })
     }
 }
 
@@ -145,7 +149,10 @@ impl Detector for SyncInAsyncDetector {
         &["py", "js", "ts", "jsx", "tsx"]
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let files = &ctx.as_file_provider();
         let mut findings = vec![];
@@ -224,9 +231,9 @@ impl Detector for SyncInAsyncDetector {
 
                         // Check for transitive blocking (lazy-init blocking funcs on first use)
                         if let Some(func) = graph.find_function_at(&path_str, (i + 1) as u32) {
-                            let bf = blocking_funcs.get_or_insert_with(|| self.find_blocking_functions(graph));
-                            let transitive =
-                                self.check_transitive_blocking(graph, &func, bf);
+                            let bf = blocking_funcs
+                                .get_or_insert_with(|| self.find_blocking_functions(graph));
+                            let transitive = self.check_transitive_blocking(graph, &func, bf);
                             if !transitive.is_empty() {
                                 notes.push(format!(
                                     "⚠️ Also calls blocking functions: {}",
@@ -299,7 +306,6 @@ impl Detector for SyncInAsyncDetector {
     }
 }
 
-
 impl crate::detectors::RegisteredDetector for SyncInAsyncDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
         std::sync::Arc::new(Self::new(init.repo_path))
@@ -324,9 +330,7 @@ mod tests {
             "Should detect time.sleep() inside async def"
         );
         assert!(
-            findings
-                .iter()
-                .any(|f| f.title.contains("time.sleep")),
+            findings.iter().any(|f| f.title.contains("time.sleep")),
             "Finding should mention time.sleep"
         );
     }
@@ -335,9 +339,13 @@ mod tests {
     fn test_no_finding_for_sync_function() {
         let store = GraphBuilder::new().freeze();
         let detector = SyncInAsyncDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("utils.py", "import time\n\ndef slow_function():\n    time.sleep(1)\n    return 42\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "utils.py",
+                "import time\n\ndef slow_function():\n    time.sleep(1)\n    return 42\n",
+            )],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),

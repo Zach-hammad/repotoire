@@ -173,7 +173,11 @@ impl NgramModel {
             }
         }
 
-        let avg = if scored_lines > 0 { total / scored_lines as f64 } else { 0.0 };
+        let avg = if scored_lines > 0 {
+            total / scored_lines as f64
+        } else {
+            0.0
+        };
         (avg, max_surprisal, max_line)
     }
 
@@ -226,7 +230,11 @@ fn consume_number(chars: &mut std::iter::Peekable<std::str::Chars>) {
 }
 
 /// Process a single character during tokenization, advancing the iterator and collecting tokens
-fn tokenize_next_char(chars: &mut std::iter::Peekable<std::str::Chars>, ch: char, tokens: &mut Vec<String>) {
+fn tokenize_next_char(
+    chars: &mut std::iter::Peekable<std::str::Chars>,
+    ch: char,
+    tokens: &mut Vec<String>,
+) {
     match ch {
         // Whitespace -- skip
         ' ' | '\t' => drop(chars.next()),
@@ -259,15 +267,22 @@ fn tokenize_next_char(chars: &mut std::iter::Peekable<std::str::Chars>, ch: char
 fn consume_string_literal(chars: &mut std::iter::Peekable<std::str::Chars>, quote: char) {
     while let Some(&c) = chars.peek() {
         chars.next();
-        if c == quote { break; }
-        if c == '\\' { chars.next(); } // skip escaped char
+        if c == quote {
+            break;
+        }
+        if c == '\\' {
+            chars.next();
+        } // skip escaped char
     }
 }
 
 /// Consume an identifier (alphanumeric + underscore sequence) and return it.
 fn consume_identifier(chars: &mut std::iter::Peekable<std::str::Chars>) -> String {
     let mut word = String::new();
-    while chars.peek().is_some_and(|c| c.is_ascii_alphanumeric() || *c == '_') {
+    while chars
+        .peek()
+        .is_some_and(|c| c.is_ascii_alphanumeric() || *c == '_')
+    {
         if let Some(c) = chars.next() {
             word.push(c);
         }
@@ -298,16 +313,37 @@ fn consume_operator(chars: &mut std::iter::Peekable<std::str::Chars>) -> String 
 
     let Some(&next) = chars.peek() else { return op };
     let two = format!("{}{}", op, next);
-    if !matches!(two.as_str(), "==" | "!=" | ">=" | "<=" | "&&" | "||"
-        | "->" | "=>" | "::" | "+=" | "-=" | "*=" | "/=" | ".." | "<<" | ">>") {
+    if !matches!(
+        two.as_str(),
+        "==" | "!="
+            | ">="
+            | "<="
+            | "&&"
+            | "||"
+            | "->"
+            | "=>"
+            | "::"
+            | "+="
+            | "-="
+            | "*="
+            | "/="
+            | ".."
+            | "<<"
+            | ">>"
+    ) {
         return op;
     }
     chars.next();
     op = two;
 
-    let Some(&third) = chars.peek() else { return op };
+    let Some(&third) = chars.peek() else {
+        return op;
+    };
     let three = format!("{}{}", op, third);
-    if matches!(three.as_str(), "===" | "!==" | "..." | ">>>" | "<<=" | ">>=") {
+    if matches!(
+        three.as_str(),
+        "===" | "!==" | "..." | ">>>" | "<<=" | ">>="
+    ) {
         chars.next();
         op = three;
     }
@@ -317,7 +353,8 @@ fn consume_operator(chars: &mut std::iter::Peekable<std::str::Chars>) -> String 
 /// Check if a token is a language keyword (kept as-is for structural signal).
 /// Combined set across Rust, Python, JS/TS, Go, Java, C#, Kotlin, C/C++ — deduplicated.
 fn is_keyword(word: &str) -> bool {
-    matches!(word,
+    matches!(
+        word,
         // Control flow (shared across languages)
         "if" | "else" | "elif" | "for" | "while" | "do" | "loop"
         | "break" | "continue" | "return" | "yield" | "switch" | "case" | "default"
@@ -396,8 +433,13 @@ mod tests {
         // Train on repetitive code (need 5000+ tokens for confidence)
         for _ in 0..800 {
             model.train_on_tokens(&[
-                "let".to_string(), "mut".to_string(), "<ID>".to_string(),
-                "=".to_string(), "<NUM>".to_string(), ";".to_string(), "<EOL>".to_string(),
+                "let".to_string(),
+                "mut".to_string(),
+                "<ID>".to_string(),
+                "=".to_string(),
+                "<NUM>".to_string(),
+                ";".to_string(),
+                "<EOL>".to_string(),
             ]);
         }
 
@@ -412,30 +454,54 @@ mod tests {
         // Train on a pattern
         for _ in 0..500 {
             model.train_on_tokens(&[
-                "let".to_string(), "<ID>".to_string(), "=".to_string(),
-                "<ID>".to_string(), ".".to_string(), "<ID>".to_string(),
-                "(". to_string(), ")".to_string(), ";".to_string(), "<EOL>".to_string(),
+                "let".to_string(),
+                "<ID>".to_string(),
+                "=".to_string(),
+                "<ID>".to_string(),
+                ".".to_string(),
+                "<ID>".to_string(),
+                "(".to_string(),
+                ")".to_string(),
+                ";".to_string(),
+                "<EOL>".to_string(),
             ]);
         }
 
         // Familiar pattern should have LOW surprisal
         let familiar = vec![
-            "let".to_string(), "<ID>".to_string(), "=".to_string(),
-            "<ID>".to_string(), ".".to_string(), "<ID>".to_string(),
-            "(".to_string(), ")".to_string(), ";".to_string(),
+            "let".to_string(),
+            "<ID>".to_string(),
+            "=".to_string(),
+            "<ID>".to_string(),
+            ".".to_string(),
+            "<ID>".to_string(),
+            "(".to_string(),
+            ")".to_string(),
+            ";".to_string(),
         ];
 
         // Unusual pattern should have HIGH surprisal
         let unusual = vec![
-            "unsafe".to_string(), "{".to_string(), "<ID>".to_string(),
-            "::".to_string(), "<ID>".to_string(), "(".to_string(),
-            "&".to_string(), "mut".to_string(), "<ID>".to_string(),
+            "unsafe".to_string(),
+            "{".to_string(),
+            "<ID>".to_string(),
+            "::".to_string(),
+            "<ID>".to_string(),
+            "(".to_string(),
+            "&".to_string(),
+            "mut".to_string(),
+            "<ID>".to_string(),
         ];
 
         let s_familiar = model.surprisal(&familiar);
         let s_unusual = model.surprisal(&unusual);
 
-        assert!(s_unusual > s_familiar, "Unusual code ({:.2}) should be more surprising than familiar code ({:.2})", s_unusual, s_familiar);
+        assert!(
+            s_unusual > s_familiar,
+            "Unusual code ({:.2}) should be more surprising than familiar code ({:.2})",
+            s_unusual,
+            s_familiar
+        );
     }
 
     #[test]

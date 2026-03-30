@@ -160,7 +160,10 @@ mod tests {
         let detector = SingleOwnerModuleDetector::new();
         let ctx = make_ctx_with_ownership(&graph, OwnershipModel::empty());
         let findings = detector.detect(&ctx).expect("should succeed");
-        assert!(findings.is_empty(), "Empty ownership should produce no findings");
+        assert!(
+            findings.is_empty(),
+            "Empty ownership should produce no findings"
+        );
     }
 
     #[test]

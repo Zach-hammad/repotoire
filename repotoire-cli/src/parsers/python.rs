@@ -80,10 +80,13 @@ pub fn parse_source(source: &str, path: &Path) -> Result<ParseResult> {
 
 /// Parse Python source code and return both the ParseResult and the tree-sitter Tree.
 /// Used by the pipeline to extract structural fingerprints without re-parsing.
-pub fn parse_source_with_tree(source: &str, path: &Path) -> Result<(ParseResult, tree_sitter::Tree)> {
-    let tree = PY_PARSER.with(|cell| {
-        cell.borrow_mut().parse(source, None)
-    }).context("Failed to parse Python source")?;
+pub fn parse_source_with_tree(
+    source: &str,
+    path: &Path,
+) -> Result<(ParseResult, tree_sitter::Tree)> {
+    let tree = PY_PARSER
+        .with(|cell| cell.borrow_mut().parse(source, None))
+        .context("Failed to parse Python source")?;
 
     let root = tree.root_node();
     let source_bytes = source.as_bytes();
@@ -1237,31 +1240,17 @@ class UserDTO:
         );
 
         // MyModel should have no decorator annotations (only "exported")
-        let my_model = result
-            .classes
-            .iter()
-            .find(|c| c.name == "MyModel")
-            .unwrap();
+        let my_model = result.classes.iter().find(|c| c.name == "MyModel").unwrap();
         assert!(
-            my_model
-                .annotations
-                .iter()
-                .all(|a| a == "exported"),
+            my_model.annotations.iter().all(|a| a == "exported"),
             "MyModel should only have 'exported' annotation (no decorators), got: {:?}",
             my_model.annotations
         );
 
         // UserDTO should have @dataclass annotation
-        let user_dto = result
-            .classes
-            .iter()
-            .find(|c| c.name == "UserDTO")
-            .unwrap();
+        let user_dto = result.classes.iter().find(|c| c.name == "UserDTO").unwrap();
         assert!(
-            user_dto
-                .annotations
-                .iter()
-                .any(|a| a.contains("dataclass")),
+            user_dto.annotations.iter().any(|a| a.contains("dataclass")),
             "UserDTO should have dataclass annotation, got: {:?}",
             user_dto.annotations
         );
@@ -1314,11 +1303,7 @@ class MyClass:
         );
 
         // Check async detection
-        let fetch = result
-            .functions
-            .iter()
-            .find(|f| f.name == "fetch")
-            .unwrap();
+        let fetch = result.functions.iter().find(|f| f.name == "fetch").unwrap();
         assert!(fetch.is_async, "fetch should be async");
 
         // Check parameters include self
@@ -1345,11 +1330,7 @@ class MyView:
         let path = PathBuf::from("test.py");
         let result = parse_source(source, &path).expect("should parse decorated methods");
 
-        let value = result
-            .functions
-            .iter()
-            .find(|f| f.name == "value")
-            .unwrap();
+        let value = result.functions.iter().find(|f| f.name == "value").unwrap();
         assert!(
             value.annotations.iter().any(|a| a == "property"),
             "value should have @property, got: {:?}",

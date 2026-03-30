@@ -17,11 +17,16 @@ use crate::detectors::user_input::has_nearby_user_input;
 // - PHP: shell_exec, system, popen, exec (standalone function)
 // - Ruby: system, exec, backticks
 // Note: execAsync is a common promisified wrapper for child_process.exec
-static SHELL_EXEC: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"(?i)(os\.system|os\.popen|subprocess\.(call|run|Popen)|child_process\.(exec|spawn|fork)|execSync|execAsync|spawnSync|require\(['"]child_process['"]\)|shell_exec|proc_open)"#).expect("valid regex"));
+static SHELL_EXEC: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(?i)(os\.system|os\.popen|subprocess\.(call|run|Popen)|child_process\.(exec|spawn|fork)|execSync|execAsync|spawnSync|require\(['"]child_process['"]\)|shell_exec|proc_open)"#).expect("valid regex")
+});
 // Go exec patterns: exec.Command, exec.CommandContext
-static GO_EXEC: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"exec\.(Command|CommandContext)\s*\("#).expect("valid regex"));
+static GO_EXEC: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"exec\.(Command|CommandContext)\s*\("#).expect("valid regex"));
 // Java exec patterns: Runtime.getRuntime().exec(), ProcessBuilder
-static JAVA_EXEC: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"(?:Runtime\.getRuntime\(\)\.exec|ProcessBuilder)\s*\("#).expect("valid regex"));
+static JAVA_EXEC: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(?:Runtime\.getRuntime\(\)\.exec|ProcessBuilder)\s*\("#).expect("valid regex")
+});
 // Direct exec() call pattern for JavaScript - matches exec( but not .exec( to avoid RegExp.exec
 // This catches: exec(something), execSync(something), execAsync(something)
 static JS_EXEC_DIRECT: LazyLock<Regex> = LazyLock::new(|| {
@@ -78,7 +83,10 @@ impl Detector for CommandInjectionDetector {
         crate::detectors::detector_context::ContentFlags::HAS_EXEC
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let files = &ctx.as_file_provider();
         let mut findings = vec![];
@@ -87,7 +95,8 @@ impl Detector for CommandInjectionDetector {
         let mut taint_paths = if let Some(cross) = self.precomputed_cross.get() {
             cross.clone()
         } else {
-            self.taint_analyzer.trace_taint(graph, TaintCategory::CommandInjection)
+            self.taint_analyzer
+                .trace_taint(graph, TaintCategory::CommandInjection)
         };
         let intra_paths = if let Some(intra) = self.precomputed_intra.get() {
             intra.clone()
@@ -102,7 +111,9 @@ impl Detector for CommandInjectionDetector {
         taint_paths.extend(intra_paths);
         let taint_result = TaintAnalysisResult::from_paths(taint_paths);
 
-        for path in files.files_with_extensions(&["py", "js", "ts", "rb", "php", "java", "go", "sh"]) {
+        for path in
+            files.files_with_extensions(&["py", "js", "ts", "rb", "php", "java", "go", "sh"])
+        {
             if findings.len() >= self.max_findings {
                 break;
             }
@@ -112,13 +123,20 @@ impl Detector for CommandInjectionDetector {
                 Some(c) => c,
                 None => continue,
             };
-            if !raw.contains("os.system") && !raw.contains("os.popen")
-                && !raw.contains("subprocess") && !raw.contains("child_process")
-                && !raw.contains("execSync") && !raw.contains("execAsync")
-                && !raw.contains("spawnSync") && !raw.contains("shell_exec")
-                && !raw.contains("proc_open") && !raw.contains("exec.Command")
-                && !raw.contains("Runtime.getRuntime") && !raw.contains("ProcessBuilder")
-                && !raw.contains("shell=True") && !raw.contains("shell: true")
+            if !raw.contains("os.system")
+                && !raw.contains("os.popen")
+                && !raw.contains("subprocess")
+                && !raw.contains("child_process")
+                && !raw.contains("execSync")
+                && !raw.contains("execAsync")
+                && !raw.contains("spawnSync")
+                && !raw.contains("shell_exec")
+                && !raw.contains("proc_open")
+                && !raw.contains("exec.Command")
+                && !raw.contains("Runtime.getRuntime")
+                && !raw.contains("ProcessBuilder")
+                && !raw.contains("shell=True")
+                && !raw.contains("shell: true")
             {
                 continue;
             }
@@ -265,7 +283,8 @@ impl Detector for CommandInjectionDetector {
 
                         // Check for template literal with interpolation ON THIS LINE
                         // Use raw_line because masking replaces template_string nodes with spaces
-                        let has_template_interpolation = raw_line.contains("`") && raw_line.contains("${");
+                        let has_template_interpolation =
+                            raw_line.contains("`") && raw_line.contains("${");
 
                         // Check if exec is using a dangerous variable we identified earlier
                         let uses_dangerous_var = dangerous_vars.iter().any(|v| line.contains(v));
@@ -506,7 +525,6 @@ impl Detector for CommandInjectionDetector {
     }
 }
 
-
 impl crate::detectors::RegisteredDetector for CommandInjectionDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
         std::sync::Arc::new(Self::new(init.repo_path))
@@ -523,21 +541,29 @@ mod tests {
     fn test_detects_os_system_with_user_input() {
         let store = GraphBuilder::new().freeze();
         let detector = CommandInjectionDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("vuln.py", "import os\n\ndef run_command(user_input):\n    os.system(\"ls \" + user_input)\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "vuln.py",
+                "import os\n\ndef run_command(user_input):\n    os.system(\"ls \" + user_input)\n",
+            )],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect os.system with user input concatenation"
         );
         assert!(
-            findings.iter().any(|f| f.title.contains("command injection")),
+            findings
+                .iter()
+                .any(|f| f.title.contains("command injection")),
             "Finding should mention command injection. Titles: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>()
         );
         assert!(
-            findings.iter().any(|f| f.cwe_id.as_deref() == Some("CWE-78")),
+            findings
+                .iter()
+                .any(|f| f.cwe_id.as_deref() == Some("CWE-78")),
             "Finding should have CWE-78"
         );
     }
@@ -570,7 +596,9 @@ mod tests {
             "Should detect subprocess.call with shell=True and user input"
         );
         assert!(
-            findings.iter().any(|f| f.cwe_id.as_deref() == Some("CWE-78")),
+            findings
+                .iter()
+                .any(|f| f.cwe_id.as_deref() == Some("CWE-78")),
             "Finding should have CWE-78"
         );
     }
@@ -588,7 +616,9 @@ mod tests {
             "Should detect child_process.exec with template literal interpolation"
         );
         assert!(
-            findings.iter().any(|f| f.title.to_lowercase().contains("command injection")),
+            findings
+                .iter()
+                .any(|f| f.title.to_lowercase().contains("command injection")),
             "Finding should mention command injection. Titles: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>()
         );

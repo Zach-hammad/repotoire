@@ -43,7 +43,10 @@ impl GraphRelationalScorer {
     pub fn distance(&self, qn: &str, contexts: &FunctionContextMap) -> f64 {
         contexts
             .get(qn)
-            .map(|ctx| self.scorer.mahalanobis_distance(&extract_graph_features(ctx)))
+            .map(|ctx| {
+                self.scorer
+                    .mahalanobis_distance(&extract_graph_features(ctx))
+            })
             .unwrap_or(0.0)
     }
 }
@@ -125,14 +128,8 @@ mod tests {
     #[test]
     fn test_missing_function() {
         let mut contexts: FunctionContextMap = HashMap::new();
-        contexts.insert(
-            "a".to_string(),
-            make_context("a", 1, 1, 0.0, 1, 1, 1),
-        );
-        contexts.insert(
-            "b".to_string(),
-            make_context("b", 2, 2, 0.0, 1, 1, 2),
-        );
+        contexts.insert("a".to_string(), make_context("a", 1, 1, 0.0, 1, 1, 1));
+        contexts.insert("b".to_string(), make_context("b", 2, 2, 0.0, 1, 1, 2));
         let scorer = GraphRelationalScorer::from_contexts(&contexts);
         assert_eq!(scorer.distance("nonexistent", &contexts), 0.0);
     }

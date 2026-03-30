@@ -12,8 +12,8 @@
 //! - Entry point classes (heavily used) have raised thresholds
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use crate::graph::GraphQueryExt;
 use crate::detectors::class_context::{ClassContextBuilder, ClassContextMap, ClassRole};
+use crate::graph::GraphQueryExt;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use regex::Regex;
@@ -53,28 +53,28 @@ impl Default for GodClassThresholds {
 
 /// Patterns for legitimate large classes (fallback when graph analysis unavailable)
 const EXCLUDED_PATTERNS: &[&str] = &[
-    r".*Client$",        // Database/API clients
-    r".*Connection$",    // Connection managers
-    r".*Session$",       // Session handlers
-    r".*Pipeline$",      // Data pipelines
-    r".*Engine$",        // Workflow engines
-    r".*Generator$",     // Code generators
-    r".*Builder$",       // Builder pattern
-    r".*Factory$",       // Factory pattern
-    r".*Manager$",       // Resource managers
-    r".*Controller$",    // MVC controllers
-    r".*Adapter$",       // Adapter pattern
-    r".*Facade$",        // Facade pattern
-    r".*Handler$",       // Request/event handlers
-    r".*Dispatcher$",    // Event/message dispatchers
-    r".*Orchestrator$",  // Workflow orchestrators
-    r".*Coordinator$",   // Coordination classes
-    r".*Router$",        // URL/message routers
-    r".*Middleware$",    // Middleware chains
-    r".*Resolver$",      // GraphQL resolvers
-    r".*Presenter$",     // MVP presenters
-    r".*Mediator$",      // Mediator pattern
-    r".*ViewSet$",       // Django REST viewsets
+    r".*Client$",       // Database/API clients
+    r".*Connection$",   // Connection managers
+    r".*Session$",      // Session handlers
+    r".*Pipeline$",     // Data pipelines
+    r".*Engine$",       // Workflow engines
+    r".*Generator$",    // Code generators
+    r".*Builder$",      // Builder pattern
+    r".*Factory$",      // Factory pattern
+    r".*Manager$",      // Resource managers
+    r".*Controller$",   // MVC controllers
+    r".*Adapter$",      // Adapter pattern
+    r".*Facade$",       // Facade pattern
+    r".*Handler$",      // Request/event handlers
+    r".*Dispatcher$",   // Event/message dispatchers
+    r".*Orchestrator$", // Workflow orchestrators
+    r".*Coordinator$",  // Coordination classes
+    r".*Router$",       // URL/message routers
+    r".*Middleware$",   // Middleware chains
+    r".*Resolver$",     // GraphQL resolvers
+    r".*Presenter$",    // MVP presenters
+    r".*Mediator$",     // Mediator pattern
+    r".*ViewSet$",      // Django REST viewsets
 ];
 
 /// Detects god classes (classes with too many responsibilities)
@@ -164,7 +164,10 @@ impl GodClassDetector {
     }
 
     /// Fallback: build class contexts from scratch when not pre-computed
-    fn build_class_contexts_fallback(&self, graph: &dyn crate::graph::GraphQuery) -> Option<ClassContextMap> {
+    fn build_class_contexts_fallback(
+        &self,
+        graph: &dyn crate::graph::GraphQuery,
+    ) -> Option<ClassContextMap> {
         let builder = ClassContextBuilder::new(graph);
         let contexts = builder.build();
         debug!("ClassContext built {} entries (fallback)", contexts.len());
@@ -476,7 +479,10 @@ impl Detector for GodClassDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let i = graph.interner();
         let mut findings = Vec::new();
@@ -501,9 +507,7 @@ impl Detector for GodClassDetector {
 
         for class in graph.get_classes_shared().iter() {
             // Skip TypeScript/Go interfaces - they have properties, not methods
-            if class.qn(i).contains("::interface::")
-                || class.qn(i).contains("::type::")
-            {
+            if class.qn(i).contains("::interface::") || class.qn(i).contains("::type::") {
                 continue;
             }
 
@@ -529,8 +533,7 @@ impl Detector for GodClassDetector {
             let loc = class.loc() as usize;
 
             // Get class context if available
-            let ctx = class_contexts
-                .and_then(|c| c.get(class.qn(i)));
+            let ctx = class_contexts.and_then(|c| c.get(class.qn(i)));
 
             // Check if we should skip this class entirely based on graph analysis
             if let Some(ctx) = ctx {
@@ -627,10 +630,7 @@ impl Detector for GodClassDetector {
             }
         }
 
-        info!(
-            "GodClassDetector: found {} issues",
-            findings.len()
-        );
+        info!("GodClassDetector: found {} issues", findings.len());
 
         Ok(findings)
     }
@@ -645,8 +645,8 @@ impl crate::detectors::RegisteredDetector for GodClassDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::{CodeNode};
     use crate::graph::builder::GraphBuilder;
+    use crate::graph::CodeNode;
 
     fn create_test_class(name: &str, methods: usize, loc: u32, complexity: i64) -> CodeNode {
         CodeNode::class(name, "test.py")
@@ -662,7 +662,10 @@ mod tests {
         store.add_node(create_test_class("Flask", 50, 2000, 150));
 
         let detector = GodClassDetector::new();
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
 
         assert!(
@@ -677,7 +680,10 @@ mod tests {
         store.add_node(create_test_class("MyApplication", 40, 1500, 120));
 
         let detector = GodClassDetector::new();
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
 
         assert!(
@@ -692,7 +698,10 @@ mod tests {
         store.add_node(create_test_class("OrderProcessor", 35, 1200, 180));
 
         let detector = GodClassDetector::new();
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
 
         assert_eq!(findings.len(), 1, "Actual god class should be flagged");
@@ -754,7 +763,10 @@ mod tests {
         store.add_node(create_java_class("UserService", 35, 800, 80));
 
         let detector = GodClassDetector::new();
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
 
         assert!(
@@ -771,11 +783,15 @@ mod tests {
         store.add_node(create_java_class("MegaService", 45, 1200, 220));
 
         let detector = GodClassDetector::new();
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
 
         assert_eq!(
-            findings.len(), 1,
+            findings.len(),
+            1,
             "Java class with 45 methods and 1200 LOC should be flagged (above 2x threshold)"
         );
         assert!(findings[0].title.contains("MegaService"));
@@ -790,7 +806,10 @@ mod tests {
         store.add_node(create_test_class("BehaviorSpec", 40, 1000, 150));
 
         let detector = GodClassDetector::new();
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
 
         assert!(

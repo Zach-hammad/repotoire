@@ -97,9 +97,9 @@ pub fn detect_stage(input: &DetectInput) -> Result<DetectOutput> {
     } else {
         create_default_detectors(&init)
     }
-        .into_iter()
-        .filter(|d| !skip_set.contains(d.name()))
-        .collect();
+    .into_iter()
+    .filter(|d| !skip_set.contains(d.name()))
+    .collect();
 
     let detectors_run = detectors.len();
     let detectors_skipped = skip_set.len();
@@ -204,7 +204,7 @@ pub fn detect_stage(input: &DetectInput) -> Result<DetectOutput> {
         stats: DetectStats {
             detectors_run,
             detectors_skipped,
-            gi_findings: 0,       // unified run — no GI/GD split
+            gi_findings: 0,              // unified run — no GI/GD split
             gd_findings: total_findings, // all findings from unified run
             precompute_duration,
         },
@@ -244,7 +244,9 @@ fn detect_stage_incremental(
     let precomputed = if !input.topology_changed && input.cached_gd_precomputed.is_some() {
         // Fast path: reuse cached PrecomputedAnalysis
         // Re-run TAINT because changed files may have new sinks/sources
-        let cached = input.cached_gd_precomputed.expect("cached_gd_precomputed must be Some when topology_changed is false");
+        let cached = input
+            .cached_gd_precomputed
+            .expect("cached_gd_precomputed must be Some when topology_changed is false");
         let mut reused = cached.clone(); // cheap: all Arc bumps
         reused.git_churn = Arc::clone(&input.file_churn);
         reused.co_change_matrix = input.co_change_matrix.as_ref().map(Arc::clone);
@@ -273,8 +275,7 @@ fn detect_stage_incremental(
         for p in changed_files {
             if let Some(content_string) = crate::cache::global_cache().content(p) {
                 let content: Arc<str> = Arc::from(content_string.as_str());
-                let flags =
-                    crate::detectors::detector_context::compute_content_flags(&content);
+                let flags = crate::detectors::detector_context::compute_content_flags(&content);
                 file_data.push((p.clone(), content, flags));
             }
         }
@@ -368,8 +369,7 @@ fn detect_stage_incremental(
 
     // 4. GraphWide detectors: re-run if topology changed → new, else reuse cache → cached
     if input.topology_changed {
-        let (mut gw_findings, _) =
-            run_detectors(&graph_wide_detectors, &full_ctx, input.workers);
+        let (mut gw_findings, _) = run_detectors(&graph_wide_detectors, &full_ctx, input.workers);
         gw_findings = apply_hmm_context_filter(gw_findings, &full_ctx);
         filter_test_file_findings(&mut gw_findings);
         for f in &gw_findings {

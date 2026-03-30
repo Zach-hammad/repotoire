@@ -1,9 +1,9 @@
 //! Node construction factories for the code graph.
 
+use crate::graph::interner::{global_interner, StrKey};
 use crate::graph::store_models::{
     ExtraProps, FLAG_ADDRESS_TAKEN, FLAG_HAS_DECORATORS, FLAG_IS_ASYNC, FLAG_IS_EXPORTED,
 };
-use crate::graph::interner::{StrKey, global_interner};
 use crate::graph::{CodeEdge, CodeNode, NodeKind};
 use crate::models::{Class, Function};
 

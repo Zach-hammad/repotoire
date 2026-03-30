@@ -22,7 +22,11 @@ fn setup_cpp_workspace() -> tempfile::TempDir {
 /// Run `repotoire analyze` with JSON output on the given path.
 fn run_analyze(path: &std::path::Path, extra: &[&str]) -> (String, String, i32) {
     let mut cmd = Command::new(binary_path());
-    cmd.arg("analyze").arg(path).arg("--format").arg("json").arg("--all-detectors");
+    cmd.arg("analyze")
+        .arg(path)
+        .arg("--format")
+        .arg("json")
+        .arg("--all-detectors");
     for a in extra {
         cmd.arg(a);
     }
@@ -141,11 +145,7 @@ fn test_cpp_minimum_detector_coverage() {
     let names = detector_names(&report);
 
     // EmptyCatchDetector and HardcodedIpsDetector don't support C++ yet.
-    let expected = [
-        "DeadStoreDetector",
-        "TodoScanner",
-        "CommentedCodeDetector",
-    ];
+    let expected = ["DeadStoreDetector", "TodoScanner", "CommentedCodeDetector"];
 
     let mut missing: Vec<&str> = Vec::new();
     for det in &expected {

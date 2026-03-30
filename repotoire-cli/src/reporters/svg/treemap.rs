@@ -172,9 +172,21 @@ mod tests {
     #[test]
     fn test_treemap_renders_svg() {
         let items = vec![
-            TreemapItem { label: "src/main.rs".into(), size: 500.0, color_value: 0.2 },
-            TreemapItem { label: "src/lib.rs".into(), size: 300.0, color_value: 0.8 },
-            TreemapItem { label: "src/utils.rs".into(), size: 100.0, color_value: 0.0 },
+            TreemapItem {
+                label: "src/main.rs".into(),
+                size: 500.0,
+                color_value: 0.2,
+            },
+            TreemapItem {
+                label: "src/lib.rs".into(),
+                size: 300.0,
+                color_value: 0.8,
+            },
+            TreemapItem {
+                label: "src/utils.rs".into(),
+                size: 100.0,
+                color_value: 0.0,
+            },
         ];
         let svg = render_treemap(&items, 800.0, 400.0);
         assert!(svg.contains("<svg"), "should produce SVG");
@@ -192,9 +204,11 @@ mod tests {
 
     #[test]
     fn test_treemap_single_item() {
-        let items = vec![
-            TreemapItem { label: "only.rs".into(), size: 100.0, color_value: 0.5 },
-        ];
+        let items = vec![TreemapItem {
+            label: "only.rs".into(),
+            size: 100.0,
+            color_value: 0.5,
+        }];
         let svg = render_treemap(&items, 400.0, 300.0);
         assert!(svg.contains("only.rs"));
     }

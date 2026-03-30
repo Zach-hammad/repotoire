@@ -17,10 +17,10 @@ use tracing::info;
 
 #[allow(dead_code)] // Used by GLOBAL_PATTERN
 static GLOBAL_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"^(var\s+\w+\s*=|let\s+\w+\s*=|global\s+\w+|\w+\s*=\s*[^=])")
-            .expect("valid regex")
-    });
-static VAR_NAME: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(?:var|let|global)\s+(\w+)").expect("valid regex"));
+    Regex::new(r"^(var\s+\w+\s*=|let\s+\w+\s*=|global\s+\w+|\w+\s*=\s*[^=])").expect("valid regex")
+});
+static VAR_NAME: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^(?:var|let|global)\s+(\w+)").expect("valid regex"));
 
 pub struct GlobalVariablesDetector {
     #[allow(dead_code)] // Part of detector pattern, used for file scanning
@@ -95,10 +95,7 @@ impl GlobalVariablesDetector {
         // Match: varName++ / varName-- (increment/decrement), or
         // varName = / varName += / varName -= etc (assignment, but not == or ===)
         // Note: Rust's regex crate does not support lookahead, so we use [^=] instead.
-        let pattern = format!(
-            r"\b{}\s*(?:\+\+|--|[+\-*/&|^%]?=[^=])",
-            escaped
-        );
+        let pattern = format!(r"\b{}\s*(?:\+\+|--|[+\-*/&|^%]?=[^=])", escaped);
         let re = match Regex::new(&pattern) {
             Ok(r) => r,
             Err(_) => return 0,
@@ -211,7 +208,10 @@ impl Detector for GlobalVariablesDetector {
         &["py", "js", "ts", "jsx", "tsx"]
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let files = &ctx.as_file_provider();
         let mut findings = vec![];
@@ -322,7 +322,8 @@ impl Detector for GlobalVariablesDetector {
                             // Skip effectively-constant variables (assigned once, never reassigned)
                             // Only for JS/TS — Python's `global` keyword already implies intentional mutation
                             if ext != "py" {
-                                let reassignments = Self::count_reassignments(&content, &var_name, i);
+                                let reassignments =
+                                    Self::count_reassignments(&content, &var_name, i);
                                 if reassignments == 0 {
                                     continue;
                                 }
@@ -353,7 +354,6 @@ impl Detector for GlobalVariablesDetector {
     }
 }
 
-
 impl crate::detectors::RegisteredDetector for GlobalVariablesDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
         std::sync::Arc::new(Self::new(init.repo_path))
@@ -370,9 +370,13 @@ mod tests {
         // Python: `global counter` inside a function body triggers detection
         let store = GraphBuilder::new().freeze();
         let detector = GlobalVariablesDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("state.py", "counter = 0\n\ndef increment():\n    global counter\n    counter += 1\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "state.py",
+                "counter = 0\n\ndef increment():\n    global counter\n    counter += 1\n",
+            )],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
@@ -393,8 +397,11 @@ mod tests {
             ("widgets.py", "class Widget:\n    def merge(self):\n        \"\"\"\n        global or in CSS you might want to override a style.\n        \"\"\"\n        pass\n"),
         ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
-        assert!(findings.is_empty(), "Should not flag 'global' in docstring. Found: {:?}",
-            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+        assert!(
+            findings.is_empty(),
+            "Should not flag 'global' in docstring. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -405,7 +412,12 @@ mod tests {
             ("trans.py", "def func_a():\n    global _default\n    _default = get_default()\n\ndef func_b():\n    global _default\n    return _default\n\ndef func_c():\n    global _default\n    _default = None\n"),
         ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
-        assert_eq!(findings.len(), 1, "Should deduplicate same variable across functions. Found {} findings", findings.len());
+        assert_eq!(
+            findings.len(),
+            1,
+            "Should deduplicate same variable across functions. Found {} findings",
+            findings.len()
+        );
     }
 
     #[test]
@@ -413,9 +425,13 @@ mod tests {
         // No `global` statement, no module-level mutable var
         let store = GraphBuilder::new().freeze();
         let detector = GlobalVariablesDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("clean.py", "def compute(x):\n    result = x * 2\n    return result\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "clean.py",
+                "def compute(x):\n    result = x * 2\n    return result\n",
+            )],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
@@ -429,9 +445,13 @@ mod tests {
         // var app = express() — assigned once, never reassigned → should NOT be flagged
         let store = GraphBuilder::new().freeze();
         let detector = GlobalVariablesDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("test.js", "var app = express();\napp.get('/', handler);\napp.listen(3000);"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "test.js",
+                "var app = express();\napp.get('/', handler);\napp.listen(3000);",
+            )],
+        );
         let findings = detector.detect(&ctx).unwrap();
 
         assert!(
@@ -446,14 +466,12 @@ mod tests {
         // var count = 0; count++ — genuinely mutable → should be flagged
         let store = GraphBuilder::new().freeze();
         let detector = GlobalVariablesDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("test.js", "var count = 0;\ncount++;\nconsole.log(count);"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![("test.js", "var count = 0;\ncount++;\nconsole.log(count);")],
+        );
         let findings = detector.detect(&ctx).unwrap();
 
-        assert!(
-            !findings.is_empty(),
-            "Reassigned var should be flagged"
-        );
+        assert!(!findings.is_empty(), "Reassigned var should be flagged");
     }
 }

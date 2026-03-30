@@ -288,18 +288,15 @@ fn load_baseline_and_head(
         "No baseline found. Run 'repotoire analyze' to establish a baseline, then run it again after making changes.",
     )?;
 
-    let score_before = load_score_from(
-        &if baseline_path.exists() {
-            repotoire_dir.join("baseline_health.json")
-        } else {
-            repotoire_dir.join("last_health.json")
-        },
-    );
+    let score_before = load_score_from(&if baseline_path.exists() {
+        repotoire_dir.join("baseline_health.json")
+    } else {
+        repotoire_dir.join("last_health.json")
+    });
 
     // Load current findings from cache (from the most recent `analyze` run)
-    let head = super::analyze::output::load_cached_findings(repotoire_dir).context(
-        "No current analysis found. Run 'repotoire analyze' to generate findings.",
-    )?;
+    let head = super::analyze::output::load_cached_findings(repotoire_dir)
+        .context("No current analysis found. Run 'repotoire analyze' to generate findings.")?;
     let score_after = load_cached_score(repotoire_dir);
 
     // Determine changed files count
@@ -424,8 +421,8 @@ pub fn run(
         );
     }
 
-    let repotoire_dir = crate::cache::ensure_cache_dir(&repo_path)
-        .context("Failed to create cache directory")?;
+    let repotoire_dir =
+        crate::cache::ensure_cache_dir(&repo_path).context("Failed to create cache directory")?;
 
     // 1-3. Load baseline, head, scores, and changed file count
     let (baseline, head, score_before, score_after, files_changed) =

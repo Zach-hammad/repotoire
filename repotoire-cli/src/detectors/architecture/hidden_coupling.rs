@@ -181,10 +181,7 @@ impl Detector for HiddenCouplingDetector {
         // Sort by severity (highest first).
         findings.sort_by(|a, b| b.severity.cmp(&a.severity));
 
-        debug!(
-            "HiddenCouplingDetector found {} findings",
-            findings.len()
-        );
+        debug!("HiddenCouplingDetector found {} findings", findings.len());
 
         Ok(findings)
     }
@@ -244,14 +241,56 @@ mod tests {
             ..Default::default()
         };
         let commits = vec![
-            (now, vec!["src/api/routes.rs".to_string(), "src/db/models.rs".to_string()]),
-            (now, vec!["src/api/routes.rs".to_string(), "src/db/models.rs".to_string()]),
-            (now, vec!["src/api/routes.rs".to_string(), "src/db/models.rs".to_string()]),
+            (
+                now,
+                vec![
+                    "src/api/routes.rs".to_string(),
+                    "src/db/models.rs".to_string(),
+                ],
+            ),
+            (
+                now,
+                vec![
+                    "src/api/routes.rs".to_string(),
+                    "src/db/models.rs".to_string(),
+                ],
+            ),
+            (
+                now,
+                vec![
+                    "src/api/routes.rs".to_string(),
+                    "src/db/models.rs".to_string(),
+                ],
+            ),
             // Unrelated commits to establish baseline change frequency
-            (now, vec!["src/unrelated/alpha.rs".to_string(), "src/unrelated/beta.rs".to_string()]),
-            (now, vec!["src/unrelated/alpha.rs".to_string(), "src/unrelated/beta.rs".to_string()]),
-            (now, vec!["src/other/foo.rs".to_string(), "src/other/bar.rs".to_string()]),
-            (now, vec!["src/other/foo.rs".to_string(), "src/other/bar.rs".to_string()]),
+            (
+                now,
+                vec![
+                    "src/unrelated/alpha.rs".to_string(),
+                    "src/unrelated/beta.rs".to_string(),
+                ],
+            ),
+            (
+                now,
+                vec![
+                    "src/unrelated/alpha.rs".to_string(),
+                    "src/unrelated/beta.rs".to_string(),
+                ],
+            ),
+            (
+                now,
+                vec![
+                    "src/other/foo.rs".to_string(),
+                    "src/other/bar.rs".to_string(),
+                ],
+            ),
+            (
+                now,
+                vec![
+                    "src/other/foo.rs".to_string(),
+                    "src/other/bar.rs".to_string(),
+                ],
+            ),
             (now, vec!["src/other/baz.rs".to_string()]),
             (now, vec!["src/other/qux.rs".to_string()]),
             (now, vec!["src/other/quux.rs".to_string()]),
@@ -259,8 +298,7 @@ mod tests {
             (now, vec!["src/other/grault.rs".to_string()]),
             (now, vec!["src/other/garply.rs".to_string()]),
         ];
-        let co_change =
-            crate::git::co_change::CoChangeMatrix::from_commits(&commits, &config, now);
+        let co_change = crate::git::co_change::CoChangeMatrix::from_commits(&commits, &config, now);
 
         let graph = builder.freeze_with_co_change(&co_change);
         let detector = HiddenCouplingDetector::new();

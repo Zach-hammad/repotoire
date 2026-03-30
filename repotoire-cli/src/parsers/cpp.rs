@@ -95,10 +95,13 @@ pub fn parse_source(source: &str, path: &Path) -> Result<ParseResult> {
 }
 
 /// Parse C++ source code and return both the ParseResult and the tree-sitter Tree.
-pub fn parse_source_with_tree(source: &str, path: &Path) -> Result<(ParseResult, tree_sitter::Tree)> {
-    let tree = CPP_PARSER.with(|cell| {
-        cell.borrow_mut().parse(source, None)
-    }).context("Failed to parse C++ source")?;
+pub fn parse_source_with_tree(
+    source: &str,
+    path: &Path,
+) -> Result<(ParseResult, tree_sitter::Tree)> {
+    let tree = CPP_PARSER
+        .with(|cell| cell.borrow_mut().parse(source, None))
+        .context("Failed to parse C++ source")?;
 
     let root = tree.root_node();
     let source_bytes = source.as_bytes();
@@ -314,7 +317,11 @@ fn extract_base_classes(class_node: &Node, source: &[u8]) -> Vec<String> {
 }
 
 /// Build a map from method start byte to its access level by walking the field_declaration_list
-fn build_access_map(body: &Node, source: &[u8], default_access: &str) -> std::collections::HashMap<usize, String> {
+fn build_access_map(
+    body: &Node,
+    source: &[u8],
+    default_access: &str,
+) -> std::collections::HashMap<usize, String> {
     let mut access_map = std::collections::HashMap::new();
     let mut current_access = default_access.to_string();
 

@@ -15,12 +15,12 @@ use std::sync::LazyLock;
 use tracing::info;
 
 static EXPRESS_APP: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r#"express\(\)|require\(["']express["']\)|from ['"]express['"']"#)
-            .expect("valid regex")
-    });
+    Regex::new(r#"express\(\)|require\(["']express["']\)|from ['"]express['"']"#)
+        .expect("valid regex")
+});
 static ROUTE_HANDLER: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"\.(get|post|put|delete|patch|all|use)\s*\(").expect("valid regex")
-    });
+    Regex::new(r"\.(get|post|put|delete|patch|all|use)\s*\(").expect("valid regex")
+});
 
 /// Security features to check
 struct SecurityFeatures {
@@ -127,7 +127,6 @@ pub struct ExpressSecurityDetector {
 
 impl ExpressSecurityDetector {
     crate::detectors::detector_new!(50);
-
 }
 
 impl Detector for ExpressSecurityDetector {
@@ -150,12 +149,16 @@ impl Detector for ExpressSecurityDetector {
         crate::detectors::detector_context::ContentFlags::HAS_EXPRESS
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let files = &ctx.as_file_provider();
         // Codebase-level pre-filter: skip if no file uses Express
-        let has_express = files.files_with_extensions(&["js", "ts"]).iter().any(|p| {
-            files.content(p).is_some_and(|c| c.contains("express"))
-        });
+        let has_express = files
+            .files_with_extensions(&["js", "ts"])
+            .iter()
+            .any(|p| files.content(p).is_some_and(|c| c.contains("express")));
         if !has_express {
             return Ok(vec![]);
         }
@@ -440,7 +443,6 @@ impl Detector for ExpressSecurityDetector {
     }
 }
 
-
 impl crate::detectors::RegisteredDetector for ExpressSecurityDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
         std::sync::Arc::new(Self::new(init.repo_path))
@@ -519,9 +521,7 @@ mod tests {
             "server.js",
             "const express = require('express');\nconst app = express();\n\napp.get('/api/users', (req, res) => res.json([]));\napp.post('/api/users', (req, res) => res.json({}));\napp.get('/api/posts', (req, res) => res.json([]));\napp.put('/api/posts/:id', (req, res) => res.json({}));\napp.delete('/api/posts/:id', (req, res) => res.json({}));\napp.get('/api/comments', (req, res) => res.json([]));\n\napp.listen(3000);\n",
         )]);
-        let findings = detector
-            .detect(&ctx)
-            .expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.iter().any(|f| f.title.contains("helmet")),
             "Should flag missing helmet. Titles: {:?}",
@@ -543,9 +543,7 @@ mod tests {
             "app.js",
             "const express = require('express');\nconst helmet = require('helmet');\nconst app = express();\napp.use(helmet());\n\napp.get('/api/data', (req, res) => res.json({ ok: true }));\napp.listen(3000);\n",
         )]);
-        let findings = detector
-            .detect(&ctx)
-            .expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.iter().any(|f| f.title.contains("helmet")),
             "Should NOT flag helmet when it is installed. Titles: {:?}",
@@ -563,14 +561,14 @@ mod tests {
             "app.js",
             "const express = require('express');\nconst cors = require('cors');\nconst app = express();\napp.use(cors({ origin: 'https://example.com' }));\n\napp.get('/api/data', (req, res) => res.json({ ok: true }));\napp.listen(3000);\n",
         )]);
-        let findings = detector
-            .detect(&ctx)
-            .expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         // CORS is detected, so it shouldn't appear in "missing" list.
         // The detector doesn't produce a specific "CORS" finding — it only tracks
         // CORS presence for the security score. Verify no CORS-related finding exists.
         assert!(
-            !findings.iter().any(|f| f.title.to_lowercase().contains("cors")),
+            !findings
+                .iter()
+                .any(|f| f.title.to_lowercase().contains("cors")),
             "Should not produce a CORS finding when cors middleware is present. Titles: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>()
         );
@@ -585,13 +583,9 @@ mod tests {
             "app.js",
             "const express = require('express');\nconst app = express();\n\napp.get('/a', (req, res) => res.json({}));\napp.get('/b', (req, res) => res.json({}));\napp.get('/c', (req, res) => res.json({}));\napp.get('/d', (req, res) => res.json({}));\n\napp.listen(3000);\n",
         )]);
-        let findings = detector
-            .detect(&ctx)
-            .expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
-            findings
-                .iter()
-                .any(|f| f.title.contains("error handler")),
+            findings.iter().any(|f| f.title.contains("error handler")),
             "Should detect missing global error handler for app with >3 routes. Titles: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>()
         );
@@ -606,13 +600,9 @@ mod tests {
             "app.js",
             "const express = require('express');\nconst app = express();\n\napp.get('/a', (req, res) => res.json({}));\napp.get('/b', (req, res) => res.json({}));\napp.get('/c', (req, res) => res.json({}));\napp.get('/d', (req, res) => res.json({}));\n\napp.use((err, req, res, next) => {\n  console.error(err.stack);\n  res.status(500).json({ error: 'Internal server error' });\n});\n\napp.listen(3000);\n",
         )]);
-        let findings = detector
-            .detect(&ctx)
-            .expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
-            !findings
-                .iter()
-                .any(|f| f.title.contains("error handler")),
+            !findings.iter().any(|f| f.title.contains("error handler")),
             "Should NOT flag error handler when one is present. Titles: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>()
         );

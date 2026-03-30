@@ -9,8 +9,8 @@
 //! Skip list: data classes, error types, enum-like types are excluded.
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use crate::graph::GraphQueryExt;
 use crate::graph::store_models::CodeNode;
+use crate::graph::GraphQueryExt;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use std::collections::HashMap;
@@ -18,10 +18,30 @@ use tracing::{debug, info};
 
 /// Method names that indicate a data class (getters/setters/constructors/standard methods).
 const DATA_CLASS_METHODS: &[&str] = &[
-    "__init__", "new", "__str__", "__repr__", "to_string", "clone", "eq", "hash",
-    "__eq__", "__hash__", "__ne__", "__lt__", "__le__", "__gt__", "__ge__",
-    "toString", "hashCode", "equals", "GetHashCode", "Equals", "ToString",
-    "fmt", "default", "from",
+    "__init__",
+    "new",
+    "__str__",
+    "__repr__",
+    "to_string",
+    "clone",
+    "eq",
+    "hash",
+    "__eq__",
+    "__hash__",
+    "__ne__",
+    "__lt__",
+    "__le__",
+    "__gt__",
+    "__ge__",
+    "toString",
+    "hashCode",
+    "equals",
+    "GetHashCode",
+    "Equals",
+    "ToString",
+    "fmt",
+    "default",
+    "from",
 ];
 
 /// Prefixes that indicate getter/setter methods.
@@ -167,7 +187,11 @@ impl LazyClassDetector {
         let split_pos = match (double_colon_pos, dot_pos) {
             (Some(dc), Some(d)) => {
                 // Pick whichever is rightmost
-                if dc > d { Some(dc) } else { Some(d) }
+                if dc > d {
+                    Some(dc)
+                } else {
+                    Some(d)
+                }
             }
             (Some(dc), None) => Some(dc),
             (None, Some(d)) => Some(d),
@@ -418,8 +442,7 @@ impl LazyClassDetector {
                 let target_name = Self::last_segment(&target_class);
 
                 let methods_list = Self::get_methods_of_class(graph, class);
-                let external_callers =
-                    Self::count_external_callers(graph, class, &methods_list);
+                let external_callers = Self::count_external_callers(graph, class, &methods_list);
 
                 let severity = if external_callers == 0 {
                     Severity::Medium
@@ -508,8 +531,8 @@ impl crate::detectors::RegisteredDetector for LazyClassDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::{CodeEdge, CodeNode};
     use crate::graph::builder::GraphBuilder;
+    use crate::graph::{CodeEdge, CodeNode};
 
     #[test]
     fn test_standalone_small_class_not_flagged() {
@@ -538,8 +561,10 @@ mod tests {
         );
 
         let detector = LazyClassDetector::new();
-        let ctx =
-            crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &graph,
+            vec![],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
 
         assert!(
@@ -565,7 +590,10 @@ mod tests {
             let line = (idx as u32) * 5 + 3;
             graph.add_node(
                 CodeNode::function(name, "src/processors.py")
-                    .with_qualified_name(&format!("src/processors.py::FooProcessor::{}:{}", name, line))
+                    .with_qualified_name(&format!(
+                        "src/processors.py::FooProcessor::{}:{}",
+                        name, line
+                    ))
                     .with_lines(line, line + 4)
                     .with_property("param_count", 1i64),
             );
@@ -578,7 +606,10 @@ mod tests {
                 .with_lines(35, 65)
                 .with_property("methodCount", 4i64),
         );
-        for (idx, name) in ["validate", "transform", "save", "export"].iter().enumerate() {
+        for (idx, name) in ["validate", "transform", "save", "export"]
+            .iter()
+            .enumerate()
+        {
             let line = (idx as u32) * 5 + 37;
             graph.add_node(
                 CodeNode::function(name, "src/processors.py")
@@ -592,8 +623,10 @@ mod tests {
         }
 
         let detector = LazyClassDetector::new();
-        let ctx =
-            crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &graph,
+            vec![],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
 
         // At least one of the two classes should be flagged as redundant
@@ -640,8 +673,10 @@ mod tests {
         );
 
         let detector = LazyClassDetector::new();
-        let ctx =
-            crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &graph,
+            vec![],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
 
         assert!(
@@ -669,14 +704,13 @@ mod tests {
         );
 
         let detector = LazyClassDetector::new();
-        let ctx =
-            crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &graph,
+            vec![],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
 
-        assert!(
-            findings.is_empty(),
-            "Error type should NOT be flagged"
-        );
+        assert!(findings.is_empty(), "Error type should NOT be flagged");
     }
 
     #[test]
@@ -697,8 +731,10 @@ mod tests {
         );
 
         let detector = LazyClassDetector::new();
-        let ctx =
-            crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &graph,
+            vec![],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
 
         assert!(
@@ -762,8 +798,10 @@ mod tests {
         );
 
         let detector = LazyClassDetector::new();
-        let ctx =
-            crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &graph,
+            vec![],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
 
         let wrapper_findings: Vec<_> = findings
@@ -825,8 +863,10 @@ mod tests {
         );
 
         let detector = LazyClassDetector::new();
-        let ctx =
-            crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &graph,
+            vec![],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
 
         assert!(
@@ -874,8 +914,10 @@ mod tests {
         }
 
         let detector = LazyClassDetector::new();
-        let ctx =
-            crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &graph,
+            vec![],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
 
         assert!(
@@ -923,8 +965,10 @@ mod tests {
         }
 
         let detector = LazyClassDetector::new();
-        let ctx =
-            crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &graph,
+            vec![],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
 
         assert!(
@@ -940,9 +984,18 @@ mod tests {
 
     #[test]
     fn test_last_segment() {
-        assert_eq!(LazyClassDetector::last_segment("file.py::Class::method:10"), "method");
-        assert_eq!(LazyClassDetector::last_segment("file.py::Class.method:10"), "method");
-        assert_eq!(LazyClassDetector::last_segment("file.py::Class::method"), "method");
+        assert_eq!(
+            LazyClassDetector::last_segment("file.py::Class::method:10"),
+            "method"
+        );
+        assert_eq!(
+            LazyClassDetector::last_segment("file.py::Class.method:10"),
+            "method"
+        );
+        assert_eq!(
+            LazyClassDetector::last_segment("file.py::Class::method"),
+            "method"
+        );
         assert_eq!(LazyClassDetector::last_segment("standalone"), "standalone");
     }
 
@@ -988,14 +1041,13 @@ mod tests {
         );
 
         let detector = LazyClassDetector::new();
-        let ctx =
-            crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &graph,
+            vec![],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
 
-        assert!(
-            findings.is_empty(),
-            "Interface should NOT be flagged"
-        );
+        assert!(findings.is_empty(), "Interface should NOT be flagged");
     }
 
     #[test]
@@ -1010,8 +1062,10 @@ mod tests {
         );
 
         let detector = LazyClassDetector::new();
-        let ctx =
-            crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &graph,
+            vec![],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
 
         assert!(findings.is_empty(), "Record should NOT be flagged");
@@ -1029,8 +1083,10 @@ mod tests {
         );
 
         let detector = LazyClassDetector::new();
-        let ctx =
-            crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &graph,
+            vec![],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
 
         assert!(findings.is_empty(), "Rust trait should NOT be flagged");

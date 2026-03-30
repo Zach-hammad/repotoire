@@ -253,8 +253,11 @@ mod tests {
     #[test]
     fn test_pnpm_workspace_marker() {
         let dir = TempDir::new().expect("create temp dir");
-        fs::write(dir.path().join("pnpm-workspace.yaml"), "packages:\n  - 'packages/*'")
-            .expect("write");
+        fs::write(
+            dir.path().join("pnpm-workspace.yaml"),
+            "packages:\n  - 'packages/*'",
+        )
+        .expect("write");
         let shape = detect_repo_shape(dir.path());
         assert!(shape.has_workspace);
     }

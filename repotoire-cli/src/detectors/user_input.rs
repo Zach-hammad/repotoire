@@ -52,7 +52,16 @@ mod tests {
     fn test_window_boundary() {
         let lines = vec![
             "req := request.getParameter(\"id\")",
-            "", "", "", "", "", "", "", "", "", "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
             "exec.Command(cmd).Run()",
         ];
         // Window of 5 shouldn't reach line 0 from line 11

@@ -16,9 +16,9 @@ use std::sync::LazyLock;
 use tracing::info;
 
 static SINGLE_CHAR: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"\b(let|var|const|def|int|string|float|double)\s+([a-zA-Z])\s*[=:]")
-            .expect("valid regex")
-    });
+    Regex::new(r"\b(let|var|const|def|int|string|float|double)\s+([a-zA-Z])\s*[=:]")
+        .expect("valid regex")
+});
 
 /// Context-aware suggestions based on variable name
 fn suggest_name(var: &str, context_line: &str) -> String {
@@ -144,10 +144,15 @@ impl Detector for SingleCharNamesDetector {
     }
 
     fn file_extensions(&self) -> &'static [&'static str] {
-        &["py", "js", "ts", "jsx", "tsx", "java", "go", "rs", "c", "cpp"]
+        &[
+            "py", "js", "ts", "jsx", "tsx", "java", "go", "rs", "c", "cpp",
+        ]
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let files = &ctx.as_file_provider();
         let mut findings = vec![];
@@ -292,7 +297,6 @@ impl Detector for SingleCharNamesDetector {
     }
 }
 
-
 impl crate::detectors::RegisteredDetector for SingleCharNamesDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
         std::sync::Arc::new(Self::new(init.repo_path))
@@ -308,12 +312,18 @@ mod tests {
     fn test_detects_single_char_variable() {
         let store = GraphBuilder::new().freeze();
         let detector = SingleCharNamesDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("utils.js", "function process() {\n    let q = getData();\n    return q;\n}\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "utils.js",
+                "function process() {\n    let q = getData();\n    return q;\n}\n",
+            )],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
-            findings.iter().any(|f| f.title.to_lowercase().contains("q")),
+            findings
+                .iter()
+                .any(|f| f.title.to_lowercase().contains("q")),
             "Should detect single-char variable 'q'. Found: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>()
         );
@@ -323,9 +333,10 @@ mod tests {
     fn test_no_finding_for_loop_index() {
         let store = GraphBuilder::new().freeze();
         let detector = SingleCharNamesDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("utils.py", "for i in range(10):\n    print(i)\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![("utils.py", "for i in range(10):\n    print(i)\n")],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),

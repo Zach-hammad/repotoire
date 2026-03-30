@@ -55,9 +55,7 @@ pub fn graph_stage(input: &GraphInput) -> Result<GraphOutput> {
     let mut graph = GraphBuilder::new();
 
     // Create hidden progress bars (no terminal output) to satisfy the existing API
-    let multi = indicatif::MultiProgress::with_draw_target(
-        indicatif::ProgressDrawTarget::hidden(),
-    );
+    let multi = indicatif::MultiProgress::with_draw_target(indicatif::ProgressDrawTarget::hidden());
     let bar_style = indicatif::ProgressStyle::default_bar();
 
     // Delegate to the existing build_graph function
@@ -126,9 +124,8 @@ pub fn graph_patch_stage(input: GraphPatchInput) -> Result<GraphOutput> {
     // Step 2: Re-insert new parse results into the graph.
     // build_graph is additive — it adds nodes/edges to the existing graph.
     if !input.new_parse_results.is_empty() {
-        let multi = indicatif::MultiProgress::with_draw_target(
-            indicatif::ProgressDrawTarget::hidden(),
-        );
+        let multi =
+            indicatif::MultiProgress::with_draw_target(indicatif::ProgressDrawTarget::hidden());
         let bar_style = indicatif::ProgressStyle::default_bar();
 
         let value_store = crate::cli::analyze::graph::build_graph(

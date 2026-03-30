@@ -102,7 +102,11 @@ const TSX_CACHE_KEY: u8 = 255;
 /// TypeScript grammar, but `.tsx` files need `LANGUAGE_TSX` to parse JSX syntax
 /// correctly. Without this, tree-sitter produces error nodes for JSX returns,
 /// causing false positives in detectors that walk AST siblings.
-pub(crate) fn parse_root_ext(content: &str, lang: Language, ext: &str) -> Option<tree_sitter::Tree> {
+pub(crate) fn parse_root_ext(
+    content: &str,
+    lang: Language,
+    ext: &str,
+) -> Option<tree_sitter::Tree> {
     if ext == "tsx" {
         return TS_PARSER_CACHE.with(|cache| {
             let mut cache = cache.borrow_mut();
@@ -214,8 +218,14 @@ pub fn function_node_kinds(lang: Language) -> &'static [&'static str] {
 /// Return the field name used for the function name identifier in the given language.
 fn name_field(lang: Language) -> &'static str {
     match lang {
-        Language::Python | Language::JavaScript | Language::TypeScript | Language::Go
-        | Language::Java | Language::CSharp | Language::C | Language::Cpp => "name",
+        Language::Python
+        | Language::JavaScript
+        | Language::TypeScript
+        | Language::Go
+        | Language::Java
+        | Language::CSharp
+        | Language::C
+        | Language::Cpp => "name",
         Language::Rust => "name",
         _ => "name",
     }
@@ -434,7 +444,11 @@ fn collect_normalized_tokens(node: Node, source: &str, out: &mut Vec<String>) {
             "shorthand_property_identifier" => {
                 out.push("$ID".to_string());
             }
-            "integer" | "float" | "number" | "number_literal" | "decimal_integer_literal"
+            "integer"
+            | "float"
+            | "number"
+            | "number_literal"
+            | "decimal_integer_literal"
             | "hex_integer_literal" => {
                 let text = node_text(node, source);
                 out.push(format!("$LIT:{}", text));
@@ -631,10 +645,7 @@ fn collect_all_kinds(node: Node, out: &mut HashSet<String>) {
 /// re-parses the body with tree-sitter. This function parses once and collects
 /// everything in a single tree traversal.
 #[cfg(test)]
-pub fn compute_all_fingerprints(
-    body_text: &str,
-    lang: Language,
-) -> FunctionFingerprints {
+pub fn compute_all_fingerprints(body_text: &str, lang: Language) -> FunctionFingerprints {
     let tree = match parse_root(body_text, lang) {
         Some(t) => t,
         None => {
@@ -807,14 +818,19 @@ pub fn collect_all_features(
             "shorthand_property_identifier" => {
                 normalized_tokens.push("$ID".to_string());
             }
-            "integer" | "float" | "number" | "number_literal" | "decimal_integer_literal"
+            "integer"
+            | "float"
+            | "number"
+            | "number_literal"
+            | "decimal_integer_literal"
             | "hex_integer_literal" => {
                 let text = node_text(node, source);
                 normalized_tokens.push(format!("$LIT:{}", text));
             }
             "string" | "string_literal" | "template_string" | "raw_string_literal" => {
                 let text = node_text(node, source);
-                if text.len() <= 52 { // 50 chars + 2 for quotes
+                if text.len() <= 52 {
+                    // 50 chars + 2 for quotes
                     normalized_tokens.push(format!("$STR:{}", text));
                 } else {
                     normalized_tokens.push("$STR".to_string());
@@ -839,7 +855,14 @@ pub fn collect_all_features(
     let count = node.child_count();
     for i in 0..count {
         if let Some(child) = node.child(i) {
-            collect_all_features(child, source, normalized_tokens, structural_kinds, identifiers, all_kinds);
+            collect_all_features(
+                child,
+                source,
+                normalized_tokens,
+                structural_kinds,
+                identifiers,
+                all_kinds,
+            );
         }
     }
 }
@@ -1146,10 +1169,7 @@ fn detect_patterns_from_flags(
         patterns.push(BoilerplatePattern::Loop);
     }
 
-    if flags.has_await
-        || content_lower.contains("async ")
-        || content_lower.contains("await ")
-    {
+    if flags.has_await || content_lower.contains("async ") || content_lower.contains("await ") {
         patterns.push(BoilerplatePattern::Async);
     }
 
@@ -1214,10 +1234,7 @@ fn hash_element(s: &str) -> u64 {
 }
 
 /// Compute MinHash signature for a single set.
-fn minhash_signature(
-    set: &HashSet<String>,
-    coeffs: &MinHashCoeffs,
-) -> [u64; MINHASH_NUM_HASHES] {
+fn minhash_signature(set: &HashSet<String>, coeffs: &MinHashCoeffs) -> [u64; MINHASH_NUM_HASHES] {
     let mut sig = [u64::MAX; MINHASH_NUM_HASHES];
     for item in set {
         let h = hash_element(item);
@@ -1284,7 +1301,9 @@ pub fn lsh_candidate_pairs(sets: &[&HashSet<String>]) -> HashSet<(usize, usize)>
 ///
 /// Same LSH banding as `lsh_candidate_pairs` but skips signature computation.
 /// Used when MinHash sigs are pre-computed during the parse phase.
-pub fn lsh_candidate_pairs_from_sigs(sigs: &[[u64; MINHASH_NUM_HASHES]]) -> HashSet<(usize, usize)> {
+pub fn lsh_candidate_pairs_from_sigs(
+    sigs: &[[u64; MINHASH_NUM_HASHES]],
+) -> HashSet<(usize, usize)> {
     if sigs.len() < 2 {
         return HashSet::new();
     }
@@ -1338,7 +1357,12 @@ def add(a, b):
     return a + b
 "#;
         let funcs = parse_functions(code, Language::Python);
-        assert_eq!(funcs.len(), 2, "Should find 2 functions, got {}", funcs.len());
+        assert_eq!(
+            funcs.len(),
+            2,
+            "Should find 2 functions, got {}",
+            funcs.len()
+        );
 
         assert_eq!(funcs[0].name, "greet");
         assert_eq!(funcs[0].line_start, 2); // 1-based

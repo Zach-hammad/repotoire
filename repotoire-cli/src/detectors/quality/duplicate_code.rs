@@ -15,8 +15,8 @@
 //! - Deduplicate overlapping windows within the same file
 
 use crate::detectors::base::{is_test_file, Detector, DetectorScope};
-use crate::graph::GraphQueryExt;
 use crate::graph::interner::StrKey;
+use crate::graph::GraphQueryExt;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
@@ -215,8 +215,7 @@ impl DuplicateCodeDetector {
         containing_funcs: &[Option<StrKey>],
     ) -> (usize, String) {
         let i = graph.interner();
-        let valid_funcs: Vec<StrKey> =
-            containing_funcs.iter().filter_map(|f| *f).collect();
+        let valid_funcs: Vec<StrKey> = containing_funcs.iter().filter_map(|f| *f).collect();
 
         if valid_funcs.len() < 2 {
             return (0, String::new());
@@ -259,11 +258,7 @@ impl DuplicateCodeDetector {
             for caller_key in &common_callers {
                 if let Some(&path_key) = func_path_map.get(caller_key) {
                     let path = i.resolve(path_key);
-                    let module = path
-                        .rsplit('/')
-                        .nth(1)
-                        .unwrap_or("utils")
-                        .to_string();
+                    let module = path.rsplit('/').nth(1).unwrap_or("utils").to_string();
                     *module_counts.entry(module).or_default() += 1;
                 }
             }
@@ -298,10 +293,15 @@ impl Detector for DuplicateCodeDetector {
     }
 
     fn file_extensions(&self) -> &'static [&'static str] {
-        &["py", "js", "ts", "jsx", "tsx", "rb", "java", "go", "rs", "c", "cpp", "cs"]
+        &[
+            "py", "js", "ts", "jsx", "tsx", "rb", "java", "go", "rs", "c", "cpp", "cs",
+        ]
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let files = &ctx.as_file_provider();
         let mut findings = vec![];
@@ -317,7 +317,9 @@ impl Detector for DuplicateCodeDetector {
         // Clamp to reasonable range: at least DEFAULT_MIN_LINES, at most 15
         let min_lines = (adaptive_min as usize).clamp(DEFAULT_MIN_LINES, 15);
 
-        let source_files = files.files_with_extensions(&["py", "js", "ts", "jsx", "tsx", "java", "go", "rs", "rb", "php", "c", "cpp"]);
+        let source_files = files.files_with_extensions(&[
+            "py", "js", "ts", "jsx", "tsx", "java", "go", "rs", "rb", "php", "c", "cpp",
+        ]);
 
         // Parallel per-file hashing with pre-normalized lines.
         // Filter out test files during hashing to avoid cross-boundary FPs
@@ -329,10 +331,8 @@ impl Detector for DuplicateCodeDetector {
             .filter_map(|path| {
                 files.content(path).map(|content| {
                     // Pre-normalize all lines once (avoids re-normalizing per window position)
-                    let normalized: Vec<String> = content
-                        .lines()
-                        .map(Self::normalize_line)
-                        .collect();
+                    let normalized: Vec<String> =
+                        content.lines().map(Self::normalize_line).collect();
                     let mut file_blocks = Vec::new();
                     for i in 0..normalized.len().saturating_sub(min_lines) {
                         let block: String = normalized[i..i + min_lines]
@@ -501,7 +501,6 @@ impl Detector for DuplicateCodeDetector {
     }
 }
 
-
 impl crate::detectors::RegisteredDetector for DuplicateCodeDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
         std::sync::Arc::new(Self::new(init.repo_path))
@@ -521,10 +520,10 @@ mod tests {
 
         let store = GraphBuilder::new().freeze();
         let detector = DuplicateCodeDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("billing.py", block),
-            ("reporting.py", block),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![("billing.py", block), ("reporting.py", block)],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
@@ -560,10 +559,13 @@ mod tests {
 
         let store = GraphBuilder::new().freeze();
         let detector = DuplicateCodeDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("tests/test_billing.py", block),
-            ("tests/test_reporting.py", block),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![
+                ("tests/test_billing.py", block),
+                ("tests/test_reporting.py", block),
+            ],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
@@ -578,10 +580,13 @@ mod tests {
 
         let store = GraphBuilder::new().freeze();
         let detector = DuplicateCodeDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("generated/billing.py", block),
-            ("generated/reporting.py", block),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![
+                ("generated/billing.py", block),
+                ("generated/reporting.py", block),
+            ],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
@@ -596,10 +601,13 @@ mod tests {
 
         let store = GraphBuilder::new().freeze();
         let detector = DuplicateCodeDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("fixtures/billing.py", block),
-            ("fixtures/reporting.py", block),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![
+                ("fixtures/billing.py", block),
+                ("fixtures/reporting.py", block),
+            ],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
@@ -654,11 +662,23 @@ mod tests {
 
     #[test]
     fn test_skip_path_segments() {
-        assert!(DuplicateCodeDetector::is_skip_path(std::path::Path::new("src/generated/foo.py")));
-        assert!(DuplicateCodeDetector::is_skip_path(std::path::Path::new("db/migrations/001.py")));
-        assert!(DuplicateCodeDetector::is_skip_path(std::path::Path::new("vendor/lib.go")));
-        assert!(DuplicateCodeDetector::is_skip_path(std::path::Path::new("api/proto/service.py")));
-        assert!(DuplicateCodeDetector::is_skip_path(std::path::Path::new("tests/fixtures/data.py")));
-        assert!(!DuplicateCodeDetector::is_skip_path(std::path::Path::new("src/billing.py")));
+        assert!(DuplicateCodeDetector::is_skip_path(std::path::Path::new(
+            "src/generated/foo.py"
+        )));
+        assert!(DuplicateCodeDetector::is_skip_path(std::path::Path::new(
+            "db/migrations/001.py"
+        )));
+        assert!(DuplicateCodeDetector::is_skip_path(std::path::Path::new(
+            "vendor/lib.go"
+        )));
+        assert!(DuplicateCodeDetector::is_skip_path(std::path::Path::new(
+            "api/proto/service.py"
+        )));
+        assert!(DuplicateCodeDetector::is_skip_path(std::path::Path::new(
+            "tests/fixtures/data.py"
+        )));
+        assert!(!DuplicateCodeDetector::is_skip_path(std::path::Path::new(
+            "src/billing.py"
+        )));
     }
 }

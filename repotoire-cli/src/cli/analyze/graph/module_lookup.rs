@@ -151,8 +151,12 @@ impl ModuleLookup {
 
     /// Collect paths from patterns that partially match the import
     fn collect_partial_matches(&self, matches: &mut Vec<String>, clean_import: &str) {
-        let new_paths = self.by_pattern.iter()
-            .filter(|(pattern, _)| pattern.contains(clean_import) || clean_import.contains(pattern.as_str()))
+        let new_paths = self
+            .by_pattern
+            .iter()
+            .filter(|(pattern, _)| {
+                pattern.contains(clean_import) || clean_import.contains(pattern.as_str())
+            })
             .flat_map(|(_, candidates)| candidates.iter().map(|(path, _)| path.clone()));
         for path in new_paths {
             if !matches.contains(&path) {

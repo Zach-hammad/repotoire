@@ -17,9 +17,9 @@ use std::sync::LazyLock;
 use tracing::info;
 
 static TODO_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"(?i)\b(TODO|FIXME|HACK|XXX)[\s:]+(.{0,80})|\b(BUG)\s*:\s*(.{0,80})")
-            .expect("valid regex")
-    });
+    Regex::new(r"(?i)\b(TODO|FIXME|HACK|XXX)[\s:]+(.{0,80})|\b(BUG)\s*:\s*(.{0,80})")
+        .expect("valid regex")
+});
 
 pub struct TodoScanner {
     #[allow(dead_code)] // Part of detector pattern, used for file scanning
@@ -84,17 +84,24 @@ impl Detector for TodoScanner {
     }
 
     fn file_extensions(&self) -> &'static [&'static str] {
-        &["py", "js", "ts", "jsx", "tsx", "rb", "java", "go", "rs", "c", "cpp", "cs"]
+        &[
+            "py", "js", "ts", "jsx", "tsx", "rb", "java", "go", "rs", "c", "cpp", "cs",
+        ]
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let files = &ctx.as_file_provider();
         let i = graph.interner();
         let mut findings = vec![];
         let mut todos_per_function: HashMap<String, usize> = HashMap::new();
 
-        for path in files.files_with_extensions(&["py", "js", "ts", "jsx", "tsx", "rs", "go", "java", "rb", "php", "cs", "cpp", "c", "h"]) {
+        for path in files.files_with_extensions(&[
+            "py", "js", "ts", "jsx", "tsx", "rs", "go", "java", "rb", "php", "cs", "cpp", "c", "h",
+        ]) {
             if findings.len() >= self.max_findings {
                 break;
             }
@@ -104,7 +111,11 @@ impl Detector for TodoScanner {
                 let lines: Vec<&str> = content.lines().collect();
 
                 for (line_num, line) in lines.iter().enumerate() {
-                    let prev_line = if line_num > 0 { Some(lines[line_num - 1]) } else { None };
+                    let prev_line = if line_num > 0 {
+                        Some(lines[line_num - 1])
+                    } else {
+                        None
+                    };
                     if crate::detectors::is_line_suppressed(line, prev_line) {
                         continue;
                     }
@@ -141,8 +152,12 @@ impl Detector for TodoScanner {
                         // Graph-enhanced analysis
                         let containing_func =
                             graph.find_function_at(&path_str, line_u32).map(|f| {
-                            let callers = graph.get_callers(f.qn(i)).len();
-                                (f.node_name(crate::graph::interner::global_interner()).to_string(), callers)
+                                let callers = graph.get_callers(f.qn(i)).len();
+                                (
+                                    f.node_name(crate::graph::interner::global_interner())
+                                        .to_string(),
+                                    callers,
+                                )
                             });
                         let is_dead = Self::is_in_dead_code(graph, &path_str, line_u32);
                         let (category, category_note) = Self::categorize_todo(msg);
@@ -256,7 +271,6 @@ impl Detector for TodoScanner {
         Ok(findings)
     }
 }
-
 
 impl crate::detectors::RegisteredDetector for TodoScanner {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {

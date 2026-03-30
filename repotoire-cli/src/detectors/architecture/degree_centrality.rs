@@ -4,8 +4,8 @@
 //! Now enhanced with function context for smarter role-based detection.
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use crate::graph::GraphQueryExt;
 use crate::detectors::function_context::{FunctionContextMap, FunctionRole};
+use crate::graph::GraphQueryExt;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use std::sync::Arc;
@@ -414,7 +414,10 @@ impl Detector for DegreeCentralityDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let contexts = &ctx.functions;
         let i = graph.interner();
@@ -514,7 +517,9 @@ impl Detector for DegreeCentralityDetector {
 
 impl crate::detectors::RegisteredDetector for DegreeCentralityDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
-        std::sync::Arc::new(Self::with_config(init.config_for("DegreeCentralityDetector")))
+        std::sync::Arc::new(Self::with_config(
+            init.config_for("DegreeCentralityDetector"),
+        ))
     }
 }
 

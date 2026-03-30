@@ -76,8 +76,7 @@ static SECRET_PATTERNS: LazyLock<Vec<SecretPattern>> = LazyLock::new(|| {
         // SendGrid
         SecretPattern {
             name: "SendGrid API Key",
-            pattern: Regex::new(r"SG\.[a-zA-Z0-9_-]{22}\.[a-zA-Z0-9_-]{43}")
-                .expect("valid regex"),
+            pattern: Regex::new(r"SG\.[a-zA-Z0-9_-]{22}\.[a-zA-Z0-9_-]{43}").expect("valid regex"),
             severity: Severity::High,
         },
     ]
@@ -182,7 +181,11 @@ impl SecretDetector {
 
         let lines: Vec<&str> = content.lines().collect();
         for (line_num, line) in lines.iter().enumerate() {
-            let prev_line = if line_num > 0 { Some(lines[line_num - 1]) } else { None };
+            let prev_line = if line_num > 0 {
+                Some(lines[line_num - 1])
+            } else {
+                None
+            };
             if crate::detectors::is_line_suppressed(line, prev_line) {
                 continue;
             }
@@ -388,23 +391,53 @@ impl Detector for SecretDetector {
     }
 
     fn file_extensions(&self) -> &'static [&'static str] {
-        &["py", "js", "ts", "jsx", "tsx", "rb", "java", "go", "rs", "env", "yml", "yaml", "json", "toml", "cfg", "ini", "conf"]
+        &[
+            "py", "js", "ts", "jsx", "tsx", "rb", "java", "go", "rs", "env", "yml", "yaml", "json",
+            "toml", "cfg", "ini", "conf",
+        ]
     }
 
     fn content_requirements(&self) -> crate::detectors::detector_context::ContentFlags {
         crate::detectors::detector_context::ContentFlags::HAS_SECRET_PATTERN
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let files = &ctx.as_file_provider();
         let i = graph.interner();
         let mut findings = vec![];
 
         for path in files.files_with_extensions(&[
-            "py", "js", "ts", "jsx", "tsx", "rs", "go", "java", "rb", "php",
-            "cs", "cpp", "c", "h", "hpp", "yaml", "yml", "json", "toml", "env",
-            "conf", "config", "sh", "bash", "zsh", "properties", "xml",
+            "py",
+            "js",
+            "ts",
+            "jsx",
+            "tsx",
+            "rs",
+            "go",
+            "java",
+            "rb",
+            "php",
+            "cs",
+            "cpp",
+            "c",
+            "h",
+            "hpp",
+            "yaml",
+            "yml",
+            "json",
+            "toml",
+            "env",
+            "conf",
+            "config",
+            "sh",
+            "bash",
+            "zsh",
+            "properties",
+            "xml",
         ]) {
             if findings.len() >= self.max_findings {
                 break;
@@ -502,7 +535,6 @@ impl Detector for SecretDetector {
     }
 }
 
-
 impl crate::detectors::RegisteredDetector for SecretDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
         std::sync::Arc::new(Self::new(init.repo_path))
@@ -520,9 +552,10 @@ mod tests {
         let detector = SecretDetector::new("/mock/repo");
         // Use .rb extension: masking has no tree-sitter grammar for Ruby,
         let detector = SecretDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("config.rb", "\nAWS_ACCESS_KEY = \"AKIAIOSFODNN7ABCDEFG\"\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![("config.rb", "\nAWS_ACCESS_KEY = \"AKIAIOSFODNN7ABCDEFG\"\n")],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
@@ -612,9 +645,10 @@ mod tests {
     fn test_still_detects_real_hardcoded_password() {
         let store = GraphBuilder::new().freeze();
         let detector = SecretDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("config.rb", "password = \"super_secret_password_123\"\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![("config.rb", "password = \"super_secret_password_123\"\n")],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
@@ -626,9 +660,10 @@ mod tests {
     fn test_skips_uppercase_constant_reference() {
         let store = GraphBuilder::new().freeze();
         let detector = SecretDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("config.rb", "password = HARDCODED_SECRET_VALUE\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![("config.rb", "password = HARDCODED_SECRET_VALUE\n")],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),

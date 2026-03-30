@@ -79,7 +79,10 @@ impl Detector for StructuralBridgeRiskDetector {
         true
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let gi = graph.interner();
 
@@ -97,7 +100,12 @@ impl Detector for StructuralBridgeRiskDetector {
         let mut findings = Vec::new();
 
         for &ap_idx in aps {
-            let sizes = match graph.primitives().component_sizes.get(&ap_idx).map(|v| v.as_slice()) {
+            let sizes = match graph
+                .primitives()
+                .component_sizes
+                .get(&ap_idx)
+                .map(|v| v.as_slice())
+            {
                 Some(s) => s,
                 None => continue,
             };
@@ -186,7 +194,9 @@ impl Detector for StructuralBridgeRiskDetector {
 
 impl crate::detectors::RegisteredDetector for StructuralBridgeRiskDetector {
     fn create(init: &crate::detectors::DetectorInit) -> Arc<dyn Detector> {
-        Arc::new(Self::with_config(init.config_for("StructuralBridgeRiskDetector")))
+        Arc::new(Self::with_config(
+            init.config_for("StructuralBridgeRiskDetector"),
+        ))
     }
 }
 
@@ -240,8 +250,7 @@ mod tests {
         let graph = build_bridge_graph();
 
         // With min_component_size=2, the bridge nodes should be detected.
-        let config = DetectorConfig::new()
-            .with_option("min_component_size", serde_json::json!(2));
+        let config = DetectorConfig::new().with_option("min_component_size", serde_json::json!(2));
         let detector = StructuralBridgeRiskDetector::with_config(config);
 
         let ctx = crate::detectors::analysis_context::AnalysisContext::test(&graph);
@@ -252,9 +261,9 @@ mod tests {
             "Should detect articulation points with component sizes >= 2"
         );
 
-        let has_bridge_finding = findings.iter().any(|f| {
-            f.description.contains("structural bridge")
-        });
+        let has_bridge_finding = findings
+            .iter()
+            .any(|f| f.description.contains("structural bridge"));
         assert!(
             has_bridge_finding,
             "Should describe the node as a structural bridge: {:?}",
@@ -267,8 +276,8 @@ mod tests {
         let graph = build_bridge_graph();
 
         // With min_component_size=100, nothing should trigger (clusters have 3 nodes each).
-        let config = DetectorConfig::new()
-            .with_option("min_component_size", serde_json::json!(100));
+        let config =
+            DetectorConfig::new().with_option("min_component_size", serde_json::json!(100));
         let detector = StructuralBridgeRiskDetector::with_config(config);
 
         let ctx = crate::detectors::analysis_context::AnalysisContext::test(&graph);
@@ -304,8 +313,7 @@ mod tests {
         builder.add_edge(d, c, CodeEdge::calls());
 
         let graph = builder.freeze();
-        let config = DetectorConfig::new()
-            .with_option("min_component_size", serde_json::json!(1));
+        let config = DetectorConfig::new().with_option("min_component_size", serde_json::json!(1));
         let detector = StructuralBridgeRiskDetector::with_config(config);
 
         let ctx = crate::detectors::analysis_context::AnalysisContext::test(&graph);

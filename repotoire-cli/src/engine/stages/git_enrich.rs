@@ -86,14 +86,12 @@ pub fn git_enrich_stage(input: &mut GitEnrichInput) -> Result<GitEnrichOutput> {
         None, // repo_id — not needed for local analysis
     )?;
 
-    let co_change_matrix = crate::git::co_change::compute_from_repo(
-        input.repo_path,
-        &input.co_change_config,
-    )
-    .unwrap_or_else(|e| {
-        tracing::debug!("Co-change analysis skipped: {e}");
-        CoChangeMatrix::empty()
-    });
+    let co_change_matrix =
+        crate::git::co_change::compute_from_repo(input.repo_path, &input.co_change_config)
+            .unwrap_or_else(|e| {
+                tracing::debug!("Co-change analysis skipped: {e}");
+                CoChangeMatrix::empty()
+            });
 
     let file_churn = compute_file_churn(input.repo_path);
 

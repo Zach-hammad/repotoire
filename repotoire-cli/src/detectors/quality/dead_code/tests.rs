@@ -162,14 +162,14 @@ fn test_is_pub_api_surface() {
 
 #[test]
 fn test_exported_functions_are_skipped() {
-    use crate::graph::store_models::{CodeNode, FLAG_IS_EXPORTED};
     use crate::graph::builder::GraphBuilder;
+    use crate::graph::store_models::{CodeNode, FLAG_IS_EXPORTED};
 
     let mut store = GraphBuilder::new();
 
     // Add an exported function with no callers
-    let mut func = CodeNode::function("my_api", "src/lib.rs")
-        .with_qualified_name("src/lib.rs::my_api");
+    let mut func =
+        CodeNode::function("my_api", "src/lib.rs").with_qualified_name("src/lib.rs::my_api");
     func.flags |= FLAG_IS_EXPORTED;
     store.add_node(func);
 
@@ -197,8 +197,8 @@ fn test_exported_functions_are_skipped() {
 
 #[test]
 fn test_decorated_functions_are_skipped() {
-    use crate::graph::store_models::{CodeNode, FLAG_HAS_DECORATORS};
     use crate::graph::builder::GraphBuilder;
+    use crate::graph::store_models::{CodeNode, FLAG_HAS_DECORATORS};
 
     let mut store = GraphBuilder::new();
 
@@ -220,8 +220,8 @@ fn test_decorated_functions_are_skipped() {
 
 #[test]
 fn test_address_taken_functions_are_skipped() {
-    use crate::graph::store_models::{CodeNode, FLAG_ADDRESS_TAKEN};
     use crate::graph::builder::GraphBuilder;
+    use crate::graph::store_models::{CodeNode, FLAG_ADDRESS_TAKEN};
 
     let mut store = GraphBuilder::new();
 
@@ -243,8 +243,8 @@ fn test_address_taken_functions_are_skipped() {
 
 #[test]
 fn test_dunder_methods_are_skipped() {
-    use crate::graph::store_models::CodeNode;
     use crate::graph::builder::GraphBuilder;
+    use crate::graph::store_models::CodeNode;
 
     let mut store = GraphBuilder::new();
 
@@ -266,8 +266,8 @@ fn test_dunder_methods_are_skipped() {
 #[test]
 fn test_test_functions_skipped_via_role() {
     use crate::detectors::function_context::FunctionContext as FuncCtx;
-    use crate::graph::store_models::CodeNode;
     use crate::graph::builder::GraphBuilder;
+    use crate::graph::store_models::CodeNode;
 
     let mut store = GraphBuilder::new();
 
@@ -312,8 +312,8 @@ fn test_test_functions_skipped_via_role() {
 #[test]
 fn test_entry_point_role_skipped() {
     use crate::detectors::function_context::FunctionContext as FuncCtx;
-    use crate::graph::store_models::CodeNode;
     use crate::graph::builder::GraphBuilder;
+    use crate::graph::store_models::CodeNode;
 
     let mut store = GraphBuilder::new();
 
@@ -357,13 +357,13 @@ fn test_entry_point_role_skipped() {
 #[test]
 fn test_hub_role_skipped() {
     use crate::detectors::function_context::FunctionContext as FuncCtx;
-    use crate::graph::store_models::CodeNode;
     use crate::graph::builder::GraphBuilder;
+    use crate::graph::store_models::CodeNode;
 
     let mut store = GraphBuilder::new();
 
-    let func = CodeNode::function("dispatch", "src/core.rs")
-        .with_qualified_name("src/core.rs::dispatch");
+    let func =
+        CodeNode::function("dispatch", "src/core.rs").with_qualified_name("src/core.rs::dispatch");
     store.add_node(func);
 
     let mut functions = std::collections::HashMap::new();
@@ -401,8 +401,8 @@ fn test_hub_role_skipped() {
 
 #[test]
 fn test_hmm_handler_skipped() {
-    use crate::graph::store_models::CodeNode;
     use crate::graph::builder::GraphBuilder;
+    use crate::graph::store_models::CodeNode;
 
     let mut store = GraphBuilder::new();
 
@@ -428,14 +428,15 @@ fn test_hmm_handler_skipped() {
 
 #[test]
 fn test_trait_impl_method_skipped_in_detection() {
-    use crate::graph::store_models::CodeNode;
     use crate::graph::builder::GraphBuilder;
+    use crate::graph::store_models::CodeNode;
 
     let mut store = GraphBuilder::new();
 
     // A trait impl method: QN has impl<Trait for Type> pattern
-    let func = CodeNode::function("detect", "src/detectors/god_class.rs")
-        .with_qualified_name("src/detectors/god_class.rs::impl<Detector for GodClassDetector>::detect:42");
+    let func = CodeNode::function("detect", "src/detectors/god_class.rs").with_qualified_name(
+        "src/detectors/god_class.rs::impl<Detector for GodClassDetector>::detect:42",
+    );
     store.add_node(func);
 
     // An inherent impl method: QN has impl<Type> but NOT " for "
@@ -462,8 +463,8 @@ fn test_trait_impl_method_skipped_in_detection() {
 
 #[test]
 fn test_uncalled_function_is_flagged() {
-    use crate::graph::store_models::CodeNode;
     use crate::graph::builder::GraphBuilder;
+    use crate::graph::store_models::CodeNode;
 
     let mut store = GraphBuilder::new();
 

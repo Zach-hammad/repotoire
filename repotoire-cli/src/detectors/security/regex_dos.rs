@@ -16,15 +16,13 @@ use std::sync::LazyLock;
 use tracing::info;
 
 static REGEX_CREATE: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"(?i)(Regex::new|re\.compile|new RegExp|Pattern\.compile|regex!|/[^/]+/)")
-            .expect("valid regex")
-    });
-static VULNERABLE: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(
-            r"\([^)]*[+*][^)]*\)[+*]|\.\*\.\*|\(\?:[^)]*\)[+*]{2}|\[[^\]]*\][+*]\[[^\]]*\][+*]",
-        )
+    Regex::new(r"(?i)(Regex::new|re\.compile|new RegExp|Pattern\.compile|regex!|/[^/]+/)")
         .expect("valid regex")
-    });
+});
+static VULNERABLE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\([^)]*[+*][^)]*\)[+*]|\.\*\.\*|\(\?:[^)]*\)[+*]{2}|\[[^\]]*\][+*]\[[^\]]*\][+*]")
+        .expect("valid regex")
+});
 
 /// Additional vulnerable patterns
 fn is_vulnerable_pattern(pattern: &str) -> Option<&'static str> {
@@ -72,23 +70,21 @@ impl RegexDosDetector {
         line: u32,
     ) -> Option<(String, usize, bool)> {
         let i = graph.interner();
-        graph
-            .find_function_at(file_path, line)
-            .map(|f| {
-                let callers = graph.get_callers(f.qn(i));
-                let name_lower = f.node_name(i).to_lowercase();
+        graph.find_function_at(file_path, line).map(|f| {
+            let callers = graph.get_callers(f.qn(i));
+            let name_lower = f.node_name(i).to_lowercase();
 
-                // Check if this processes user input
-                let processes_input = name_lower.contains("validate")
-                    || name_lower.contains("parse")
-                    || name_lower.contains("match")
-                    || name_lower.contains("search")
-                    || name_lower.contains("filter")
-                    || name_lower.contains("handler")
-                    || name_lower.contains("route");
+            // Check if this processes user input
+            let processes_input = name_lower.contains("validate")
+                || name_lower.contains("parse")
+                || name_lower.contains("match")
+                || name_lower.contains("search")
+                || name_lower.contains("filter")
+                || name_lower.contains("handler")
+                || name_lower.contains("route");
 
-                (f.node_name(i).to_string(), callers.len(), processes_input)
-            })
+            (f.node_name(i).to_string(), callers.len(), processes_input)
+        })
     }
 
     /// Check if regex is applied to user input
@@ -146,12 +142,17 @@ impl Detector for RegexDosDetector {
         &["py", "js", "ts", "jsx", "tsx", "rb", "java", "go"]
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let files = &ctx.as_file_provider();
         let mut findings = vec![];
 
-        for path in files.files_with_extensions(&["py", "js", "ts", "java", "rs", "go", "rb", "php"]) {
+        for path in
+            files.files_with_extensions(&["py", "js", "ts", "java", "rs", "go", "rb", "php"])
+        {
             if findings.len() >= self.max_findings {
                 break;
             }
@@ -339,7 +340,6 @@ impl Detector for RegexDosDetector {
     }
 }
 
-
 impl crate::detectors::RegisteredDetector for RegexDosDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
         std::sync::Arc::new(Self::new(init.repo_path))
@@ -370,9 +370,13 @@ mod tests {
     fn test_no_finding_for_safe_regex() {
         let store = GraphBuilder::new().freeze();
         let detector = RegexDosDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("utils.py", "\nimport re\npattern = re.compile(r'^[a-zA-Z0-9]+$')\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "utils.py",
+                "\nimport re\npattern = re.compile(r'^[a-zA-Z0-9]+$')\n",
+            )],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),

@@ -10,10 +10,10 @@
 //! - Functions called by test fixtures
 
 use crate::calibrate::MetricKind;
-use crate::graph::GraphQueryExt;
 use crate::detectors::analysis_context::AnalysisContext;
 use crate::detectors::base::{Detector, DetectorConfig, DetectorScope};
 use crate::detectors::function_context::FunctionRole;
+use crate::graph::GraphQueryExt;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use std::collections::{HashSet, VecDeque};
@@ -162,7 +162,9 @@ impl Detector for AIMissingTestsDetector {
     }
 
     fn file_extensions(&self) -> &'static [&'static str] {
-        &["py", "js", "ts", "jsx", "tsx", "java", "go", "rs", "c", "cpp", "cs"]
+        &[
+            "py", "js", "ts", "jsx", "tsx", "java", "go", "rs", "c", "cpp", "cs",
+        ]
     }
 
     fn detect(
@@ -259,7 +261,11 @@ impl Detector for AIMissingTestsDetector {
                 Severity::Low
             };
 
-            let func_type = if func.is_method() { "method" } else { "function" };
+            let func_type = if func.is_method() {
+                "method"
+            } else {
+                "function"
+            };
 
             findings.push(Finding {
                 id: String::new(),
@@ -269,11 +275,7 @@ impl Detector for AIMissingTestsDetector {
                 description: format!(
                     "The {} '{}' (complexity: {}, {} LOC) has no test coverage. \
                      No test function reaches it within {} call-graph hops.",
-                    func_type,
-                    name,
-                    complexity as i64,
-                    loc,
-                    MAX_BFS_DEPTH
+                    func_type, name, complexity as i64, loc, MAX_BFS_DEPTH
                 ),
                 affected_files: vec![PathBuf::from(file_path)],
                 line_start: Some(func.line_start),
@@ -313,8 +315,8 @@ mod tests {
     use crate::detectors::detector_context::{ContentFlags, DetectorContext};
     use crate::detectors::file_index::FileIndex;
     use crate::detectors::taint::centralized::CentralizedTaintResults;
-    use crate::graph::{CodeEdge, CodeNode};
     use crate::graph::builder::GraphBuilder;
+    use crate::graph::{CodeEdge, CodeNode};
     use std::collections::HashMap;
     use std::path::Path;
     use std::sync::Arc;
@@ -550,9 +552,7 @@ mod tests {
 
         let detector = AIMissingTestsDetector::new();
         let ctx = crate::detectors::analysis_context::AnalysisContext::test(&store);
-        let findings = detector
-            .detect(&ctx)
-            .expect("detect should succeed");
+        let findings = detector.detect(&ctx).expect("detect should succeed");
         assert!(findings.is_empty(), "Legacy detect() should return empty");
     }
 

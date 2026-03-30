@@ -326,9 +326,11 @@ impl GitHistory {
             let tree = commit.tree()?;
             let parent_tree = parent.as_ref().map(|p| p.tree()).transpose()?;
 
-            let diff = self
-                .repo
-                .diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), Some(&mut diff_opts))?;
+            let diff = self.repo.diff_tree_to_tree(
+                parent_tree.as_ref(),
+                Some(&tree),
+                Some(&mut diff_opts),
+            )?;
 
             let author = commit.author().name().unwrap_or("Unknown").to_string();
             let timestamp = format_git_time(&commit.time());
@@ -346,7 +348,6 @@ impl GitHistory {
                 None,
                 None,
             )?;
-
         }
 
         Ok(churn_map)
@@ -389,9 +390,9 @@ impl GitHistory {
         let parent_tree = parent.as_ref().map(|p| p.tree()).transpose()?;
 
         let mut diff_opts = fast_diff_opts();
-        let diff = self
-            .repo
-            .diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), Some(&mut diff_opts))?;
+        let diff =
+            self.repo
+                .diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), Some(&mut diff_opts))?;
 
         let mut files_changed = Vec::new();
         diff.foreach(
@@ -592,9 +593,11 @@ impl GitHistory {
             let parent_tree = parent.as_ref().map(|p| p.tree()).transpose()?;
 
             // Full diff to identify which target files appear in this commit
-            let diff = self
-                .repo
-                .diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), Some(&mut broad_opts))?;
+            let diff = self.repo.diff_tree_to_tree(
+                parent_tree.as_ref(),
+                Some(&tree),
+                Some(&mut broad_opts),
+            )?;
 
             // Check deltas for target files (fast: iterates tree comparison structs)
             let mut matched: Vec<String> = Vec::new();
@@ -666,7 +669,10 @@ impl GitHistory {
                     deletions: stats.deletions(),
                 };
 
-                results.entry(file_path.clone()).or_default().push((info, hunks));
+                results
+                    .entry(file_path.clone())
+                    .or_default()
+                    .push((info, hunks));
 
                 let count = commit_counts.entry(file_path).or_default();
                 *count += 1;
@@ -713,9 +719,11 @@ impl GitHistory {
             let tree = commit.tree()?;
             let parent_tree = parent.tree()?;
 
-            let diff = self
-                .repo
-                .diff_tree_to_tree(Some(&parent_tree), Some(&tree), Some(&mut diff_opts))?;
+            let diff = self.repo.diff_tree_to_tree(
+                Some(&parent_tree),
+                Some(&tree),
+                Some(&mut diff_opts),
+            )?;
 
             // Use deltas() iterator instead of foreach() — avoids FFI callback overhead.
             // Pure tree-OID comparison, no content decompression.
@@ -785,9 +793,11 @@ impl GitHistory {
             let tree = commit.tree()?;
             let parent_tree = parent.tree()?;
 
-            let diff = self
-                .repo
-                .diff_tree_to_tree(Some(&parent_tree), Some(&tree), Some(&mut diff_opts))?;
+            let diff = self.repo.diff_tree_to_tree(
+                Some(&parent_tree),
+                Some(&tree),
+                Some(&mut diff_opts),
+            )?;
 
             // file_cb + hunk_cb for pathspec-filtered files only.
             // RefCell for shared state between file_cb and hunk_cb closures.
@@ -805,12 +815,15 @@ impl GitHistory {
                 None, // binary_cb
                 Some(&mut |_delta, hunk| {
                     if let Some(ref file) = *current_file.borrow() {
-                        file_hunks.entry(file.clone()).or_default().push(HunkDetail {
-                            new_start: hunk.new_start(),
-                            new_end: hunk.new_start() + hunk.new_lines(),
-                            insertions: hunk.new_lines() as usize,
-                            deletions: hunk.old_lines() as usize,
-                        });
+                        file_hunks
+                            .entry(file.clone())
+                            .or_default()
+                            .push(HunkDetail {
+                                new_start: hunk.new_start(),
+                                new_end: hunk.new_start() + hunk.new_lines(),
+                                insertions: hunk.new_lines() as usize,
+                                deletions: hunk.old_lines() as usize,
+                            });
                     }
                     true
                 }),

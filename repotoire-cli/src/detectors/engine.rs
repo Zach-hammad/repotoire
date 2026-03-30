@@ -8,9 +8,11 @@
 //!
 //! Actual detector execution lives in `runner.rs` (`run_detectors()`).
 
-use crate::detectors::context_hmm::{ContextClassifier, FunctionContext, FunctionFeatures, FunctionMetrics};
-use crate::graph::GraphQueryExt;
+use crate::detectors::context_hmm::{
+    ContextClassifier, FunctionContext, FunctionFeatures, FunctionMetrics,
+};
 use crate::detectors::function_context::{FunctionContextBuilder, FunctionContextMap};
+use crate::graph::GraphQueryExt;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
@@ -177,16 +179,22 @@ pub fn precompute_gd_startup(
     //   Thread 5: PublicApiSet + ModuleMetrics + ClassCohesion + DecoratorIndex
     //   Main:     contexts (1.5s)         — adjacency + betweenness + context map (skipped if no context-using detectors)
     let (
-        contexts, hmm_contexts, hmm_with_confidence, taint_results,
-        detector_context, file_index,
-        reachability, public_api, module_metrics_map, class_cohesion_map, decorator_index_map,
+        contexts,
+        hmm_contexts,
+        hmm_with_confidence,
+        taint_results,
+        detector_context,
+        file_index,
+        reachability,
+        public_api,
+        module_metrics_map,
+        class_cohesion_map,
+        decorator_index_map,
     ) = std::thread::scope(|s| {
         // Thread 1: Taint analysis (only if any detector needs taint)
         let taint_handle = if needs_taint {
             Some(s.spawn(|| {
-                crate::detectors::taint::centralized::run_centralized_taint(
-                    graph, repo_path, None,
-                )
+                crate::detectors::taint::centralized::run_centralized_taint(graph, repo_path, None)
             }))
         } else {
             debug!("Skipping taint pre-compute: no detectors need taint");
@@ -194,22 +202,19 @@ pub fn precompute_gd_startup(
         };
 
         // Thread 2: HMM context extraction
-        let hmm_handle = s.spawn(|| {
-            build_hmm_contexts_standalone(graph, hmm_cache_path)
-        });
+        let hmm_handle = s.spawn(|| build_hmm_contexts_standalone(graph, hmm_cache_path));
 
         // Thread 3: DetectorContext (callers/callees maps, file contents, class hierarchy)
         let vs_clone = value_store.clone();
         let ctx_handle = s.spawn(move || {
-            let (det_ctx, file_data) = super::DetectorContext::build(graph, source_files, vs_clone, repo_path);
+            let (det_ctx, file_data) =
+                super::DetectorContext::build(graph, source_files, vs_clone, repo_path);
             let file_index = Arc::new(super::FileIndex::new(file_data));
             (Arc::new(det_ctx), file_index)
         });
 
         // Thread 4: Reachability index (BFS from entry points)
-        let reachability_handle = s.spawn(|| {
-            super::reachability::ReachabilityIndex::build(graph)
-        });
+        let reachability_handle = s.spawn(|| super::reachability::ReachabilityIndex::build(graph));
 
         // Thread 5: Public API + Module metrics + Class cohesion + Decorator index
         let enrichment_handle = s.spawn(|| {
@@ -252,7 +257,10 @@ pub fn precompute_gd_startup(
             Ok(result) => result,
             Err(e) => {
                 error!("DetectorContext thread panicked: {:?}", e);
-                (Arc::new(super::DetectorContext::empty()), Arc::new(super::FileIndex::new(vec![])))
+                (
+                    Arc::new(super::DetectorContext::empty()),
+                    Arc::new(super::FileIndex::new(vec![])),
+                )
             }
         };
         let reachability = match reachability_handle.join() {
@@ -267,12 +275,26 @@ pub fn precompute_gd_startup(
                 Ok(result) => result,
                 Err(e) => {
                     error!("enrichment thread panicked: {:?}", e);
-                    (HashSet::new(), HashMap::new(), HashMap::new(), HashMap::new())
+                    (
+                        HashSet::new(),
+                        HashMap::new(),
+                        HashMap::new(),
+                        HashMap::new(),
+                    )
                 }
             };
         (
-            ctx, hmm, hmm_conf, taint, det_ctx, file_index,
-            reachability, public_api, module_metrics, class_cohesion, decorator_index,
+            ctx,
+            hmm,
+            hmm_conf,
+            taint,
+            det_ctx,
+            file_index,
+            reachability,
+            public_api,
+            module_metrics,
+            class_cohesion,
+            decorator_index,
         )
     });
 
@@ -302,16 +324,18 @@ pub fn precompute_gd_startup(
 fn build_hmm_contexts_standalone(
     graph: &dyn crate::graph::GraphQuery,
     hmm_cache_path: Option<&std::path::PathBuf>,
-) -> (HashMap<String, FunctionContext>, HashMap<String, (FunctionContext, f64)>) {
+) -> (
+    HashMap<String, FunctionContext>,
+    HashMap<String, (FunctionContext, f64)>,
+) {
     let i = graph.interner();
     // Try to load cached HMM+CRF model
     let mut classifier = if let Some(path) = hmm_cache_path {
         let model_path = path.join("hmm_model.json");
         if model_path.exists() {
             info!("Loading cached HMM+CRF model from {:?}", model_path);
-            ContextClassifier::load(&model_path).unwrap_or_else(|| {
-                ContextClassifier::for_codebase(Some(&model_path))
-            })
+            ContextClassifier::load(&model_path)
+                .unwrap_or_else(|| ContextClassifier::for_codebase(Some(&model_path)))
         } else {
             ContextClassifier::new()
         }
@@ -335,11 +359,18 @@ fn build_hmm_contexts_standalone(
     if functions.len() > MAX_FUNCTIONS_FOR_HMM {
         warn!(
             "Limiting HMM analysis to {} functions (codebase has {})",
-            MAX_FUNCTIONS_FOR_HMM, functions.len()
+            MAX_FUNCTIONS_FOR_HMM,
+            functions.len()
         );
         functions.sort_by(|a, b| {
-            let a_fi = qn_to_idx.get(&a.qualified_name).and_then(|&idx| rev_adj.get(idx)).map_or(0, |v| v.len());
-            let b_fi = qn_to_idx.get(&b.qualified_name).and_then(|&idx| rev_adj.get(idx)).map_or(0, |v| v.len());
+            let a_fi = qn_to_idx
+                .get(&a.qualified_name)
+                .and_then(|&idx| rev_adj.get(idx))
+                .map_or(0, |v| v.len());
+            let b_fi = qn_to_idx
+                .get(&b.qualified_name)
+                .and_then(|&idx| rev_adj.get(idx))
+                .map_or(0, |v| v.len());
             b_fi.cmp(&a_fi)
         });
         functions.truncate(MAX_FUNCTIONS_FOR_HMM);
@@ -367,7 +398,11 @@ fn build_hmm_contexts_standalone(
         total_params += 3;
     }
 
-    let avg_complexity = if complexity_count > 0 { total_complexity as f64 / complexity_count as f64 } else { 10.0 };
+    let avg_complexity = if complexity_count > 0 {
+        total_complexity as f64 / complexity_count as f64
+    } else {
+        10.0
+    };
     let avg_loc = total_loc as f64 / functions.len().max(1) as f64;
     let avg_params = total_params as f64 / functions.len().max(1) as f64;
 
@@ -378,7 +413,8 @@ fn build_hmm_contexts_standalone(
         let fan_in = rev_adj.get(idx).map_or(0, |v| v.len());
         let fan_out = adj.get(idx).map_or(0, |v| v.len());
         let caller_files_count = rev_adj.get(idx).map_or(0, |callers| {
-            callers.iter()
+            callers
+                .iter()
                 .filter_map(|&ci| file_paths.get(ci).map(|s| s.as_str()))
                 .collect::<std::collections::HashSet<&str>>()
                 .len()
@@ -428,7 +464,10 @@ fn build_hmm_contexts_standalone(
         contexts_with_conf.insert(qn, (context, confidence));
     }
 
-    info!("Classified {} functions using HMM (standalone)", contexts.len());
+    info!(
+        "Classified {} functions using HMM (standalone)",
+        contexts.len()
+    );
     (contexts, contexts_with_conf)
 }
 
@@ -443,14 +482,8 @@ mod tests {
         // Verify every detector is either graph-independent or graph-dependent
         let init = crate::detectors::DetectorInit::test_default();
         let all_detectors = crate::detectors::create_all_detectors(&init);
-        let gi_count = all_detectors
-            .iter()
-            .filter(|d| !d.requires_graph())
-            .count();
-        let gd_count = all_detectors
-            .iter()
-            .filter(|d| d.requires_graph())
-            .count();
+        let gi_count = all_detectors.iter().filter(|d| !d.requires_graph()).count();
+        let gd_count = all_detectors.iter().filter(|d| d.requires_graph()).count();
 
         assert_eq!(
             gi_count + gd_count,

@@ -108,8 +108,8 @@ pub fn export_training_data(
     }
 
     // Step 6: Write JSON
-    let json = serde_json::to_string_pretty(&samples)
-        .context("failed to serialize training data")?;
+    let json =
+        serde_json::to_string_pretty(&samples).context("failed to serialize training data")?;
 
     if let Some(parent) = output_path.parent() {
         std::fs::create_dir_all(parent)
@@ -154,12 +154,7 @@ fn build_git_features(repo_path: &Path) -> HashMap<String, GitFeatures> {
 
     churn_map
         .iter()
-        .map(|(path, churn)| {
-            (
-                path.clone(),
-                GitFeatures::from_file_churn(churn, now_epoch),
-            )
-        })
+        .map(|(path, churn)| (path.clone(), GitFeatures::from_file_churn(churn, now_epoch)))
         .collect()
 }
 
@@ -178,9 +173,7 @@ fn build_file_loc_map(graph: &dyn GraphQuery) -> HashMap<String, f64> {
     // a direct LOC measurement on the file node
     let functions = graph.get_functions();
     for func in &functions {
-        let entry = loc_map
-            .entry(func.path(i).to_string())
-            .or_insert(0.0);
+        let entry = loc_map.entry(func.path(i).to_string()).or_insert(0.0);
         // Only use function LOC if file LOC isn't already set
         if *entry == 0.0 {
             *entry += func.loc() as f64;

@@ -89,10 +89,13 @@ pub fn parse_source(source: &str, path: &Path) -> Result<ParseResult> {
 }
 
 /// Parse Go source code and return both the ParseResult and the tree-sitter Tree.
-pub fn parse_source_with_tree(source: &str, path: &Path) -> Result<(ParseResult, tree_sitter::Tree)> {
-    let tree = GO_PARSER.with(|cell| {
-        cell.borrow_mut().parse(source, None)
-    }).context("Failed to parse Go source")?;
+pub fn parse_source_with_tree(
+    source: &str,
+    path: &Path,
+) -> Result<(ParseResult, tree_sitter::Tree)> {
+    let tree = GO_PARSER
+        .with(|cell| cell.borrow_mut().parse(source, None))
+        .context("Failed to parse Go source")?;
 
     let root = tree.root_node();
     let source_bytes = source.as_bytes();
@@ -870,7 +873,11 @@ type Server struct {
         let class = &result.classes[0];
         assert_eq!(class.name, "Server");
         assert!(class.doc_comment.is_some());
-        assert!(class.doc_comment.as_ref().expect("should have doc comment").contains("HTTP server"));
+        assert!(class
+            .doc_comment
+            .as_ref()
+            .expect("should have doc comment")
+            .contains("HTTP server"));
     }
 
     #[test]
@@ -891,10 +898,21 @@ func noGoroutine() {
         let path = PathBuf::from("test.go");
         let result = parse_source(source, &path).expect("should parse Go source");
 
-        let worker = result.functions.iter().find(|f| f.name == "startWorker").expect("should find startWorker");
-        assert!(worker.is_async, "startWorker should be marked async (goroutine)");
+        let worker = result
+            .functions
+            .iter()
+            .find(|f| f.name == "startWorker")
+            .expect("should find startWorker");
+        assert!(
+            worker.is_async,
+            "startWorker should be marked async (goroutine)"
+        );
 
-        let no_go = result.functions.iter().find(|f| f.name == "noGoroutine").expect("should find noGoroutine");
+        let no_go = result
+            .functions
+            .iter()
+            .find(|f| f.name == "noGoroutine")
+            .expect("should find noGoroutine");
         assert!(!no_go.is_async, "noGoroutine should not be marked async");
     }
 
@@ -920,21 +938,37 @@ func noChannels() {
         let path = PathBuf::from("test.go");
         let result = parse_source(source, &path).expect("should parse Go source");
 
-        let producer = result.functions.iter().find(|f| f.name == "producer").expect("should find producer");
+        let producer = result
+            .functions
+            .iter()
+            .find(|f| f.name == "producer")
+            .expect("should find producer");
         assert!(
-            producer.annotations.contains(&"go:uses_channels".to_string()),
+            producer
+                .annotations
+                .contains(&"go:uses_channels".to_string()),
             "producer should have go:uses_channels annotation, got: {:?}",
             producer.annotations
         );
 
-        let consumer = result.functions.iter().find(|f| f.name == "consumer").expect("should find consumer");
+        let consumer = result
+            .functions
+            .iter()
+            .find(|f| f.name == "consumer")
+            .expect("should find consumer");
         assert!(
-            consumer.annotations.contains(&"go:uses_channels".to_string()),
+            consumer
+                .annotations
+                .contains(&"go:uses_channels".to_string()),
             "consumer should have go:uses_channels annotation, got: {:?}",
             consumer.annotations
         );
 
-        let no_ch = result.functions.iter().find(|f| f.name == "noChannels").expect("should find noChannels");
+        let no_ch = result
+            .functions
+            .iter()
+            .find(|f| f.name == "noChannels")
+            .expect("should find noChannels");
         assert!(
             no_ch.annotations.is_empty(),
             "noChannels should have no annotations, got: {:?}",

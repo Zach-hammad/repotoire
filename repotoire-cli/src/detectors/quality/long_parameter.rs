@@ -23,9 +23,9 @@
 //! - The function has poor API design
 
 use crate::calibrate::MetricKind;
-use crate::graph::GraphQueryExt;
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::detectors::function_context::FunctionRole;
+use crate::graph::GraphQueryExt;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use std::collections::HashSet;
@@ -209,11 +209,7 @@ impl LongParameterListDetector {
     }
 
     /// Check if a function delegates most of its parameters to a single callee.
-    fn is_delegator(
-        graph: &dyn crate::graph::GraphQuery,
-        qn: &str,
-        param_count: usize,
-    ) -> bool {
+    fn is_delegator(graph: &dyn crate::graph::GraphQuery, qn: &str, param_count: usize) -> bool {
         let callees = graph.get_callees(qn);
         callees.iter().any(|callee| {
             let callee_params = callee.param_count_opt().unwrap_or(0) as usize;
@@ -267,7 +263,8 @@ impl LongParameterListDetector {
         // Trait impl methods can't control their parameter count
         if is_trait_impl {
             severity = Self::reduce_severity(severity);
-            notes.push("Trait impl method (signature fixed by trait, reduced severity)".to_string());
+            notes
+                .push("Trait impl method (signature fixed by trait, reduced severity)".to_string());
         }
 
         // Test functions: cap severity at Low
@@ -401,13 +398,19 @@ impl Detector for LongParameterListDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let i = graph.interner();
         let mut findings = Vec::new();
 
         // Use adaptive threshold from context resolver, falling back to config.
-        let adaptive_base = ctx.threshold(MetricKind::ParameterCount, self.thresholds.max_params as f64) as usize;
+        let adaptive_base = ctx.threshold(
+            MetricKind::ParameterCount,
+            self.thresholds.max_params as f64,
+        ) as usize;
 
         for func in graph.get_functions_shared().iter() {
             let param_count = func.param_count_opt().unwrap_or(0) as usize;
@@ -449,8 +452,13 @@ impl Detector for LongParameterListDetector {
             let base_severity = self.calculate_severity(param_count, effective_threshold);
 
             // === Apply post-hoc severity reductions ===
-            let (severity, reduction_notes) =
-                self.apply_severity_reductions(ctx, qn, base_severity, is_delegator_fn, is_trait_impl_fn);
+            let (severity, reduction_notes) = self.apply_severity_reductions(
+                ctx,
+                qn,
+                base_severity,
+                is_delegator_fn,
+                is_trait_impl_fn,
+            );
 
             // Collect all analysis notes
             let mut notes: Vec<String> = threshold_reasons
@@ -465,13 +473,13 @@ impl Detector for LongParameterListDetector {
                 format!("\n\n**Graph Analysis:**\n{}", notes.join("\n"))
             };
 
-            let suggestion = Self::build_suggestion(is_constructor, is_delegator_fn, is_trait_impl_fn);
+            let suggestion =
+                Self::build_suggestion(is_constructor, is_delegator_fn, is_trait_impl_fn);
 
-            let explanation = self.config.adaptive.explain(
-                MetricKind::ParameterCount,
-                param_count as f64,
-                5.0,
-            );
+            let explanation =
+                self.config
+                    .adaptive
+                    .explain(MetricKind::ParameterCount, param_count as f64, 5.0);
             let threshold_metadata = explanation.to_metadata().into_iter().collect();
 
             findings.push(Finding {
@@ -528,7 +536,9 @@ fn to_pascal_case(s: &str) -> String {
 
 impl crate::detectors::RegisteredDetector for LongParameterListDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
-        std::sync::Arc::new(Self::with_config(init.config_for("LongParameterListDetector")))
+        std::sync::Arc::new(Self::with_config(
+            init.config_for("LongParameterListDetector"),
+        ))
     }
 }
 
@@ -615,15 +625,29 @@ mod tests {
     #[test]
     fn test_constructor_pattern_detection() {
         assert!(LongParameterListDetector::is_constructor_like("new"));
-        assert!(LongParameterListDetector::is_constructor_like("new_with_options"));
-        assert!(LongParameterListDetector::is_constructor_like("create_user"));
+        assert!(LongParameterListDetector::is_constructor_like(
+            "new_with_options"
+        ));
+        assert!(LongParameterListDetector::is_constructor_like(
+            "create_user"
+        ));
         assert!(LongParameterListDetector::is_constructor_like("from_parts"));
-        assert!(LongParameterListDetector::is_constructor_like("with_config"));
+        assert!(LongParameterListDetector::is_constructor_like(
+            "with_config"
+        ));
         assert!(LongParameterListDetector::is_constructor_like("__init__"));
-        assert!(LongParameterListDetector::is_constructor_like("setup_database"));
-        assert!(LongParameterListDetector::is_constructor_like("configure_server"));
-        assert!(LongParameterListDetector::is_constructor_like("initialize_state"));
-        assert!(!LongParameterListDetector::is_constructor_like("process_data"));
+        assert!(LongParameterListDetector::is_constructor_like(
+            "setup_database"
+        ));
+        assert!(LongParameterListDetector::is_constructor_like(
+            "configure_server"
+        ));
+        assert!(LongParameterListDetector::is_constructor_like(
+            "initialize_state"
+        ));
+        assert!(!LongParameterListDetector::is_constructor_like(
+            "process_data"
+        ));
         assert!(!LongParameterListDetector::is_constructor_like("detect"));
     }
 

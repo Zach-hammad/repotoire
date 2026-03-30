@@ -10,8 +10,8 @@
 //! - Discount match/switch arms that inflate nesting depth
 
 use crate::detectors::base::{Detector, DetectorConfig};
-use crate::graph::GraphQueryExt;
 use crate::detectors::function_context::FunctionRole;
+use crate::graph::GraphQueryExt;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use std::path::{Path, PathBuf};
@@ -182,10 +182,15 @@ impl Detector for DeepNestingDetector {
     }
 
     fn file_extensions(&self) -> &'static [&'static str] {
-        &["py", "js", "ts", "jsx", "tsx", "rb", "java", "go", "rs", "c", "cpp", "cs"]
+        &[
+            "py", "js", "ts", "jsx", "tsx", "rb", "java", "go", "rs", "c", "cpp", "cs",
+        ]
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let files = &ctx.as_file_provider();
         let i = graph.interner();
@@ -204,7 +209,9 @@ impl Detector for DeepNestingDetector {
             adaptive.max(self.threshold).max(DEFAULT_THRESHOLD)
         };
 
-        for path in files.files_with_extensions(&["py", "js", "ts", "jsx", "tsx", "rs", "go", "java", "cs", "cpp", "c"]) {
+        for path in files.files_with_extensions(&[
+            "py", "js", "ts", "jsx", "tsx", "rs", "go", "java", "cs", "cpp", "c",
+        ]) {
             if findings.len() >= self.max_findings {
                 break;
             }
@@ -269,7 +276,8 @@ impl Detector for DeepNestingDetector {
                     // Apply match/switch discount: if nesting occurs inside match arms,
                     // reduce effective depth by the number of match levels (capped).
                     let effective_depth = if spot.match_levels > 0 {
-                        spot.max_depth.saturating_sub(spot.match_levels.min(lang_discount))
+                        spot.max_depth
+                            .saturating_sub(spot.match_levels.min(lang_discount))
                     } else {
                         spot.max_depth
                     };
@@ -283,9 +291,13 @@ impl Detector for DeepNestingDetector {
                         if let Some(func) = &containing_func {
                             let is_entry = Self::is_entry_point(func.node_name(i), func.path(i));
                             let complexity = func.complexity_opt().unwrap_or(1);
-                            let candidates =
-                                self.find_extraction_candidates(graph, func.qn(i));
-                            (Some(func.node_name(i).to_string()), is_entry, complexity, candidates)
+                            let candidates = self.find_extraction_candidates(graph, func.qn(i));
+                            (
+                                Some(func.node_name(i).to_string()),
+                                is_entry,
+                                complexity,
+                                candidates,
+                            )
                         } else {
                             (None, false, 1, vec![])
                         };
@@ -470,9 +482,11 @@ fn analyze_nesting_per_function(content: &str) -> Vec<NestingSpot> {
                 if current_depth > peak_depth {
                     peak_depth = current_depth;
                     peak_line = line_idx + 1; // 1-based
-                    // Count how many levels in the stack are match levels
-                    match_depth_at_peak =
-                        match_level_stack.iter().filter(|&&is_match| is_match).count();
+                                              // Count how many levels in the stack are match levels
+                    match_depth_at_peak = match_level_stack
+                        .iter()
+                        .filter(|&&is_match| is_match)
+                        .count();
                 }
             } else if ch == '}' && current_depth > 0 {
                 current_depth -= 1;
@@ -809,8 +823,14 @@ fn deep() {
             "}",
         ];
         let match_lines = detect_match_switch_lines(&lines);
-        assert!(match_lines.contains(&1), "Should detect 'match x {{' on line 1");
-        assert!(!match_lines.contains(&0), "Should not detect 'fn foo()' as match");
+        assert!(
+            match_lines.contains(&1),
+            "Should detect 'match x {{' on line 1"
+        );
+        assert!(
+            !match_lines.contains(&0),
+            "Should not detect 'fn foo()' as match"
+        );
     }
 
     #[test]

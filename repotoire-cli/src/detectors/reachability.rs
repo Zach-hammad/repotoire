@@ -3,8 +3,8 @@
 //! Pre-computed once during the startup phase and shared with all detectors
 //! via `AnalysisContext`.
 
+use crate::graph::builder::GraphBuilder;
 use crate::graph::{GraphQuery, GraphQueryExt};
-    use crate::graph::builder::GraphBuilder;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 /// Index of functions reachable from entry points via BFS on the call graph.
@@ -214,19 +214,16 @@ pub fn build_decorator_index(graph: &dyn GraphQuery) -> HashMap<String, Vec<Stri
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::{CodeEdge, CodeNode};
     use crate::graph::builder::GraphBuilder;
+    use crate::graph::{CodeEdge, CodeNode};
 
     #[test]
     fn test_bfs_reaches_callees() {
         let mut graph = GraphBuilder::new();
         // A (entry, zero fan-in) -> B -> C
-        let a = CodeNode::function("a", "src/main.py")
-            .with_qualified_name("src/main.py::a");
-        let b = CodeNode::function("b", "src/main.py")
-            .with_qualified_name("src/main.py::b");
-        let c = CodeNode::function("c", "src/main.py")
-            .with_qualified_name("src/main.py::c");
+        let a = CodeNode::function("a", "src/main.py").with_qualified_name("src/main.py::a");
+        let b = CodeNode::function("b", "src/main.py").with_qualified_name("src/main.py::b");
+        let c = CodeNode::function("c", "src/main.py").with_qualified_name("src/main.py::c");
         graph.add_node(a);
         graph.add_node(b);
         graph.add_node(c);
@@ -244,12 +241,9 @@ mod tests {
     fn test_unreachable_function_not_in_set() {
         let mut graph = GraphBuilder::new();
         // A -> B, D is isolated (but zero fan-in, so it's an entry point too)
-        let a = CodeNode::function("a", "src/main.py")
-            .with_qualified_name("src/main.py::a");
-        let b = CodeNode::function("b", "src/main.py")
-            .with_qualified_name("src/main.py::b");
-        let d = CodeNode::function("d", "src/main.py")
-            .with_qualified_name("src/main.py::d");
+        let a = CodeNode::function("a", "src/main.py").with_qualified_name("src/main.py::a");
+        let b = CodeNode::function("b", "src/main.py").with_qualified_name("src/main.py::b");
+        let d = CodeNode::function("d", "src/main.py").with_qualified_name("src/main.py::d");
         graph.add_node(a);
         graph.add_node(b);
         graph.add_node(d);
@@ -269,11 +263,9 @@ mod tests {
     fn test_cycle_handling() {
         let mut graph = GraphBuilder::new();
         // A -> B -> A (cycle). A is entry point (exported).
-        let mut a = CodeNode::function("a", "src/main.py")
-            .with_qualified_name("src/main.py::a");
+        let mut a = CodeNode::function("a", "src/main.py").with_qualified_name("src/main.py::a");
         a.flags |= crate::graph::store_models::FLAG_IS_EXPORTED;
-        let b = CodeNode::function("b", "src/main.py")
-            .with_qualified_name("src/main.py::b");
+        let b = CodeNode::function("b", "src/main.py").with_qualified_name("src/main.py::b");
         graph.add_node(a);
         graph.add_node(b);
         graph.add_edge_by_name("src/main.py::a", "src/main.py::b", CodeEdge::calls());
@@ -314,8 +306,8 @@ mod tests {
         let private_fn = CodeNode::function("private_fn", "src/lib.py")
             .with_qualified_name("src/lib.py::private_fn");
 
-        let mut public_class = CodeNode::class("MyClass", "src/lib.py")
-            .with_qualified_name("src/lib.py::MyClass");
+        let mut public_class =
+            CodeNode::class("MyClass", "src/lib.py").with_qualified_name("src/lib.py::MyClass");
         public_class.flags |= crate::graph::store_models::FLAG_IS_EXPORTED;
 
         graph.add_node(exported_fn);

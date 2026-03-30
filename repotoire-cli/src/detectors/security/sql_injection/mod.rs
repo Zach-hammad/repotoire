@@ -29,34 +29,46 @@ use tracing::{debug, info};
 // Static compiled regex patterns (compiled once, shared across all instances)
 
 /// f-string with SQL keywords
-static FSTRING_SQL: LazyLock<Regex> = LazyLock::new(|| Regex::new(
+static FSTRING_SQL: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
     r#"(?i)f["'].*?\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|EXEC|EXECUTE)\b.*?\{[^}]+\}"#
-).expect("valid regex"));
+).expect("valid regex")
+});
 
 /// String concatenation with SQL keywords
-static CONCAT_SQL: LazyLock<Regex> = LazyLock::new(|| Regex::new(
+static CONCAT_SQL: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
     r#"(?i)\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|EXEC|EXECUTE)\b.*["']\s*\+"#
-).expect("valid regex"));
+).expect("valid regex")
+});
 
 /// .format() with SQL keywords
-static FORMAT_SQL: LazyLock<Regex> = LazyLock::new(|| Regex::new(
+static FORMAT_SQL: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
     r#"(?i)\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|EXEC|EXECUTE)\b.*["']\.format\s*\("#
-).expect("valid regex"));
+).expect("valid regex")
+});
 
 /// % formatting with SQL keywords
-static PERCENT_SQL: LazyLock<Regex> = LazyLock::new(|| Regex::new(
+static PERCENT_SQL: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
     r#"(?i)\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|EXEC|EXECUTE)\b.*%[sdr].*["']\s*%"#
-).expect("valid regex"));
+).expect("valid regex")
+});
 
 /// JavaScript template literals with SQL keywords
-static JS_TEMPLATE_SQL: LazyLock<Regex> = LazyLock::new(|| Regex::new(
+static JS_TEMPLATE_SQL: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
     r#"(?i)`[^`]*\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|EXEC|EXECUTE)\b[^`]*\$\{[^}]+\}[^`]*`"#
-).expect("valid regex"));
+).expect("valid regex")
+});
 
 /// Go fmt.Sprintf with SQL keywords
-static GO_SPRINTF_SQL: LazyLock<Regex> = LazyLock::new(|| Regex::new(
+static GO_SPRINTF_SQL: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
     r#"(?i)fmt\.Sprintf\s*\(\s*["'`].*\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|EXEC|EXECUTE)\b.*%[svdqxXfFeEgGtTpbcoU].*["'`]"#
-).expect("valid regex"));
+).expect("valid regex")
+});
 
 /// Detects potential SQL injection vulnerabilities
 pub struct SQLInjectionDetector {
@@ -191,9 +203,9 @@ impl SQLInjectionDetector {
     fn has_parameterized_placeholders(&self, line: &str) -> bool {
         static PARAM_PATTERNS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
             vec![
-                Regex::new(r"@\w+").expect("valid regex"),                                   // @paramName
-                Regex::new(r"\$\d+").expect("valid regex"),                                  // $1, $2
-                Regex::new(r":\w+").expect("valid regex"),                                   // :param
+                Regex::new(r"@\w+").expect("valid regex"),  // @paramName
+                Regex::new(r"\$\d+").expect("valid regex"), // $1, $2
+                Regex::new(r":\w+").expect("valid regex"),  // :param
                 Regex::new(r"(?:^|[^a-zA-Z0-9])\?(?:[^a-zA-Z0-9]|$)").expect("valid regex"), // ?
             ]
         });
@@ -252,7 +264,8 @@ impl SQLInjectionDetector {
     /// e.g., ${where}, ${orderBy}, ${columns} are likely SQL clause builders
     fn is_sql_structure_variable(&self, line: &str) -> bool {
         // Extract variable names from ${...} interpolations
-        static INTERP_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\$\{(\w+)").expect("valid regex"));
+        static INTERP_RE: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(r"\$\{(\w+)").expect("valid regex"));
         let re = &*INTERP_RE;
 
         for cap in re.captures_iter(line) {
@@ -639,7 +652,6 @@ impl SQLInjectionDetector {
         findings
     }
 
-
     /// Create a finding for detected SQL injection vulnerability
     fn create_finding(
         &self,
@@ -808,14 +820,19 @@ impl Detector for SQLInjectionDetector {
     }
 
     fn file_extensions(&self) -> &'static [&'static str] {
-        &["py", "js", "ts", "jsx", "tsx", "rb", "php", "java", "go", "rs"]
+        &[
+            "py", "js", "ts", "jsx", "tsx", "rb", "php", "java", "go", "rs",
+        ]
     }
 
     fn content_requirements(&self) -> crate::detectors::detector_context::ContentFlags {
         crate::detectors::detector_context::ContentFlags::HAS_SQL
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         debug!("Starting SQL injection detection with taint analysis");
 
@@ -828,7 +845,8 @@ impl Detector for SQLInjectionDetector {
         let mut taint_paths = if let Some(cross) = self.precomputed_cross.get() {
             cross.clone()
         } else {
-            self.taint_analyzer.trace_taint(graph, TaintCategory::SqlInjection)
+            self.taint_analyzer
+                .trace_taint(graph, TaintCategory::SqlInjection)
         };
 
         // Step 2.5: Run intra-function data flow analysis for deeper precision

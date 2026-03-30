@@ -197,16 +197,17 @@ impl Detector for MiddleManDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let i = graph.interner();
         let mut findings = Vec::new();
 
         for class in graph.get_classes_shared().iter() {
             // Skip interfaces
-            if class.qn(i).contains("::interface::")
-                || class.qn(i).contains("::type::")
-            {
+            if class.qn(i).contains("::interface::") || class.qn(i).contains("::type::") {
                 continue;
             }
 
@@ -293,8 +294,8 @@ impl crate::detectors::RegisteredDetector for MiddleManDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::{CodeEdge, CodeNode};
     use crate::graph::builder::GraphBuilder;
+    use crate::graph::{CodeEdge, CodeNode};
 
     #[test]
     fn test_should_exclude() {
@@ -345,7 +346,10 @@ mod tests {
         }
 
         let detector = MiddleManDetector::new();
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &graph,
+            vec![],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
 
         assert_eq!(findings.len(), 1);

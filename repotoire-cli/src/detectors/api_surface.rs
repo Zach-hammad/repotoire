@@ -31,8 +31,8 @@ pub fn is_api_surface(graph: &dyn GraphQuery, file_path: &str, line: u32) -> boo
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::store_models::{CodeEdge, CodeNode};
     use crate::graph::builder::GraphBuilder;
+    use crate::graph::store_models::{CodeEdge, CodeNode};
 
     #[test]
     fn test_non_exported_not_api_surface() {

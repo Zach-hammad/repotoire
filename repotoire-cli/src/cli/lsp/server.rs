@@ -161,7 +161,8 @@ impl Backend {
                                 Ok(Ok(Some(new_reader))) => {
                                     tracing::info!("repotoire worker restarted successfully");
                                     // Bump reader generation so in-flight reads from old pipe are discarded
-                                    current_gen = reader_generation.fetch_add(1, Ordering::SeqCst) + 1;
+                                    current_gen =
+                                        reader_generation.fetch_add(1, Ordering::SeqCst) + 1;
                                     *reader.lock().unwrap_or_else(|e| e.into_inner()) = new_reader;
                                     // Reset progress token so it gets re-created on next progress event
                                     progress_token_created = false;
@@ -260,24 +261,20 @@ impl Backend {
                         }
 
                         // Send score update notification
-                        send_score_update(
-                            &client,
-                            score,
-                            &grade,
-                            score_delta,
-                            total_findings,
-                        )
-                        .await;
+                        send_score_update(&client, score, &grade, score_delta, total_findings)
+                            .await;
                     }
-                    Event::Unchanged { score, grade, total_findings, .. } => {
+                    Event::Unchanged {
+                        score,
+                        grade,
+                        total_findings,
+                        ..
+                    } => {
                         // No diagnostic changes, but still send score update
                         send_score_update(&client, score, &grade, None, total_findings).await;
                     }
                     Event::Progress {
-                        stage,
-                        done,
-                        total,
-                        ..
+                        stage, done, total, ..
                     } => {
                         let token = NumberOrString::String("repotoire-analysis".to_string());
 
@@ -294,14 +291,14 @@ impl Backend {
                             client
                                 .send_notification::<Progress>(ProgressParams {
                                     token: token.clone(),
-                                    value: ProgressParamsValue::WorkDone(
-                                        WorkDoneProgress::Begin(WorkDoneProgressBegin {
+                                    value: ProgressParamsValue::WorkDone(WorkDoneProgress::Begin(
+                                        WorkDoneProgressBegin {
                                             title: "Repotoire analysis".to_string(),
                                             cancellable: Some(false),
                                             message: None,
                                             percentage: Some(0),
-                                        }),
-                                    ),
+                                        },
+                                    )),
                                 })
                                 .await;
                             progress_token_created = true;
@@ -339,11 +336,11 @@ impl Backend {
                     client
                         .send_notification::<Progress>(ProgressParams {
                             token,
-                            value: ProgressParamsValue::WorkDone(
-                                WorkDoneProgress::End(WorkDoneProgressEnd {
+                            value: ProgressParamsValue::WorkDone(WorkDoneProgress::End(
+                                WorkDoneProgressEnd {
                                     message: Some("Analysis complete".to_string()),
-                                }),
-                            ),
+                                },
+                            )),
                         })
                         .await;
                     progress_token_created = false;
@@ -413,7 +410,10 @@ impl LanguageServer for Backend {
         // Store workspace root
         if let Some(root) = params.root_uri {
             if let Ok(path) = root.to_file_path() {
-                self.worker_state.lock().unwrap_or_else(|e| e.into_inner()).workspace_root = Some(path);
+                self.worker_state
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .workspace_root = Some(path);
             }
         }
 
@@ -479,7 +479,11 @@ impl LanguageServer for Backend {
         if let Ok(path) = uri.to_file_path() {
             // Add file to pending set
             {
-                self.worker_state.lock().unwrap_or_else(|e| e.into_inner()).pending_files.insert(path);
+                self.worker_state
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .pending_files
+                    .insert(path);
             }
 
             // Increment debounce generation to cancel any in-flight debounce task

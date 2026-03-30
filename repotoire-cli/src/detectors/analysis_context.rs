@@ -164,9 +164,7 @@ impl<'g> AnalysisContext<'g> {
 
     /// Get decorators for a function.
     pub fn decorators(&self, qn: &str) -> &[String] {
-        self.decorator_index
-            .get(qn)
-            .map_or(&[], |v| v.as_slice())
+        self.decorator_index.get(qn).map_or(&[], |v| v.as_slice())
     }
 
     /// Check if a function has a specific decorator.
@@ -254,22 +252,22 @@ impl<'g> AnalysisContext<'g> {
     /// `/mock/repo/` and all `ContentFlags` are enabled so content filtering
     /// never blocks detectors in tests.
     #[cfg(test)]
-    pub fn test_with_mock_files(
-        graph: &'g dyn GraphQuery,
-        entries: Vec<(&str, &str)>,
-    ) -> Self {
-        let file_data: Vec<(PathBuf, Arc<str>, crate::detectors::detector_context::ContentFlags)> =
-            entries
-                .into_iter()
-                .map(|(rel, body)| {
-                    let full = PathBuf::from(rel);
-                    (
-                        full,
-                        Arc::from(body),
-                        crate::detectors::detector_context::ContentFlags::all(),
-                    )
-                })
-                .collect();
+    pub fn test_with_mock_files(graph: &'g dyn GraphQuery, entries: Vec<(&str, &str)>) -> Self {
+        let file_data: Vec<(
+            PathBuf,
+            Arc<str>,
+            crate::detectors::detector_context::ContentFlags,
+        )> = entries
+            .into_iter()
+            .map(|(rel, body)| {
+                let full = PathBuf::from(rel);
+                (
+                    full,
+                    Arc::from(body),
+                    crate::detectors::detector_context::ContentFlags::all(),
+                )
+            })
+            .collect();
         Self::test_with_files(graph, file_data)
     }
 
@@ -280,7 +278,11 @@ impl<'g> AnalysisContext<'g> {
     #[cfg(test)]
     pub fn test_with_files(
         graph: &'g dyn GraphQuery,
-        file_data: Vec<(PathBuf, Arc<str>, crate::detectors::detector_context::ContentFlags)>,
+        file_data: Vec<(
+            PathBuf,
+            Arc<str>,
+            crate::detectors::detector_context::ContentFlags,
+        )>,
     ) -> Self {
         let files = Arc::new(FileIndex::new(file_data));
         let functions = Arc::new(HashMap::new());
@@ -293,10 +295,9 @@ impl<'g> AnalysisContext<'g> {
         // Pre-populate content flags from test file data so detectors that
         // check ContentFlags (path_traversal, etc.) don't skip test files.
         for entry in files.all() {
-            det_ctx.content_flags.insert(
-                entry.path.clone(),
-                entry.flags,
-            );
+            det_ctx
+                .content_flags
+                .insert(entry.path.clone(), entry.flags);
         }
         let detector_ctx = Arc::new(det_ctx);
 
@@ -392,7 +393,10 @@ impl<'a> crate::detectors::file_provider::FileProvider for AnalysisContextFilePr
         // Try global cache first (O(1), avoids String reallocation).
         // Fall back to FileIndex for tests/edge cases where global cache isn't populated.
         crate::cache::global_cache().content(path).or_else(|| {
-            self.ctx.files.get(path).map(|e| Arc::new(e.content.to_string()))
+            self.ctx
+                .files
+                .get(path)
+                .map(|e| Arc::new(e.content.to_string()))
         })
     }
 

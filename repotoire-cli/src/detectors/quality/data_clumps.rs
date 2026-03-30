@@ -132,10 +132,17 @@ impl DataClumpsDetector {
     }
 
     /// Extract parameter names from function's parameter property
-    fn extract_params(&self, func: &crate::graph::CodeNode, graph: &dyn crate::graph::GraphQuery) -> Vec<String> {
+    fn extract_params(
+        &self,
+        func: &crate::graph::CodeNode,
+        graph: &dyn crate::graph::GraphQuery,
+    ) -> Vec<String> {
         // Try to get params from extra_props side table
         let i = graph.interner();
-        if let Some(params_key) = graph.extra_props(func.qualified_name).and_then(|ep| ep.params) {
+        if let Some(params_key) = graph
+            .extra_props(func.qualified_name)
+            .and_then(|ep| ep.params)
+        {
             let params_str = i.resolve(params_key);
             return params_str
                 .split(',')
@@ -471,7 +478,10 @@ impl Detector for DataClumpsDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let mut findings = Vec::new();
 
@@ -839,6 +849,10 @@ mod tests {
             is_call_chain: false,
         };
         let result2 = detector.remove_subsets(vec![superset2, subset_more_occ]);
-        assert_eq!(result2.len(), 2, "subset with more occurrences should be kept");
+        assert_eq!(
+            result2.len(),
+            2,
+            "subset with more occurrences should be kept"
+        );
     }
 }

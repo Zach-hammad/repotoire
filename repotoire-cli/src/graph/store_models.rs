@@ -344,11 +344,12 @@ impl CodeNode {
         }
     }
 
-    #[deprecated(note = "String properties are in the ExtraProps side table. Use graph.extra_props(node.qualified_name) instead.")]
+    #[deprecated(
+        note = "String properties are in the ExtraProps side table. Use graph.extra_props(node.qualified_name) instead."
+    )]
     pub fn get_str(&self, _key: &str) -> Option<&str> {
         None
     }
-
 }
 
 /// Edge types in the code graph

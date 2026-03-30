@@ -16,7 +16,8 @@ use std::path::PathBuf;
 use std::sync::LazyLock;
 use tracing::info;
 
-static FUNC_REF: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\(").expect("valid regex"));
+static FUNC_REF: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\(").expect("valid regex"));
 
 pub struct CommentedCodeDetector {
     #[allow(dead_code)] // Part of detector pattern, used for file scanning
@@ -37,19 +38,31 @@ impl CommentedCodeDetector {
     /// Strong indicators: almost certainly code, not prose
     fn has_strong_code_indicator(line: &str) -> bool {
         let strong_indicators = [
-            "def ", "fn ", "function ", "class ", "import ", "from ",
-            "return ", "const ", "let ", "var ",
-            "==", "!=", "&&", "||", "->", "=>",
-            "+=", "-=",
+            "def ",
+            "fn ",
+            "function ",
+            "class ",
+            "import ",
+            "from ",
+            "return ",
+            "const ",
+            "let ",
+            "var ",
+            "==",
+            "!=",
+            "&&",
+            "||",
+            "->",
+            "=>",
+            "+=",
+            "-=",
         ];
         strong_indicators.iter().any(|p| line.contains(p))
     }
 
     /// Weak indicators: common in prose, not sufficient alone to flag as code
     fn has_weak_code_indicator(line: &str) -> bool {
-        let weak_indicators = [
-            "=", "()", "{}", "[]", ";", "if ", "else", "for ", "while ",
-        ];
+        let weak_indicators = ["=", "()", "{}", "[]", ";", "if ", "else", "for ", "while "];
         weak_indicators.iter().any(|p| line.contains(p))
     }
 
@@ -74,7 +87,8 @@ impl CommentedCodeDetector {
     /// Check if line is part of a license/copyright header
     fn is_license_comment(line: &str) -> bool {
         let upper = line.to_uppercase();
-        upper.contains("COPYRIGHT") || upper.contains("LICENSE")
+        upper.contains("COPYRIGHT")
+            || upper.contains("LICENSE")
             || upper.contains("PERMISSION IS HEREBY GRANTED")
             || upper.contains("ALL RIGHTS RESERVED")
             || upper.contains("SPDX-LICENSE")
@@ -128,20 +142,30 @@ impl Detector for CommentedCodeDetector {
     }
 
     fn file_extensions(&self) -> &'static [&'static str] {
-        &["py", "js", "ts", "jsx", "tsx", "rb", "java", "go", "rs", "c", "cpp", "cs"]
+        &[
+            "py", "js", "ts", "jsx", "tsx", "rb", "java", "go", "rs", "c", "cpp", "cs",
+        ]
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let files = &ctx.as_file_provider();
         let i = graph.interner();
         let mut findings = vec![];
 
         // Pre-build function name set once — O(N) instead of O(N) per commented block
-        let all_func_names: HashSet<String> =
-            graph.get_functions_shared().iter().map(|f| f.node_name(i).to_string()).collect();
+        let all_func_names: HashSet<String> = graph
+            .get_functions_shared()
+            .iter()
+            .map(|f| f.node_name(i).to_string())
+            .collect();
 
-        for path in files.files_with_extensions(&["py", "js", "ts", "jsx", "tsx", "java", "go", "rs", "rb", "php", "c", "cpp", "cs"]) {
+        for path in files.files_with_extensions(&[
+            "py", "js", "ts", "jsx", "tsx", "java", "go", "rs", "rb", "php", "c", "cpp", "cs",
+        ]) {
             if findings.len() >= self.max_findings {
                 break;
             }
@@ -165,7 +189,9 @@ impl Detector for CommentedCodeDetector {
                         || line.starts_with("*");
 
                     // Skip annotation comments and license headers
-                    if is_comment && (Self::is_annotation_comment(line) || Self::is_license_comment(line)) {
+                    if is_comment
+                        && (Self::is_annotation_comment(line) || Self::is_license_comment(line))
+                    {
                         i += 1;
                         continue;
                     }
@@ -209,7 +235,8 @@ impl Detector for CommentedCodeDetector {
                         if code_lines >= self.min_lines && has_strong {
                             // === Graph-enhanced analysis ===
                             let func_refs = Self::extract_func_refs(&lines, start, j);
-                            let (existing, missing) = Self::check_func_existence(&all_func_names, &func_refs);
+                            let (existing, missing) =
+                                Self::check_func_existence(&all_func_names, &func_refs);
 
                             // Build analysis notes
                             let mut notes = Vec::new();
@@ -294,7 +321,6 @@ impl Detector for CommentedCodeDetector {
         Ok(findings)
     }
 }
-
 
 impl crate::detectors::RegisteredDetector for CommentedCodeDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {

@@ -244,8 +244,7 @@ fn assign_default_confidence(findings: &mut [Finding]) {
     let mut assigned = 0usize;
     for finding in findings.iter_mut() {
         if finding.confidence.is_none() {
-            let default =
-                Finding::default_confidence_for_category(finding.category.as_deref());
+            let default = Finding::default_confidence_for_category(finding.category.as_deref());
             finding.confidence = Some(default);
             assigned += 1;
         }
@@ -430,20 +429,19 @@ fn filter_false_positives(
     let thresholds = CategoryThresholds::default();
 
     // Try loading a trained GBDT model
-    let gbdt_path = dirs::data_dir()
-        .map(|d| d.join("repotoire").join("gbdt_model.json"));
+    let gbdt_path = dirs::data_dir().map(|d| d.join("repotoire").join("gbdt_model.json"));
 
-    let use_gbdt = gbdt_path
-        .as_ref()
-        .map(|p| p.exists())
-        .unwrap_or(false);
+    let use_gbdt = gbdt_path.as_ref().map(|p| p.exists()).unwrap_or(false);
 
     // Try GBDT: user-trained model > embedded seed model > heuristic fallback
     let gbdt_classifier = if use_gbdt {
         let Some(model_path) = gbdt_path else { return };
         match crate::classifier::GbdtClassifier::load(&model_path) {
             Ok(c) => {
-                tracing::info!("Using user-trained GBDT model from {}", model_path.display());
+                tracing::info!(
+                    "Using user-trained GBDT model from {}",
+                    model_path.display()
+                );
                 Some(c)
             }
             Err(e) => {
@@ -460,18 +458,20 @@ fn filter_false_positives(
     };
 
     // Fall back to embedded seed model if no user model
-    let gbdt_classifier = gbdt_classifier.or_else(|| {
-        match crate::classifier::GbdtClassifier::seed() {
+    let gbdt_classifier =
+        gbdt_classifier.or_else(|| match crate::classifier::GbdtClassifier::seed() {
             Ok(c) => {
                 tracing::info!("Using embedded seed GBDT model");
                 Some(c)
             }
             Err(e) => {
-                tracing::debug!("Seed model failed to load: {}. Falling back to heuristic.", e);
+                tracing::debug!(
+                    "Seed model failed to load: {}. Falling back to heuristic.",
+                    e
+                );
                 None
             }
-        }
-    });
+        });
 
     if let Some(classifier) = gbdt_classifier {
         use crate::classifier::FeatureExtractorV2;
@@ -585,15 +585,13 @@ fn filter_file_level_suppressed(findings: &mut Vec<Finding>) {
     let before = findings.len();
     findings.retain(|f| {
         for path in &f.affected_files {
-            let is_suppressed = suppressed_files
-                .entry(path.clone())
-                .or_insert_with(|| {
-                    // Read first ~10 lines of the file
-                    match std::fs::read_to_string(path) {
-                        Ok(content) => crate::detectors::is_file_suppressed(&content),
-                        Err(_) => false, // Can't read file — don't suppress
-                    }
-                });
+            let is_suppressed = suppressed_files.entry(path.clone()).or_insert_with(|| {
+                // Read first ~10 lines of the file
+                match std::fs::read_to_string(path) {
+                    Ok(content) => crate::detectors::is_file_suppressed(&content),
+                    Err(_) => false, // Can't read file — don't suppress
+                }
+            });
             if *is_suppressed {
                 return false;
             }
@@ -603,10 +601,7 @@ fn filter_file_level_suppressed(findings: &mut Vec<Finding>) {
 
     let removed = before - findings.len();
     if removed > 0 {
-        tracing::debug!(
-            "File-level suppression filtered {} findings",
-            removed
-        );
+        tracing::debug!("File-level suppression filtered {} findings", removed);
     }
 }
 
@@ -630,13 +625,11 @@ fn filter_inline_suppressed(findings: &mut Vec<Finding>) {
         };
 
         for path in &f.affected_files {
-            let lines = file_cache
-                .entry(path.clone())
-                .or_insert_with(|| {
-                    std::fs::read_to_string(path)
-                        .map(|c| c.lines().map(String::from).collect())
-                        .unwrap_or_default()
-                });
+            let lines = file_cache.entry(path.clone()).or_insert_with(|| {
+                std::fs::read_to_string(path)
+                    .map(|c| c.lines().map(String::from).collect())
+                    .unwrap_or_default()
+            });
 
             if lines.is_empty() {
                 continue;
@@ -651,7 +644,11 @@ fn filter_inline_suppressed(findings: &mut Vec<Finding>) {
 
             for i in scan_start..=scan_end {
                 let line = lines.get(i).map(|s| s.as_str()).unwrap_or("");
-                let prev = if i > 0 { lines.get(i - 1).map(|s| s.as_str()) } else { None };
+                let prev = if i > 0 {
+                    lines.get(i - 1).map(|s| s.as_str())
+                } else {
+                    None
+                };
                 if crate::detectors::is_line_suppressed_for(line, prev, &f.detector) {
                     return false; // Suppressed
                 }
@@ -662,10 +659,7 @@ fn filter_inline_suppressed(findings: &mut Vec<Finding>) {
 
     let removed = before - findings.len();
     if removed > 0 {
-        tracing::debug!(
-            "Inline suppression filtered {} findings",
-            removed
-        );
+        tracing::debug!("Inline suppression filtered {} findings", removed);
     }
 }
 
@@ -675,7 +669,11 @@ fn deduplicate_findings(findings: &mut Vec<Finding>) {
     let before = findings.len();
     let mut seen = HashSet::new();
     findings.retain(|f| {
-        let file = f.affected_files.first().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
+        let file = f
+            .affected_files
+            .first()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default();
         let key = (f.detector.clone(), f.title.clone(), file, f.line_start);
         seen.insert(key)
     });
@@ -699,9 +697,7 @@ fn deduplicate_findings(findings: &mut Vec<Finding>) {
 /// For example, `SQLInjectionDetector` matches paths containing `sql_injection/`.
 fn filter_detector_test_fixtures(findings: &mut Vec<Finding>) {
     let before = findings.len();
-    findings.retain(|f| {
-        !is_detector_test_fixture(&f.detector, &f.affected_files)
-    });
+    findings.retain(|f| !is_detector_test_fixture(&f.detector, &f.affected_files));
 
     let removed = before - findings.len();
     if removed > 0 {
@@ -725,7 +721,8 @@ fn is_detector_test_fixture(detector_name: &str, affected_files: &[PathBuf]) -> 
         let path_str = path.to_string_lossy();
 
         // Must be inside a detectors/ or tests/ directory
-        let in_detector_dir = path_str.contains("/detectors/") || path_str.contains("\\detectors\\");
+        let in_detector_dir =
+            path_str.contains("/detectors/") || path_str.contains("\\detectors\\");
         let in_tests_dir = path_str.contains("/tests/") || path_str.contains("\\tests\\");
 
         if !in_detector_dir && !in_tests_dir {
@@ -748,8 +745,10 @@ fn is_detector_test_fixture(detector_name: &str, affected_files: &[PathBuf]) -> 
         // Also match the taint module for security detectors that use taint analysis
         // The taint module contains test fixtures for multiple security detectors
         if is_security_detector(detector_name)
-            && (path_str.contains("/taint/") || path_str.contains("\\taint\\")
-                || path_str.contains("/taint.rs") || path_str.contains("\\taint.rs"))
+            && (path_str.contains("/taint/")
+                || path_str.contains("\\taint\\")
+                || path_str.contains("/taint.rs")
+                || path_str.contains("\\taint.rs"))
         {
             return true;
         }
@@ -884,10 +883,7 @@ mod tests {
 
     #[test]
     fn test_slug_god_class() {
-        assert_eq!(
-            detector_name_to_path_slug("GodClassDetector"),
-            "god_class"
-        );
+        assert_eq!(detector_name_to_path_slug("GodClassDetector"), "god_class");
     }
 
     #[test]
@@ -897,10 +893,7 @@ mod tests {
 
     #[test]
     fn test_slug_n_plus_one() {
-        assert_eq!(
-            detector_name_to_path_slug("NPlusOneDetector"),
-            "n_plus_one"
-        );
+        assert_eq!(detector_name_to_path_slug("NPlusOneDetector"), "n_plus_one");
     }
 
     #[test]
@@ -915,17 +908,13 @@ mod tests {
 
     #[test]
     fn test_fixture_match_sql_injection_tests() {
-        let files = vec![PathBuf::from(
-            "src/detectors/sql_injection/tests.rs",
-        )];
+        let files = vec![PathBuf::from("src/detectors/sql_injection/tests.rs")];
         assert!(is_detector_test_fixture("SQLInjectionDetector", &files));
     }
 
     #[test]
     fn test_fixture_match_sql_injection_mod() {
-        let files = vec![PathBuf::from(
-            "src/detectors/sql_injection/mod.rs",
-        )];
+        let files = vec![PathBuf::from("src/detectors/sql_injection/mod.rs")];
         assert!(is_detector_test_fixture("SQLInjectionDetector", &files));
     }
 
@@ -938,9 +927,7 @@ mod tests {
     #[test]
     fn test_fixture_no_match_different_detector() {
         // XSS detector should NOT match sql_injection directory
-        let files = vec![PathBuf::from(
-            "src/detectors/sql_injection/tests.rs",
-        )];
+        let files = vec![PathBuf::from("src/detectors/sql_injection/tests.rs")];
         assert!(!is_detector_test_fixture("XssDetector", &files));
     }
 
@@ -1109,9 +1096,18 @@ mod tests {
     #[test]
     fn test_min_confidence_filters_below_threshold() {
         let mut findings = vec![
-            Finding { confidence: Some(0.9), ..Default::default() },
-            Finding { confidence: Some(0.5), ..Default::default() },
-            Finding { confidence: Some(0.7), ..Default::default() },
+            Finding {
+                confidence: Some(0.9),
+                ..Default::default()
+            },
+            Finding {
+                confidence: Some(0.5),
+                ..Default::default()
+            },
+            Finding {
+                confidence: Some(0.7),
+                ..Default::default()
+            },
         ];
         filter_by_min_confidence(&mut findings, Some(0.6), false);
         assert_eq!(findings.len(), 2);
@@ -1122,8 +1118,14 @@ mod tests {
     #[test]
     fn test_min_confidence_none_does_not_filter() {
         let mut findings = vec![
-            Finding { confidence: Some(0.1), ..Default::default() },
-            Finding { confidence: Some(0.9), ..Default::default() },
+            Finding {
+                confidence: Some(0.1),
+                ..Default::default()
+            },
+            Finding {
+                confidence: Some(0.9),
+                ..Default::default()
+            },
         ];
         filter_by_min_confidence(&mut findings, None, false);
         assert_eq!(findings.len(), 2);
@@ -1132,8 +1134,14 @@ mod tests {
     #[test]
     fn test_min_confidence_show_all_bypasses_filter() {
         let mut findings = vec![
-            Finding { confidence: Some(0.1), ..Default::default() },
-            Finding { confidence: Some(0.2), ..Default::default() },
+            Finding {
+                confidence: Some(0.1),
+                ..Default::default()
+            },
+            Finding {
+                confidence: Some(0.2),
+                ..Default::default()
+            },
         ];
         filter_by_min_confidence(&mut findings, Some(0.99), true);
         assert_eq!(findings.len(), 2); // nothing removed
@@ -1141,18 +1149,20 @@ mod tests {
 
     #[test]
     fn test_min_confidence_exact_threshold_kept() {
-        let mut findings = vec![
-            Finding { confidence: Some(0.7), ..Default::default() },
-        ];
+        let mut findings = vec![Finding {
+            confidence: Some(0.7),
+            ..Default::default()
+        }];
         filter_by_min_confidence(&mut findings, Some(0.7), false);
         assert_eq!(findings.len(), 1); // exactly at threshold is kept
     }
 
     #[test]
     fn test_min_confidence_clamps_above_one() {
-        let mut findings = vec![
-            Finding { confidence: Some(0.99), ..Default::default() },
-        ];
+        let mut findings = vec![Finding {
+            confidence: Some(0.99),
+            ..Default::default()
+        }];
         // Threshold > 1.0 should be clamped to 1.0, filtering everything below 1.0
         filter_by_min_confidence(&mut findings, Some(1.5), false);
         assert_eq!(findings.len(), 0);
@@ -1160,9 +1170,10 @@ mod tests {
 
     #[test]
     fn test_min_confidence_clamps_below_zero() {
-        let mut findings = vec![
-            Finding { confidence: Some(0.01), ..Default::default() },
-        ];
+        let mut findings = vec![Finding {
+            confidence: Some(0.01),
+            ..Default::default()
+        }];
         // Threshold < 0.0 should be clamped to 0.0, keeping everything
         filter_by_min_confidence(&mut findings, Some(-0.5), false);
         assert_eq!(findings.len(), 1);
@@ -1171,9 +1182,10 @@ mod tests {
     #[test]
     fn test_min_confidence_uses_effective_confidence_for_none() {
         // Finding with confidence=None should use effective_confidence() which is 0.70
-        let mut findings = vec![
-            Finding { confidence: None, ..Default::default() },
-        ];
+        let mut findings = vec![Finding {
+            confidence: None,
+            ..Default::default()
+        }];
         // 0.70 (effective default) >= 0.5 threshold => kept
         filter_by_min_confidence(&mut findings, Some(0.5), false);
         assert_eq!(findings.len(), 1);

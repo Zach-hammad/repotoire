@@ -10,23 +10,27 @@ use regex::Regex;
 use std::sync::LazyLock;
 
 static GENERATED_COMMENT: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"(?i)(?:generated\s+(?:by|from|using)|auto[- ]?generated|do\s+not\s+edit|machine\s+generated|this\s+file\s+is\s+generated)").expect("valid regex")
-    });
+    Regex::new(r"(?i)(?:generated\s+(?:by|from|using)|auto[- ]?generated|do\s+not\s+edit|machine\s+generated|this\s+file\s+is\s+generated)").expect("valid regex")
+});
 static UMD_WRAPPER: LazyLock<Regex> = LazyLock::new(|| {
-        // UMD pattern: (function(global, factory) { ... })(this, function() {})
-        Regex::new(r"^\s*\(function\s*\(\s*\w+\s*,\s*\w+\s*\)\s*\{").expect("valid regex")
-    });
+    // UMD pattern: (function(global, factory) { ... })(this, function() {})
+    Regex::new(r"^\s*\(function\s*\(\s*\w+\s*,\s*\w+\s*\)\s*\{").expect("valid regex")
+});
 static COMMONJS_WRAPPER: LazyLock<Regex> = LazyLock::new(|| {
-        // CommonJS exports at very start, or 'use strict' + immediate exports
-        Regex::new(r#"^(?:'use strict';\s*)?(?:Object\.defineProperty\(exports|exports\.\w+\s*=|module\.exports\s*=)"#).expect("valid regex")
-    });
+    // CommonJS exports at very start, or 'use strict' + immediate exports
+    Regex::new(r#"^(?:'use strict';\s*)?(?:Object\.defineProperty\(exports|exports\.\w+\s*=|module\.exports\s*=)"#).expect("valid regex")
+});
 
 /// Check if file appears to be bundled/generated code by path hints
 /// Semantic path patterns that indicate non-source code
 pub fn is_likely_bundled_path(path: &str) -> bool {
     let path_lower = path.to_lowercase();
     // Normalize: ensure path starts with '/' so patterns match relative paths
-    let p = if path_lower.starts_with('/') { path_lower } else { format!("/{}", path_lower) };
+    let p = if path_lower.starts_with('/') {
+        path_lower
+    } else {
+        format!("/{}", path_lower)
+    };
 
     // Build output directories (semantic: these contain generated code)
     p.contains("/dist/")

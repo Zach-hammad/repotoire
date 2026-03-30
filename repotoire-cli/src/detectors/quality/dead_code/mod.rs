@@ -11,25 +11,20 @@
 //! replacing the previous 200+ hardcoded pattern lists.
 
 use crate::detectors::analysis_context::AnalysisContext;
-use crate::graph::GraphQueryExt;
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::detectors::context_hmm;
 use crate::detectors::function_context::FunctionRole;
+use crate::graph::GraphQueryExt;
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::{debug, info};
 
-
 /// Minimal entry point names that should never be flagged.
 /// Most entry points are now handled by FunctionRole::EntryPoint.
 const ENTRY_POINTS: &[&str] = &[
-    "main",
-    "__main__",
-    "__init__",
-    "setUp",
-    "tearDown",
+    "main", "__main__", "__init__", "setUp", "tearDown",
     "init", // Go init functions run automatically
 ];
 
@@ -162,7 +157,12 @@ impl DeadCodeDetector {
     /// aren't tracked in the call graph.
     /// Check if a function is defined inside a trait block (trait method definition).
     /// These are called via dynamic dispatch and never have direct callers in the call graph.
-    fn is_inside_trait_definition(ctx: &AnalysisContext<'_>, file_path: &str, line_start: u32, line_end: u32) -> bool {
+    fn is_inside_trait_definition(
+        ctx: &AnalysisContext<'_>,
+        file_path: &str,
+        line_start: u32,
+        line_end: u32,
+    ) -> bool {
         let classes = ctx.graph.get_classes_in_file(file_path);
         for class in &classes {
             let i = ctx.graph.interner();
@@ -178,7 +178,10 @@ impl DeadCodeDetector {
                 if class_qn.contains("::impl<") {
                     continue; // impl block, not a trait definition
                 }
-                debug!("Skipping function inside class/trait '{}': line {}-{} within {}-{}", class_name, line_start, line_end, class.line_start, class.line_end);
+                debug!(
+                    "Skipping function inside class/trait '{}': line {}-{} within {}-{}",
+                    class_name, line_start, line_end, class.line_start, class.line_end
+                );
                 return true;
             }
         }
@@ -188,7 +191,13 @@ impl DeadCodeDetector {
     /// Check if a function is referenced anywhere in its source file outside its own definition.
     /// This catches calls inside macros (format!, println!, etc.), function pointers,
     /// attribute references, and other patterns that tree-sitter can't extract as call edges.
-    fn is_referenced_in_file(ctx: &AnalysisContext<'_>, name: &str, file_path: &str, func_line_start: u32, func_line_end: u32) -> bool {
+    fn is_referenced_in_file(
+        ctx: &AnalysisContext<'_>,
+        name: &str,
+        file_path: &str,
+        func_line_start: u32,
+        func_line_end: u32,
+    ) -> bool {
         // Skip very short names to avoid false matches (e.g., "id", "as", "to")
         if name.len() < 3 {
             return false;
@@ -548,7 +557,10 @@ impl DeadCodeDetector {
             // Tree-sitter can't extract calls from Rust macro bodies (format!, println!, etc.)
             // so we fall back to a text scan of the source file as a last resort.
             if Self::is_referenced_in_file(ctx, name, file_path, func.line_start, func.line_end) {
-                debug!("Skipping function referenced in file: {} in {}", name, file_path);
+                debug!(
+                    "Skipping function referenced in file: {} in {}",
+                    name, file_path
+                );
                 continue;
             }
 

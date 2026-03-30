@@ -162,9 +162,7 @@ impl Detector for CloneInHotPathDetector {
                 let file_str = path.to_string_lossy();
                 let line_num = (i + 1) as u32;
 
-                if let Some(containing_func) =
-                    graph.find_function_at(&file_str, line_num)
-                {
+                if let Some(containing_func) = graph.find_function_at(&file_str, line_num) {
                     let interner = graph.interner();
                     let qn = containing_func.qn(interner).to_string();
                     let func_name = containing_func.node_name(interner).to_string();
@@ -330,7 +328,6 @@ impl Detector for CloneInHotPathDetector {
     }
 }
 
-
 impl super::super::RegisteredDetector for CloneInHotPathDetector {
     fn create(init: &super::super::DetectorInit) -> std::sync::Arc<dyn Detector> {
         std::sync::Arc::new(Self::new(init.repo_path))
@@ -348,19 +345,18 @@ mod tests {
         let graph = GraphBuilder::new().freeze();
         let detector = CloneInHotPathDetector::new("/mock/repo");
         // Two clones in a loop — should be flagged even without graph context
-        let ctx =
-            crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
-                &graph,
-                vec![(
-                    "test.rs",
-                    "fn process(items: &[Item]) {\n    \
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &graph,
+            vec![(
+                "test.rs",
+                "fn process(items: &[Item]) {\n    \
                      for item in items {\n        \
                      let owned = item.clone();\n        \
                      let other = item.name.clone();\n        \
                      do_something(owned, other);\n    \
                      }\n}\n",
-                )],
-            );
+            )],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         // Without graph context, the function has no fan-in info and no qn,
         // so orphan/function fallback applies. At least verify no panic.
@@ -375,19 +371,18 @@ mod tests {
     fn test_clone_in_test_skipped() {
         let graph = GraphBuilder::new().freeze();
         let detector = CloneInHotPathDetector::new("/mock/repo");
-        let ctx =
-            crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
-                &graph,
-                vec![(
-                    "test.rs",
-                    "#[cfg(test)]\nmod tests {\n    \
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &graph,
+            vec![(
+                "test.rs",
+                "#[cfg(test)]\nmod tests {\n    \
                      #[test]\n    fn test_something() {\n        \
                      for item in items {\n            \
                      let owned = item.clone();\n            \
                      let other = item.name.clone();\n        \
                      }\n    }\n}\n",
-                )],
-            );
+            )],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
@@ -407,11 +402,10 @@ mod tests {
             lines.push_str(&format!("        let x{i} = {i};\n"));
         }
         lines.push_str("    }\n}\n");
-        let ctx =
-            crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
-                &graph,
-                vec![("test.rs", &lines)],
-            );
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &graph,
+            vec![("test.rs", &lines)],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         // Without graph function resolution, this falls into orphan hits with 1 clone
         // which is below MIN_CLONES_TO_FLAG for orphans
@@ -451,14 +445,13 @@ mod tests {
         let graph = GraphBuilder::new().freeze();
         let detector = CloneInHotPathDetector::new("/mock/repo");
         // Clones outside of loops/iterators should not be flagged
-        let ctx =
-            crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
-                &graph,
-                vec![(
-                    "test.rs",
-                    "fn simple() {\n    let x = foo.clone();\n    let y = bar.clone();\n}\n",
-                )],
-            );
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &graph,
+            vec![(
+                "test.rs",
+                "fn simple() {\n    let x = foo.clone();\n    let y = bar.clone();\n}\n",
+            )],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),

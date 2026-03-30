@@ -102,8 +102,18 @@ impl Detector for PageRankDriftDetector {
         let entries: Vec<(petgraph::graph::NodeIndex, f64, f64)> = functions
             .iter()
             .map(|&idx| {
-                let static_pr = graph.primitives().page_rank.get(&idx).copied().unwrap_or(0.0);
-                let weighted_pr = graph.primitives().weighted_page_rank.get(&idx).copied().unwrap_or(0.0);
+                let static_pr = graph
+                    .primitives()
+                    .page_rank
+                    .get(&idx)
+                    .copied()
+                    .unwrap_or(0.0);
+                let weighted_pr = graph
+                    .primitives()
+                    .weighted_page_rank
+                    .get(&idx)
+                    .copied()
+                    .unwrap_or(0.0);
                 (idx, static_pr, weighted_pr)
             })
             .collect();
@@ -120,8 +130,12 @@ impl Detector for PageRankDriftDetector {
         // Compute percentile ranks for static PageRank.
         // Sort by static_pr, assign percentile based on position.
         let mut static_order: Vec<usize> = (0..n).collect();
-        static_order
-            .sort_by(|&a, &b| entries[a].1.partial_cmp(&entries[b].1).unwrap_or(std::cmp::Ordering::Equal));
+        static_order.sort_by(|&a, &b| {
+            entries[a]
+                .1
+                .partial_cmp(&entries[b].1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         let mut static_percentiles = vec![0usize; n];
         for (rank, &orig_idx) in static_order.iter().enumerate() {
             static_percentiles[orig_idx] = (rank * 100) / n;
@@ -129,8 +143,12 @@ impl Detector for PageRankDriftDetector {
 
         // Compute percentile ranks for weighted PageRank.
         let mut weighted_order: Vec<usize> = (0..n).collect();
-        weighted_order
-            .sort_by(|&a, &b| entries[a].2.partial_cmp(&entries[b].2).unwrap_or(std::cmp::Ordering::Equal));
+        weighted_order.sort_by(|&a, &b| {
+            entries[a]
+                .2
+                .partial_cmp(&entries[b].2)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         let mut weighted_percentiles = vec![0usize; n];
         for (rank, &orig_idx) in weighted_order.iter().enumerate() {
             weighted_percentiles[orig_idx] = (rank * 100) / n;
@@ -314,19 +332,15 @@ mod tests {
                 now,
                 vec!["src/main.py".to_string(), "src/api.py".to_string()],
             ),
-            (
-                now,
-                vec!["src/api.py".to_string(), "src/db.py".to_string()],
-            ),
+            (now, vec!["src/api.py".to_string(), "src/db.py".to_string()]),
         ];
-        let co_change =
-            crate::git::co_change::CoChangeMatrix::from_commits(&commits, &config, now);
+        let co_change = crate::git::co_change::CoChangeMatrix::from_commits(&commits, &config, now);
 
         let graph = builder.freeze_with_co_change(&co_change);
 
         // Use a high drift threshold so small differences don't trigger.
-        let config = DetectorConfig::new()
-            .with_option("min_percentile_drift", serde_json::json!(50));
+        let config =
+            DetectorConfig::new().with_option("min_percentile_drift", serde_json::json!(50));
         let detector = PageRankDriftDetector::with_config(config);
         let ctx = crate::detectors::analysis_context::AnalysisContext::test(&graph);
         let findings = detector.detect(&ctx).expect("detection should succeed");
@@ -336,10 +350,7 @@ mod tests {
             "Should have no findings when static and weighted ranks are similar \
              (with high drift threshold). Got {} findings: {:?}",
             findings.len(),
-            findings
-                .iter()
-                .map(|f| &f.title)
-                .collect::<Vec<_>>()
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
         );
     }
 

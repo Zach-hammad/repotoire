@@ -8,10 +8,10 @@
 //! - Phase 3: Graph BFS — find hidden N+1 across function boundaries
 
 use crate::detectors::analysis_context::AnalysisContext;
-use crate::graph::GraphQueryExt;
 use crate::detectors::ast_fingerprint::{get_ts_language, parse_root};
 use crate::detectors::base::Detector;
 use crate::detectors::framework_detection::{detect_frameworks, Framework};
+use crate::graph::GraphQueryExt;
 use crate::models::{Finding, Severity};
 use crate::parsers::lightweight::Language;
 use anyhow::Result;
@@ -25,8 +25,10 @@ use tree_sitter::Node;
 /// Regex for detecting SQL keywords in string literals.
 /// Requires SQL keyword + table/column context to avoid matching prose.
 static SQL_EVIDENCE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)\b(SELECT\s+.{1,60}\s+FROM\s|INSERT\s+INTO\s|UPDATE\s+\S+\s+SET\s|DELETE\s+FROM\s)")
-        .expect("valid regex")
+    Regex::new(
+        r"(?i)\b(SELECT\s+.{1,60}\s+FROM\s|INSERT\s+INTO\s|UPDATE\s+\S+\s+SET\s|DELETE\s+FROM\s)",
+    )
+    .expect("valid regex")
 });
 
 /// Known SQL execution method names.
@@ -169,9 +171,7 @@ impl NPlusOneDetector {
                         || lower.contains("db.raw(")
                         || lower.contains("db.exec(")
                 }
-                Framework::Ent => {
-                    lower.contains(".query(") || lower.contains("client.")
-                }
+                Framework::Ent => lower.contains(".query(") || lower.contains("client."),
                 Framework::ActiveRecord => {
                     lower.contains(".find(")
                         || lower.contains(".find_by(")
@@ -377,15 +377,11 @@ impl NPlusOneDetector {
             ),
             Language::CSharp => matches!(
                 kind,
-                "for_statement"
-                    | "foreach_statement"
-                    | "while_statement"
-                    | "do_statement"
+                "for_statement" | "foreach_statement" | "while_statement" | "do_statement"
             ),
-            Language::C | Language::Cpp => matches!(
-                kind,
-                "for_statement" | "while_statement" | "do_statement"
-            ),
+            Language::C | Language::Cpp => {
+                matches!(kind, "for_statement" | "while_statement" | "do_statement")
+            }
             _ => false,
         }
     }
@@ -395,9 +391,7 @@ impl NPlusOneDetector {
         match lang {
             Language::Python => kind == "call",
             Language::Java => kind == "method_invocation",
-            Language::Rust => {
-                kind == "call_expression" || kind == "method_call_expression"
-            }
+            Language::Rust => kind == "call_expression" || kind == "method_call_expression",
             _ => kind == "call_expression",
         }
     }
@@ -509,8 +503,8 @@ impl NPlusOneDetector {
 
         if in_loop && Self::is_call_node(kind, lang) {
             let call_text = &source[node.start_byte()..node.end_byte()];
-            let is_query =
-                Self::is_db_query_call(call_text, frameworks) || Self::is_raw_sql_execution(node, source, lang);
+            let is_query = Self::is_db_query_call(call_text, frameworks)
+                || Self::is_raw_sql_execution(node, source, lang);
 
             if is_query {
                 let line = node.start_position().row as u32 + 1;
@@ -557,7 +551,9 @@ impl NPlusOneDetector {
 
         let mut cursor = node.walk();
         for child in node.named_children(&mut cursor) {
-            self.walk_for_n_plus_one(child, source, file_path, lang, frameworks, in_loop, findings);
+            self.walk_for_n_plus_one(
+                child, source, file_path, lang, frameworks, in_loop, findings,
+            );
         }
     }
 
@@ -598,8 +594,8 @@ impl NPlusOneDetector {
 
         if Self::is_call_node(kind, lang) {
             let call_text = &source[node.start_byte()..node.end_byte()];
-            let is_query =
-                Self::is_db_query_call(call_text, frameworks) || Self::is_raw_sql_execution(node, source, lang);
+            let is_query = Self::is_db_query_call(call_text, frameworks)
+                || Self::is_raw_sql_execution(node, source, lang);
 
             if is_query {
                 let line = node.start_position().row as u32 + 1;
@@ -805,12 +801,7 @@ impl NPlusOneDetector {
     }
 
     /// Check if a function's AST subtree contains a loop node.
-    fn function_contains_loop(
-        node: Node,
-        lang: Language,
-        func_start: u32,
-        func_end: u32,
-    ) -> bool {
+    fn function_contains_loop(node: Node, lang: Language, func_start: u32, func_end: u32) -> bool {
         let node_line = node.start_position().row as u32 + 1;
 
         if node_line > func_end {
@@ -914,12 +905,9 @@ impl Detector for NPlusOneDetector {
         let existing_locations: HashSet<(String, u32)> = findings
             .iter()
             .flat_map(|f| {
-                f.affected_files.iter().map(|p| {
-                    (
-                        p.to_string_lossy().to_string(),
-                        f.line_start.unwrap_or(0),
-                    )
-                })
+                f.affected_files
+                    .iter()
+                    .map(|p| (p.to_string_lossy().to_string(), f.line_start.unwrap_or(0)))
             })
             .collect();
 
@@ -944,7 +932,6 @@ impl Detector for NPlusOneDetector {
         Ok(findings)
     }
 }
-
 
 impl crate::detectors::RegisteredDetector for NPlusOneDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
@@ -1008,10 +995,7 @@ mod tests {
     fn test_prisma_find_many_is_query() {
         let frameworks: HashSet<Framework> = [Framework::Prisma].into();
         assert!(
-            NPlusOneDetector::is_db_query_call(
-                "prisma.user.findMany({ where: {} })",
-                &frameworks
-            ),
+            NPlusOneDetector::is_db_query_call("prisma.user.findMany({ where: {} })", &frameworks),
             "Prisma findMany should be identified as a DB query"
         );
     }
@@ -1105,15 +1089,13 @@ mod tests {
         let tree = parse_root(code, Language::Python).unwrap();
         let mut has_loop = false;
         check_for_loops(tree.root_node(), Language::Python, &mut has_loop);
-        assert!(
-            has_loop,
-            "List comprehension should be detected as a loop"
-        );
+        assert!(has_loop, "List comprehension should be detected as a loop");
     }
 
     #[test]
     fn test_rust_for_is_a_loop() {
-        let code = "fn main() {\n    for x in items.iter() {\n        println!(\"{}\", x);\n    }\n}\n";
+        let code =
+            "fn main() {\n    for x in items.iter() {\n        println!(\"{}\", x);\n    }\n}\n";
         let tree = parse_root(code, Language::Rust).unwrap();
         let mut has_loop = false;
         check_for_loops(tree.root_node(), Language::Rust, &mut has_loop);
@@ -1231,8 +1213,7 @@ mod tests {
         let detector = NPlusOneDetector::new("/mock/repo");
         let code = "package main\n\nfunc getProfiles(ids []int) {\n\tfor _, id := range ids {\n\t\tvar p Profile\n\t\tdb.First(&p, id)\n\t}\n}\n";
         let frameworks: HashSet<Framework> = [Framework::GORM].into();
-        let findings =
-            detector.analyze_file(code, Path::new("main.go"), Language::Go, &frameworks);
+        let findings = detector.analyze_file(code, Path::new("main.go"), Language::Go, &frameworks);
         assert_eq!(
             findings.len(),
             1,

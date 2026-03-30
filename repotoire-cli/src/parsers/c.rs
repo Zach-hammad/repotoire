@@ -71,10 +71,13 @@ pub fn parse_source(source: &str, path: &Path) -> Result<ParseResult> {
 }
 
 /// Parse C source code and return both the ParseResult and the tree-sitter Tree.
-pub fn parse_source_with_tree(source: &str, path: &Path) -> Result<(ParseResult, tree_sitter::Tree)> {
-    let tree = C_PARSER.with(|cell| {
-        cell.borrow_mut().parse(source, None)
-    }).context("Failed to parse C source")?;
+pub fn parse_source_with_tree(
+    source: &str,
+    path: &Path,
+) -> Result<(ParseResult, tree_sitter::Tree)> {
+    let tree = C_PARSER
+        .with(|cell| cell.borrow_mut().parse(source, None))
+        .context("Failed to parse C source")?;
 
     let root = tree.root_node();
     let source_bytes = source.as_bytes();

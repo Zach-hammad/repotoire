@@ -8,7 +8,8 @@ use tracing::info;
 
 use super::is_test_context;
 
-static PANIC_MACRO: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bpanic!\s*\(").expect("valid regex"));
+static PANIC_MACRO: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\bpanic!\s*\(").expect("valid regex"));
 
 /// Threshold for per-function panic-family call count (Medium severity).
 const FUNCTION_THRESHOLD: usize = 3;
@@ -64,7 +65,10 @@ impl Detector for PanicDensityDetector {
         &["rs"]
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let files = &ctx.as_file_provider();
         let mut findings = Vec::new();
 
@@ -181,10 +185,7 @@ impl Detector for PanicDensityDetector {
             }
         }
 
-        info!(
-            "PanicDensityDetector found {} findings",
-            findings.len()
-        );
+        info!("PanicDensityDetector found {} findings", findings.len());
         Ok(findings)
     }
 }
@@ -245,9 +246,8 @@ fn extract_function_spans(lines: &[&str], content: &str) -> Vec<FunctionSpan> {
         // If we are inside a function body, count panic-family calls
         if let Some(ref mut func) = current_fn {
             // Only count once we've entered the function body (past the opening brace)
-            let is_panic_line = unwrap_re.is_match(line)
-                || expect_re.is_match(line)
-                || panic_re.is_match(line);
+            let is_panic_line =
+                unwrap_re.is_match(line) || expect_re.is_match(line) || panic_re.is_match(line);
             if is_panic_line {
                 // Check for suppression
                 let prev_line = if i > 0 { Some(lines[i - 1]) } else { None };
@@ -302,7 +302,6 @@ fn parse_fn_name(trimmed: &str) -> Option<String> {
     Some(name.to_string())
 }
 
-
 impl super::super::RegisteredDetector for PanicDensityDetector {
     fn create(init: &super::super::DetectorInit) -> std::sync::Arc<dyn Detector> {
         std::sync::Arc::new(Self::new(init.repo_path))
@@ -355,7 +354,11 @@ mod tests {
             .iter()
             .filter(|f| f.title.contains("file-level"))
             .collect();
-        assert_eq!(file_findings.len(), 1, "should flag file with 11 panic calls");
+        assert_eq!(
+            file_findings.len(),
+            1,
+            "should flag file with 11 panic calls"
+        );
         assert_eq!(file_findings[0].severity, Severity::Low);
     }
 
@@ -407,7 +410,10 @@ mod tests {
         let findings = detector.detect(&ctx).expect("detection should succeed");
         // The get_or_init line is safe; remaining 4 should trigger
         assert_eq!(findings.len(), 1);
-        assert!(findings[0].title.contains("4"), "should count 4 non-safe panics");
+        assert!(
+            findings[0].title.contains("4"),
+            "should count 4 non-safe panics"
+        );
     }
 
     #[test]

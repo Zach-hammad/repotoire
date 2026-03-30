@@ -15,14 +15,17 @@ use std::sync::LazyLock;
 use tracing::info;
 
 static CORS_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(
-            r#"(?i)(Access-Control-Allow-Origin|cors.*origin|allowedOrigins?)\s*[:=]\s*["'*]?\*"#,
-        )
-        .expect("valid regex")
-    });
+    Regex::new(
+        r#"(?i)(Access-Control-Allow-Origin|cors.*origin|allowedOrigins?)\s*[:=]\s*["'*]?\*"#,
+    )
+    .expect("valid regex")
+});
 static CREDENTIALS_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r#"(?i)(credentials|allow.?credentials|with.?credentials)\s*[:=]\s*(true|["']include["'])"#).expect("valid regex")
-    });
+    Regex::new(
+        r#"(?i)(credentials|allow.?credentials|with.?credentials)\s*[:=]\s*(true|["']include["'])"#,
+    )
+    .expect("valid regex")
+});
 
 pub struct CorsMisconfigDetector {
     #[allow(dead_code)] // Part of detector pattern, used for file scanning
@@ -52,7 +55,11 @@ impl CorsMisconfigDetector {
         ];
         let path_lower = path.to_lowercase();
         // Normalize: ensure path starts with '/' so patterns like "/dev/" match relative paths
-        let normalized = if path_lower.starts_with('/') { path_lower } else { format!("/{}", path_lower) };
+        let normalized = if path_lower.starts_with('/') {
+            path_lower
+        } else {
+            format!("/{}", path_lower)
+        };
         dev_patterns.iter().any(|p| normalized.contains(p))
     }
 
@@ -81,7 +88,6 @@ impl CorsMisconfigDetector {
         }
         false
     }
-
 }
 
 impl Detector for CorsMisconfigDetector {
@@ -104,12 +110,17 @@ impl Detector for CorsMisconfigDetector {
         &["py", "js", "ts", "jsx", "tsx", "rb", "php", "java"]
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let files = &ctx.as_file_provider();
         let mut findings = vec![];
 
-        for path in files.files_with_extensions(&["py", "js", "ts", "java", "go", "rb", "php", "yaml", "yml", "json", "conf"]) {
+        for path in files.files_with_extensions(&[
+            "py", "js", "ts", "java", "go", "rb", "php", "yaml", "yml", "json", "conf",
+        ]) {
             if findings.len() >= self.max_findings {
                 break;
             }
@@ -123,7 +134,8 @@ impl Detector for CorsMisconfigDetector {
                 None => continue,
             };
             let raw_lower = raw.to_ascii_lowercase();
-            if !raw_lower.contains("cors") && !raw_lower.contains("access-control")
+            if !raw_lower.contains("cors")
+                && !raw_lower.contains("access-control")
                 && !raw_lower.contains("allowedorigin")
             {
                 continue;
@@ -163,7 +175,10 @@ impl Detector for CorsMisconfigDetector {
                         let has_credentials = Self::allows_credentials(&raw_lines, i);
                         let is_sensitive = Self::involves_sensitive_data(line, surrounding);
                         let containing_func =
-                            graph.find_function_at(&path_str, line_num).map(|f| f.node_name(crate::graph::interner::global_interner()).to_string());
+                            graph.find_function_at(&path_str, line_num).map(|f| {
+                                f.node_name(crate::graph::interner::global_interner())
+                                    .to_string()
+                            });
 
                         // Skip if clearly dev-only
                         if is_dev_only {
@@ -261,7 +276,6 @@ impl Detector for CorsMisconfigDetector {
     }
 }
 
-
 impl crate::detectors::RegisteredDetector for CorsMisconfigDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
         std::sync::Arc::new(Self::new(init.repo_path))
@@ -277,9 +291,10 @@ mod tests {
     fn test_detects_wildcard_cors() {
         let store = GraphBuilder::new().freeze();
         let detector = CorsMisconfigDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("config.conf", "Access-Control-Allow-Origin: *\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![("config.conf", "Access-Control-Allow-Origin: *\n")],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(!findings.is_empty(), "Should detect wildcard CORS");
         assert!(
@@ -297,7 +312,10 @@ mod tests {
             ("server.js", "const express = require('express');\nconst app = express();\napp.use((req, res, next) => {\n    res.setHeader('Access-Control-Allow-Origin', 'https://myapp.example.com');\n    next();\n});\n"),
         ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
-        assert!(findings.is_empty(), "Should not detect CORS with specific origin. Found: {:?}",
-            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+        assert!(
+            findings.is_empty(),
+            "Should not detect CORS with specific origin. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
     }
 }

@@ -18,8 +18,8 @@ impl super::AnalysisEngine {
         health: crate::models::HealthReport,
         format: crate::reporters::OutputFormat,
     ) -> anyhow::Result<crate::reporters::report_context::ReportContext> {
-        use crate::reporters::OutputFormat;
         use crate::reporters::report_context::ReportContext;
+        use crate::reporters::OutputFormat;
 
         let needs_rich = matches!(format, OutputFormat::Html | OutputFormat::Text);
 
@@ -43,17 +43,16 @@ impl super::AnalysisEngine {
 
         let previous_health = self.load_previous_health();
 
-        let style_profile = self
-            .state
-            .as_ref()
-            .map(|s| s.style_profile.clone());
+        let style_profile = self.state.as_ref().map(|s| s.style_profile.clone());
 
         // Enrich modules with finding counts from the health report
         let graph_data = graph_data.map(|mut gd| {
-            let mut dir_findings: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+            let mut dir_findings: std::collections::HashMap<String, usize> =
+                std::collections::HashMap::new();
             for finding in &health.findings {
                 if let Some(file) = finding.affected_files.first() {
-                    let dir = file.parent()
+                    let dir = file
+                        .parent()
                         .and_then(|p| p.to_str())
                         .unwrap_or(".")
                         .to_string();
@@ -95,7 +94,12 @@ impl super::AnalysisEngine {
             .iter()
             .filter_map(|&idx| {
                 let node = graph.node_idx(idx)?;
-                let score = graph.primitives().page_rank.get(&idx).copied().unwrap_or(0.0);
+                let score = graph
+                    .primitives()
+                    .page_rank
+                    .get(&idx)
+                    .copied()
+                    .unwrap_or(0.0);
                 if score > 0.0 {
                     Some((interner.resolve(node.qualified_name).to_string(), score))
                 } else {
@@ -112,7 +116,12 @@ impl super::AnalysisEngine {
             .iter()
             .filter_map(|&idx| {
                 let node = graph.node_idx(idx)?;
-                let score = graph.primitives().betweenness.get(&idx).copied().unwrap_or(0.0);
+                let score = graph
+                    .primitives()
+                    .betweenness
+                    .get(&idx)
+                    .copied()
+                    .unwrap_or(0.0);
                 if score > 0.0 {
                     Some((interner.resolve(node.qualified_name).to_string(), score))
                 } else {
@@ -125,7 +134,8 @@ impl super::AnalysisEngine {
 
         // Articulation points
         let art_points: Vec<String> = graph
-            .primitives().articulation_points
+            .primitives()
+            .articulation_points
             .iter()
             .filter_map(|&idx| {
                 let node = graph.node_idx(idx)?;
@@ -135,7 +145,8 @@ impl super::AnalysisEngine {
 
         // Call cycles
         let call_cycles: Vec<Vec<String>> = graph
-            .primitives().call_cycles
+            .primitives()
+            .call_cycles
             .iter()
             .map(|cycle| {
                 cycle
@@ -174,7 +185,8 @@ impl super::AnalysisEngine {
 
         // Hidden coupling from graph primitives
         let hidden_coupling: Vec<(String, String, f32)> = graph
-            .primitives().hidden_coupling
+            .primitives()
+            .hidden_coupling
             .iter()
             .filter_map(|&(a, b, w, _lift, _confidence)| {
                 let na = graph.node_idx(a)?;
@@ -193,9 +205,7 @@ impl super::AnalysisEngine {
             let gi = crate::graph::interner::global_interner();
             let mut pairs: Vec<(String, String, f32)> = matrix
                 .iter()
-                .map(|(&(a, b), &w)| {
-                    (gi.resolve(a).to_string(), gi.resolve(b).to_string(), w)
-                })
+                .map(|(&(a, b), &w)| (gi.resolve(a).to_string(), gi.resolve(b).to_string(), w))
                 .collect();
             pairs.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
             pairs.truncate(20);
@@ -204,15 +214,19 @@ impl super::AnalysisEngine {
 
         // File ownership from OwnershipModel (replaces old ExtraProps-based compute_file_ownership)
         let file_ownership = if let Some(ref ownership) = self.ownership_model {
-            ownership.files.values().map(|fo| {
-                crate::reporters::report_context::FileOwnership {
+            ownership
+                .files
+                .values()
+                .map(|fo| crate::reporters::report_context::FileOwnership {
                     path: fo.path.clone(),
-                    authors: fo.authors.iter()
+                    authors: fo
+                        .authors
+                        .iter()
                         .map(|a| (a.author.clone(), a.normalized_doa))
                         .collect(),
                     bus_factor: fo.bus_factor,
-                }
-            }).collect()
+                })
+                .collect()
         } else {
             self.compute_file_ownership(graph)
         };
@@ -227,10 +241,7 @@ impl super::AnalysisEngine {
             .collect();
 
         // Return None if we have no meaningful git data
-        if hidden_coupling.is_empty()
-            && top_co_change.is_empty()
-            && file_ownership.is_empty()
-        {
+        if hidden_coupling.is_empty() && top_co_change.is_empty() && file_ownership.is_empty() {
             return None;
         }
 
@@ -271,13 +282,11 @@ impl super::AnalysisEngine {
                 // Context: 3 lines before, finding lines, 3 lines after
                 let ctx_start = start.saturating_sub(3);
                 let ctx_end = (end + 3).min(lines.len());
-                let snippet: String = lines
-                    .get(ctx_start..ctx_end)
-                    .unwrap_or(&[])
-                    .join("\n");
+                let snippet: String = lines.get(ctx_start..ctx_end).unwrap_or(&[]).join("\n");
 
                 // Highlight lines are the finding lines (1-indexed)
-                let highlight: Vec<u32> = (f.line_start.unwrap_or(1)..=f.line_end.unwrap_or(f.line_start.unwrap_or(1)))
+                let highlight: Vec<u32> = (f.line_start.unwrap_or(1)
+                    ..=f.line_end.unwrap_or(f.line_start.unwrap_or(1)))
                     .collect();
 
                 // Detect language from extension
@@ -376,7 +385,10 @@ impl super::AnalysisEngine {
                             *votes.entry(c).or_default() += 1;
                         }
                     }
-                    votes.into_iter().max_by_key(|&(_, count)| count).map(|(id, _)| id)
+                    votes
+                        .into_iter()
+                        .max_by_key(|&(_, count)| count)
+                        .map(|(id, _)| id)
                 };
 
                 ModuleNode {
@@ -522,9 +534,7 @@ fn common_path_prefix(paths: &[String]) -> Option<String> {
     });
     let prefix = &first[..prefix_len];
     // Trim to last '/' to get a clean directory path
-    prefix
-        .rfind('/')
-        .map(|i| first[..=i].to_string())
+    prefix.rfind('/').map(|i| first[..=i].to_string())
 }
 
 impl super::AnalysisEngine {

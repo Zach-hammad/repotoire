@@ -105,15 +105,7 @@ impl TaintCategory {
     pub fn quick_reject_patterns(&self) -> &'static [&'static str] {
         match self {
             TaintCategory::SqlInjection => &[
-                "execute",
-                "cursor",
-                "query",
-                "SELECT",
-                "INSERT",
-                "UPDATE",
-                "DELETE",
-                "sql",
-                "SQL",
+                "execute", "cursor", "query", "SELECT", "INSERT", "UPDATE", "DELETE", "sql", "SQL",
                 "db.",
             ],
             TaintCategory::CommandInjection => &[

@@ -58,11 +58,16 @@ impl Detector for MissingRandomSeedDetector {
         crate::detectors::detector_context::ContentFlags::HAS_ML
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let files = &ctx.as_file_provider();
         // Codebase-level pre-filter: skip if no file uses ML libraries
         let has_ml = files.files_with_extension("py").iter().any(|p| {
-            files.content(p).is_some_and(|c| c.contains("torch") || c.contains("tensorflow") || c.contains("sklearn"))
+            files.content(p).is_some_and(|c| {
+                c.contains("torch") || c.contains("tensorflow") || c.contains("sklearn")
+            })
         });
         if !has_ml {
             return Ok(vec![]);
@@ -180,11 +185,16 @@ impl Detector for ChainIndexingDetector {
         crate::detectors::detector_context::ContentFlags::HAS_ML
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let files = &ctx.as_file_provider();
         // Codebase-level pre-filter: skip if no file uses pandas
         let has_pandas = files.files_with_extension("py").iter().any(|p| {
-            files.content(p).is_some_and(|c| c.contains("pandas") || c.contains("import pd"))
+            files
+                .content(p)
+                .is_some_and(|c| c.contains("pandas") || c.contains("import pd"))
         });
         if !has_pandas {
             return Ok(vec![]);
@@ -297,11 +307,16 @@ impl Detector for RequireGradTypoDetector {
         crate::detectors::detector_context::ContentFlags::HAS_ML
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let files = &ctx.as_file_provider();
         // Codebase-level pre-filter: skip if no file imports torch
         let has_torch = files.files_with_extension("py").iter().any(|p| {
-            files.content(p).is_some_and(|c| c.contains("torch") || c.contains("require_grad"))
+            files
+                .content(p)
+                .is_some_and(|c| c.contains("torch") || c.contains("require_grad"))
         });
         if !has_torch {
             return Ok(vec![]);
@@ -422,12 +437,16 @@ impl Detector for DeprecatedTorchApiDetector {
         crate::detectors::detector_context::ContentFlags::HAS_ML
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let files = &ctx.as_file_provider();
         // Codebase-level pre-filter: skip if no file imports torch
-        let has_torch = files.files_with_extension("py").iter().any(|p| {
-            files.content(p).is_some_and(|c| c.contains("torch"))
-        });
+        let has_torch = files
+            .files_with_extension("py")
+            .iter()
+            .any(|p| files.content(p).is_some_and(|c| c.contains("torch")));
         if !has_torch {
             return Ok(vec![]);
         }

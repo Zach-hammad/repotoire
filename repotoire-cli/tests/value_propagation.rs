@@ -35,8 +35,10 @@ def handler():
     .unwrap();
 
     // Parse both files
-    let config_result = repotoire::parsers::parse_file_with_values(&dir.path().join("config.py")).unwrap();
-    let api_result = repotoire::parsers::parse_file_with_values(&dir.path().join("api.py")).unwrap();
+    let config_result =
+        repotoire::parsers::parse_file_with_values(&dir.path().join("config.py")).unwrap();
+    let api_result =
+        repotoire::parsers::parse_file_with_values(&dir.path().join("api.py")).unwrap();
 
     // Verify raw values were extracted
     let config_raw = config_result

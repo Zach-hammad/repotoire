@@ -15,11 +15,11 @@ use std::sync::LazyLock;
 use tracing::info;
 
 static XXE_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"(?i)(xml\.parse|parseXML|XMLParser|DocumentBuilder|SAXParser|etree\.parse|lxml\.etree|xml\.etree|DOMParser|XMLReader|xml\.dom|minidom|pulldom|xml2js|fast-xml-parser|libxml)").expect("valid regex")
-    });
+    Regex::new(r"(?i)(xml\.parse|parseXML|XMLParser|DocumentBuilder|SAXParser|etree\.parse|lxml\.etree|xml\.etree|DOMParser|XMLReader|xml\.dom|minidom|pulldom|xml2js|fast-xml-parser|libxml)").expect("valid regex")
+});
 static USER_INPUT: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"(req\.(body|file|files)|request\.(data|files)|uploaded|file_content|input|read\(|getInputStream)").expect("valid regex")
-    });
+    Regex::new(r"(req\.(body|file|files)|request\.(data|files)|uploaded|file_content|input|read\(|getInputStream)").expect("valid regex")
+});
 
 /// Get language-specific protection patterns
 fn get_protection_patterns(ext: &str) -> Vec<&'static str> {
@@ -184,7 +184,6 @@ impl XxeDetector {
 
         USER_INPUT.is_match(&context)
     }
-
 }
 
 impl Detector for XxeDetector {
@@ -214,12 +213,17 @@ impl Detector for XxeDetector {
         crate::detectors::detector_context::ContentFlags::HAS_SERIALIZE
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let files = &ctx.as_file_provider();
         let mut findings = vec![];
 
-        for path in files.files_with_extensions(&["py", "js", "ts", "java", "php", "cs", "rb", "go"]) {
+        for path in
+            files.files_with_extensions(&["py", "js", "ts", "java", "php", "cs", "rb", "go"])
+        {
             if findings.len() >= self.max_findings {
                 break;
             }
@@ -293,20 +297,26 @@ impl Detector for XxeDetector {
                     let has_user_input = Self::has_user_input_flow(&lines, i);
 
                     // Get function context
-                    let func_context =
-                        graph.find_function_at(&path_str, (i + 1) as u32).map(|f| {
-                            let callers = graph.get_callers(f.qn(crate::graph::interner::global_interner()));
-                            let has_external_callers = callers.iter().any(|c| {
-                                let name = c.node_name(crate::graph::interner::global_interner()).to_lowercase();
-                                name.contains("route")
-                                    || name.contains("handler")
-                                    || name.contains("api")
-                                    || name.contains("upload")
-                                    || name.contains("import")
-                                    || name.contains("parse")
-                            });
-                            (f.node_name(crate::graph::interner::global_interner()).to_string(), has_external_callers)
+                    let func_context = graph.find_function_at(&path_str, (i + 1) as u32).map(|f| {
+                        let callers =
+                            graph.get_callers(f.qn(crate::graph::interner::global_interner()));
+                        let has_external_callers = callers.iter().any(|c| {
+                            let name = c
+                                .node_name(crate::graph::interner::global_interner())
+                                .to_lowercase();
+                            name.contains("route")
+                                || name.contains("handler")
+                                || name.contains("api")
+                                || name.contains("upload")
+                                || name.contains("import")
+                                || name.contains("parse")
                         });
+                        (
+                            f.node_name(crate::graph::interner::global_interner())
+                                .to_string(),
+                            has_external_callers,
+                        )
+                    });
 
                     // Calculate severity
                     let severity = if has_user_input {
@@ -404,7 +414,6 @@ impl Detector for XxeDetector {
     }
 }
 
-
 impl crate::detectors::RegisteredDetector for XxeDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
         std::sync::Arc::new(Self::new(init.repo_path))
@@ -420,9 +429,13 @@ mod tests {
     fn test_detects_xxe_without_protection() {
         let store = GraphBuilder::new().freeze();
         let detector = XxeDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("parser.py", "\nfrom lxml import etree\ntree = etree.parse(xml_file)\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "parser.py",
+                "\nfrom lxml import etree\ntree = etree.parse(xml_file)\n",
+            )],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
@@ -435,9 +448,13 @@ mod tests {
     fn test_no_finding_with_defusedxml() {
         let store = GraphBuilder::new().freeze();
         let detector = XxeDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("safe_parser.py", "\nimport defusedxml.ElementTree as ET\ntree = ET.parse(xml_file)\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "safe_parser.py",
+                "\nimport defusedxml.ElementTree as ET\ntree = ET.parse(xml_file)\n",
+            )],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
@@ -450,9 +467,13 @@ mod tests {
     fn test_no_finding_for_import_only() {
         let store = GraphBuilder::new().freeze();
         let detector = XxeDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("parser.py", "from xml.dom import minidom, pulldom\nimport xml.etree.ElementTree as ET\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "parser.py",
+                "from xml.dom import minidom, pulldom\nimport xml.etree.ElementTree as ET\n",
+            )],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
@@ -480,9 +501,13 @@ mod tests {
     fn test_no_finding_for_js_static_data() {
         let store = GraphBuilder::new().freeze();
         let detector = XxeDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("globals.js", "var globals = {\n    \"DOMParser\": false,\n    \"XMLHttpRequest\": false,\n};\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "globals.js",
+                "var globals = {\n    \"DOMParser\": false,\n    \"XMLHttpRequest\": false,\n};\n",
+            )],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),

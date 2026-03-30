@@ -219,10 +219,7 @@ pub fn node_to_symbolic(
             .or_else(|| node.child_by_field_name("operand"))
             .or(node.named_child(0))
         {
-            let op_text = node
-                .child(0)
-                .map(|c| node_text(c, source))
-                .unwrap_or("");
+            let op_text = node.child(0).map(|c| node_text(c, source)).unwrap_or("");
             let inner = node_to_symbolic(operand, source, config, _func_qn);
             if op_text == "-" {
                 if let SymbolicValue::Literal(LiteralValue::Integer(n)) = &inner {

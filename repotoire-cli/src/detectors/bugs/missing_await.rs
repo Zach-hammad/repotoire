@@ -16,10 +16,10 @@ use std::sync::LazyLock;
 use tracing::info;
 
 static ASYNC_CALL: LazyLock<Regex> = LazyLock::new(|| {
-        // Only match clearly async I/O patterns — NOT generic method calls
-        Regex::new(r"(?i)\b(fetch\(|axios\.\w+\(|\.\bjson\(\)|\.\btext\(\)|async_\w+\(|aio\w+\.|\.\bquery\(|\.\bexecute\(|\.\bconnect\(|\.\bsend\(|fs\.promises\.|fsPromises\.)")
+    // Only match clearly async I/O patterns — NOT generic method calls
+    Regex::new(r"(?i)\b(fetch\(|axios\.\w+\(|\.\bjson\(\)|\.\btext\(\)|async_\w+\(|aio\w+\.|\.\bquery\(|\.\bexecute\(|\.\bconnect\(|\.\bsend\(|fs\.promises\.|fsPromises\.)")
             .expect("valid regex")
-    });
+});
 
 pub struct MissingAwaitDetector {
     #[allow(dead_code)] // Part of detector pattern, used for file scanning
@@ -113,7 +113,10 @@ impl Detector for MissingAwaitDetector {
         &["py", "js", "ts", "jsx", "tsx"]
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let files = &ctx.as_file_provider();
         let gi = graph.interner();
@@ -123,7 +126,8 @@ impl Detector for MissingAwaitDetector {
 
         // Pre-build file→functions map once (avoid calling get_functions() per file)
         let all_functions = graph.get_functions_shared();
-        let mut funcs_by_file: std::collections::HashMap<&str, Vec<&crate::graph::CodeNode>> = std::collections::HashMap::new();
+        let mut funcs_by_file: std::collections::HashMap<&str, Vec<&crate::graph::CodeNode>> =
+            std::collections::HashMap::new();
         for func in all_functions.iter() {
             funcs_by_file.entry(func.path(gi)).or_default().push(func);
         }
@@ -148,7 +152,7 @@ impl Detector for MissingAwaitDetector {
             // Find async function boundaries using brace counting
             // We need to know: (a) are we inside an async function? (b) which one?
             let mut async_ranges: Vec<(usize, usize, String)> = Vec::new(); // (start, end, name)
-            // Use pre-built file→functions map instead of calling get_functions() per file
+                                                                            // Use pre-built file→functions map instead of calling get_functions() per file
             let file_funcs: Vec<&&crate::graph::CodeNode> = funcs_by_file
                 .get(path_str.as_str())
                 .map(|v| v.iter().collect())
@@ -337,7 +341,6 @@ impl Detector for MissingAwaitDetector {
         Ok(findings)
     }
 }
-
 
 impl crate::detectors::RegisteredDetector for MissingAwaitDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {

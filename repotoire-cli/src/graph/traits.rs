@@ -353,7 +353,9 @@ pub trait GraphQueryExt: GraphQuery {
     fn is_in_import_cycle(&self, file_path: &str) -> bool {
         let cycles = self.find_import_cycles();
         cycles.iter().any(|cycle| {
-            cycle.iter().any(|qn| qn == file_path || file_path.contains(qn.as_str()))
+            cycle
+                .iter()
+                .any(|qn| qn == file_path || file_path.contains(qn.as_str()))
         })
     }
 
@@ -498,9 +500,7 @@ pub trait GraphQueryExt: GraphQuery {
         let mut adj = vec![vec![]; n];
         let mut rev_adj = vec![vec![]; n];
         for (caller, callee) in &calls {
-            if let (Some(&from), Some(&to)) =
-                (qn_to_idx.get(caller), qn_to_idx.get(callee))
-            {
+            if let (Some(&from), Some(&to)) = (qn_to_idx.get(caller), qn_to_idx.get(callee)) {
                 adj[from].push(to);
                 rev_adj[to].push(from);
             }

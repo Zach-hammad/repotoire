@@ -157,9 +157,7 @@ pub fn interpolate_percentile(value: f64, dist: &PercentileDistribution) -> f64 
 fn cache_file_path(url: &str) -> std::path::PathBuf {
     let cache_dir = crate::cache::paths::benchmark_cache_dir();
     // Build a safe filename from the URL by replacing slashes and special chars.
-    let slug = url
-        .trim_start_matches("https://")
-        .replace(['/', '.'], "_");
+    let slug = url.trim_start_matches("https://").replace(['/', '.'], "_");
     cache_dir.join(format!("{}.json", slug))
 }
 

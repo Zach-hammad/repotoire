@@ -21,30 +21,31 @@ pub struct GHActionsInjectionDetector {
 
 /// Compiled regex for dangerous GitHub context patterns
 static DANGEROUS_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-        // Dangerous GitHub Actions expression patterns (user-controlled input)
-        let patterns = [
-            r"github\.event\.pull_request\.title",
-            r"github\.event\.pull_request\.body",
-            r"github\.event\.pull_request\.head\.ref",
-            r"github\.event\.pull_request\.head\.label",
-            r"github\.head_ref",
-            r"github\.event\.issue\.title",
-            r"github\.event\.issue\.body",
-            r"github\.event\.comment\.body",
-            r"github\.event\.review\.body",
-            r"github\.event\.review_comment\.body",
-            r"github\.event\.discussion\.title",
-            r"github\.event\.discussion\.body",
-            r"github\.event\.commits\[\d*\]\.message",
-            r"github\.event\.head_commit\.message",
-            r"github\.event\.head_commit\.author\.name",
-            r"github\.event\.head_commit\.author\.email",
-            r"github\.event\.inputs\.[^}]+",
-            r"github\.event\.sender\.login",
-        ];
-        Regex::new(&format!(r"\$\{{\{{\s*({})\s*\}}\}}", patterns.join("|"))).expect("valid regex")
-    });
-static RUN_BLOCK_PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*(?:-\s+)?run:\s*[|>]?\s*").expect("valid regex"));
+    // Dangerous GitHub Actions expression patterns (user-controlled input)
+    let patterns = [
+        r"github\.event\.pull_request\.title",
+        r"github\.event\.pull_request\.body",
+        r"github\.event\.pull_request\.head\.ref",
+        r"github\.event\.pull_request\.head\.label",
+        r"github\.head_ref",
+        r"github\.event\.issue\.title",
+        r"github\.event\.issue\.body",
+        r"github\.event\.comment\.body",
+        r"github\.event\.review\.body",
+        r"github\.event\.review_comment\.body",
+        r"github\.event\.discussion\.title",
+        r"github\.event\.discussion\.body",
+        r"github\.event\.commits\[\d*\]\.message",
+        r"github\.event\.head_commit\.message",
+        r"github\.event\.head_commit\.author\.name",
+        r"github\.event\.head_commit\.author\.email",
+        r"github\.event\.inputs\.[^}]+",
+        r"github\.event\.sender\.login",
+    ];
+    Regex::new(&format!(r"\$\{{\{{\s*({})\s*\}}\}}", patterns.join("|"))).expect("valid regex")
+});
+static RUN_BLOCK_PATTERN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^\s*(?:-\s+)?run:\s*[|>]?\s*").expect("valid regex"));
 
 impl GHActionsInjectionDetector {
     /// Create a new GitHub Actions injection detector
@@ -89,7 +90,11 @@ impl GHActionsInjectionDetector {
 
                 // Check if run: has dangerous pattern on same line
                 if let Some(caps) = dangerous.captures(line) {
-                    let prev_line = if line_no > 0 { Some(lines[line_no - 1]) } else { None };
+                    let prev_line = if line_no > 0 {
+                        Some(lines[line_no - 1])
+                    } else {
+                        None
+                    };
                     if !crate::detectors::is_line_suppressed(line, prev_line) {
                         matches.push(InjectionMatch {
                             file: rel_path.clone(),
@@ -123,7 +128,11 @@ impl GHActionsInjectionDetector {
 
                 // Check for dangerous patterns inside the run block
                 if let Some(caps) = dangerous.captures(line) {
-                    let prev_line = if line_no > 0 { Some(lines[line_no - 1]) } else { None };
+                    let prev_line = if line_no > 0 {
+                        Some(lines[line_no - 1])
+                    } else {
+                        None
+                    };
                     if crate::detectors::is_line_suppressed(line, prev_line) {
                         continue;
                     }
@@ -278,7 +287,10 @@ impl Detector for GHActionsInjectionDetector {
         &["yml", "yaml"]
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let fp = ctx.as_file_provider();
 
         // Get all YAML files and filter to .github/workflows/
@@ -293,7 +305,10 @@ impl Detector for GHActionsInjectionDetector {
             return Ok(Vec::new());
         }
 
-        info!("Scanning {} GitHub Actions workflow files", workflow_files.len());
+        info!(
+            "Scanning {} GitHub Actions workflow files",
+            workflow_files.len()
+        );
 
         let mut all_matches = Vec::new();
 
@@ -334,7 +349,6 @@ impl Detector for GHActionsInjectionDetector {
         Some(&self.config)
     }
 }
-
 
 impl crate::detectors::RegisteredDetector for GHActionsInjectionDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {

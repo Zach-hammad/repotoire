@@ -1,9 +1,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use tower_lsp::lsp_types::{
-    Diagnostic, DiagnosticSeverity, NumberOrString, Position, Range, Url,
-};
+use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity, NumberOrString, Position, Range, Url};
 
 use crate::models::{Finding, Severity};
 
@@ -186,7 +184,13 @@ impl DiagnosticMap {
 mod tests {
     use super::*;
 
-    fn make_finding(id: &str, detector: &str, file: &str, line: u32, severity: Severity) -> Finding {
+    fn make_finding(
+        id: &str,
+        detector: &str,
+        file: &str,
+        line: u32,
+        severity: Severity,
+    ) -> Finding {
         Finding {
             id: id.to_string(),
             detector: detector.to_string(),
@@ -200,10 +204,19 @@ mod tests {
 
     #[test]
     fn severity_mapping() {
-        assert_eq!(to_lsp_severity(Severity::Critical), DiagnosticSeverity::ERROR);
+        assert_eq!(
+            to_lsp_severity(Severity::Critical),
+            DiagnosticSeverity::ERROR
+        );
         assert_eq!(to_lsp_severity(Severity::High), DiagnosticSeverity::WARNING);
-        assert_eq!(to_lsp_severity(Severity::Medium), DiagnosticSeverity::WARNING);
-        assert_eq!(to_lsp_severity(Severity::Low), DiagnosticSeverity::INFORMATION);
+        assert_eq!(
+            to_lsp_severity(Severity::Medium),
+            DiagnosticSeverity::WARNING
+        );
+        assert_eq!(
+            to_lsp_severity(Severity::Low),
+            DiagnosticSeverity::INFORMATION
+        );
         assert_eq!(to_lsp_severity(Severity::Info), DiagnosticSeverity::HINT);
     }
 
@@ -242,7 +255,13 @@ mod tests {
         let initial = vec![make_finding("f1", "XSS", "/tmp/a.rs", 10, Severity::High)];
         map.set_all(&initial);
 
-        let new = vec![make_finding("f2", "SQLi", "/tmp/a.rs", 20, Severity::Critical)];
+        let new = vec![make_finding(
+            "f2",
+            "SQLi",
+            "/tmp/a.rs",
+            20,
+            Severity::Critical,
+        )];
         let fixed = vec![make_finding("f1", "XSS", "/tmp/a.rs", 10, Severity::High)];
         let changed = map.apply_delta(&new, &fixed);
 

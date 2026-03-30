@@ -121,7 +121,10 @@ pub fn run_detectors(
 ///
 /// Returns `(name, findings, skipped)` where `skipped` is `true` when the
 /// detector could not run (query error or panic).
-fn run_one(detector: &Arc<dyn Detector>, ctx: &AnalysisContext<'_>) -> (String, Vec<Finding>, bool) {
+fn run_one(
+    detector: &Arc<dyn Detector>,
+    ctx: &AnalysisContext<'_>,
+) -> (String, Vec<Finding>, bool) {
     let name = detector.name().to_string();
     let start = Instant::now();
 
@@ -210,7 +213,9 @@ pub fn filter_test_file_findings(findings: &mut Vec<Finding>) {
     // Downgrade non-production findings to LOW before filtering tests
     for f in findings.iter_mut() {
         if !f.affected_files.is_empty()
-            && f.affected_files.iter().all(|p| super::base::is_non_production_file(p))
+            && f.affected_files
+                .iter()
+                .all(|p| super::base::is_non_production_file(p))
             && f.severity != crate::models::Severity::Low
             && f.severity != crate::models::Severity::Info
         {
@@ -266,7 +271,9 @@ pub fn apply_hmm_context_filter(findings: Vec<Finding>, ctx: &AnalysisContext<'_
     let i = ctx.graph.interner();
     let mut func_by_file: HashMap<&str, Vec<&CodeNode>> = HashMap::new();
     for &func_idx in ctx.graph.functions_idx() {
-        let Some(func) = ctx.graph.node_idx(func_idx) else { continue };
+        let Some(func) = ctx.graph.node_idx(func_idx) else {
+            continue;
+        };
         func_by_file.entry(func.path(i)).or_default().push(func);
     }
     // Sort each file's functions by line_start (done once, shared by all findings)

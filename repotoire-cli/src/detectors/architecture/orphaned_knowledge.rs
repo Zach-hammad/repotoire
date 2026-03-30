@@ -4,7 +4,9 @@
 //! meaning no active maintainer understands the code.
 
 use crate::detectors::analysis_context::AnalysisContext;
-use crate::detectors::base::{is_non_production_file, is_test_file, Detector, DetectorConfig, DetectorScope};
+use crate::detectors::base::{
+    is_non_production_file, is_test_file, Detector, DetectorConfig, DetectorScope,
+};
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use std::path::PathBuf;
@@ -200,10 +202,7 @@ mod tests {
         let graph = builder.freeze();
 
         let mut files = HashMap::new();
-        let (k, v) = make_file(
-            "src/lib.rs",
-            vec![make_author("alice", true, true)],
-        );
+        let (k, v) = make_file("src/lib.rs", vec![make_author("alice", true, true)]);
         files.insert(k, v);
 
         let model = OwnershipModel {

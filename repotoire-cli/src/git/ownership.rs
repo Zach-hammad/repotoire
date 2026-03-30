@@ -139,16 +139,19 @@ fn build_file_commit_data(
         let weight = decay_weight(age_days, half_life_days);
 
         for file_path in &commit.files_changed {
-            let data = files.entry(file_path.clone()).or_insert_with(|| FileCommitData {
-                first_author: commit.author.clone(),
-                author_commits: HashMap::new(),
-                total_other_commits: HashMap::new(),
-            });
+            let data = files
+                .entry(file_path.clone())
+                .or_insert_with(|| FileCommitData {
+                    first_author: commit.author.clone(),
+                    author_commits: HashMap::new(),
+                    total_other_commits: HashMap::new(),
+                });
 
-            let entry = data
-                .author_commits
-                .entry(commit.author.clone())
-                .or_insert((commit.author_email.clone(), 0.0, 0));
+            let entry = data.author_commits.entry(commit.author.clone()).or_insert((
+                commit.author_email.clone(),
+                0.0,
+                0,
+            ));
             entry.1 += weight;
             if commit_ts > entry.2 {
                 entry.2 = commit_ts;
@@ -176,10 +179,7 @@ fn build_file_commit_data(
 }
 
 /// Compute the full ownership model from git history.
-pub fn compute_ownership_model(
-    commits: &[CommitInfo],
-    config: &OwnershipConfig,
-) -> OwnershipModel {
+pub fn compute_ownership_model(commits: &[CommitInfo], config: &OwnershipConfig) -> OwnershipModel {
     if commits.is_empty() {
         return OwnershipModel::empty();
     }
@@ -336,16 +336,12 @@ fn aggregate_modules(
             }
         }
         let mut top_authors: Vec<(String, f64)> = author_totals.into_iter().collect();
-        top_authors.sort_by(|a, b| {
-            b.1.partial_cmp(&a.1)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+        top_authors.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         top_authors.truncate(3);
 
-        let risk_score = ((1.0 - avg_bus_factor / 5.0).max(0.0) * 0.4
-            + avg_hhi * 0.3
-            + at_risk_pct * 0.3)
-            .clamp(0.0, 1.0);
+        let risk_score =
+            ((1.0 - avg_bus_factor / 5.0).max(0.0) * 0.4 + avg_hhi * 0.3 + at_risk_pct * 0.3)
+                .clamp(0.0, 1.0);
 
         modules.insert(
             dir.clone(),
@@ -387,12 +383,7 @@ fn compute_project_bus_factor(files: &HashMap<String, FileOwnershipDOA>) -> usiz
 
     let mut file_author_count: HashMap<String, usize> = files
         .iter()
-        .map(|(p, fo)| {
-            (
-                p.clone(),
-                fo.authors.iter().filter(|a| a.is_author).count(),
-            )
-        })
+        .map(|(p, fo)| (p.clone(), fo.authors.iter().filter(|a| a.is_author).count()))
         .collect();
 
     let threshold = total_files / 2;

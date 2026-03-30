@@ -23,8 +23,8 @@
 //! - Reduce severity for Hub functions (they bridge modules intentionally)
 
 use crate::detectors::base::{Detector, DetectorConfig, DetectorScope};
-use crate::graph::GraphQueryExt;
 use crate::detectors::function_context::{FunctionContext, FunctionContextMap, FunctionRole};
+use crate::graph::GraphQueryExt;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use std::collections::HashSet;
@@ -382,7 +382,10 @@ impl Detector for FeatureEnvyDetector {
         DetectorScope::GraphWide
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let i = graph.interner();
         let mut findings = Vec::new();
@@ -667,7 +670,8 @@ mod tests {
         assert!(detector.is_in_orchestrator_class("gql::QueryResolver::resolve", "src/graphql.py"));
 
         // Regular classes should NOT be detected
-        assert!(!detector.is_in_orchestrator_class("app::OrderService::calculate", "src/services/orders.py"));
+        assert!(!detector
+            .is_in_orchestrator_class("app::OrderService::calculate", "src/services/orders.py"));
         assert!(!detector.is_in_orchestrator_class("models::User::validate", "src/models.py"));
     }
 
@@ -679,7 +683,9 @@ mod tests {
         assert!(detector.is_in_orchestrator_class("app::Users::index", "src/controllers/users.py"));
         assert!(detector.is_in_orchestrator_class("app::Auth::login", "src/handlers/auth.ts"));
         assert!(detector.is_in_orchestrator_class("api::Items::list", "src/endpoints/items.py"));
-        assert!(detector.is_in_orchestrator_class("app::Logging::call", "src/middleware/logging.py"));
+        assert!(
+            detector.is_in_orchestrator_class("app::Logging::call", "src/middleware/logging.py")
+        );
 
         // Non-orchestrator paths should NOT be detected
         assert!(!detector.is_in_orchestrator_class("app::Order::save", "src/models/order.py"));

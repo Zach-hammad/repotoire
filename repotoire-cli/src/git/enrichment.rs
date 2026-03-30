@@ -71,7 +71,9 @@ impl<'a> GitEnricher<'a> {
 
         let mut unique_files: HashSet<String> = HashSet::new();
         for f in &functions {
-            let has_last_modified = self.graph.get_extra_props(f.qualified_name)
+            let has_last_modified = self
+                .graph
+                .get_extra_props(f.qualified_name)
                 .and_then(|ep| ep.last_modified)
                 .is_some();
             if !has_last_modified {
@@ -79,7 +81,9 @@ impl<'a> GitEnricher<'a> {
             }
         }
         for c in &classes {
-            let has_last_modified = self.graph.get_extra_props(c.qualified_name)
+            let has_last_modified = self
+                .graph
+                .get_extra_props(c.qualified_name)
                 .and_then(|ep| ep.last_modified)
                 .is_some();
             if !has_last_modified {
@@ -138,7 +142,8 @@ impl<'a> GitEnricher<'a> {
         let functions_to_enrich: Vec<_> = functions
             .into_iter()
             .filter(|f| {
-                self.graph.get_extra_props(f.qualified_name)
+                self.graph
+                    .get_extra_props(f.qualified_name)
                     .and_then(|ep| ep.last_modified)
                     .is_none()
             })
@@ -164,7 +169,12 @@ impl<'a> GitEnricher<'a> {
                 .blame
                 .get_entity_blame(func.path(gi), line_start, line_end)
                 .inspect_err(|e| {
-                    debug!("Failed to get blame for {}:{}: {}", func.path(gi), line_start, e);
+                    debug!(
+                        "Failed to get blame for {}:{}: {}",
+                        func.path(gi),
+                        line_start,
+                        e
+                    );
                 });
             let Ok(blame_info) = blame_result else {
                 stats.files_skipped += 1;
@@ -206,7 +216,8 @@ impl<'a> GitEnricher<'a> {
         let classes_to_enrich: Vec<_> = classes
             .into_iter()
             .filter(|c| {
-                self.graph.get_extra_props(c.qualified_name)
+                self.graph
+                    .get_extra_props(c.qualified_name)
                     .and_then(|ep| ep.last_modified)
                     .is_none()
             })
@@ -232,7 +243,12 @@ impl<'a> GitEnricher<'a> {
                 .blame
                 .get_entity_blame(class.path(gi), line_start, line_end)
                 .inspect_err(|e| {
-                    debug!("Failed to get blame for {}:{}: {}", class.path(gi), line_start, e);
+                    debug!(
+                        "Failed to get blame for {}:{}: {}",
+                        class.path(gi),
+                        line_start,
+                        e
+                    );
                 });
             let Ok(blame_info) = blame_result else {
                 stats.files_skipped += 1;
@@ -256,9 +272,7 @@ impl<'a> GitEnricher<'a> {
                     ("author", serde_json::Value::String(author.clone())),
                     (
                         "commit_count",
-                        serde_json::Value::Number(
-                            (blame_info.commit_count as i64).into(),
-                        ),
+                        serde_json::Value::Number((blame_info.commit_count as i64).into()),
                     ),
                 ],
             );

@@ -245,14 +245,12 @@ mod tests {
         cache
             .contents
             .insert(path_b.clone(), Arc::new("fn helper() {}".to_string()));
-        cache.lines.insert(
-            path_a.clone(),
-            Arc::new(vec!["fn main() {}".to_string()]),
-        );
-        cache.lines.insert(
-            path_b.clone(),
-            Arc::new(vec!["fn helper() {}".to_string()]),
-        );
+        cache
+            .lines
+            .insert(path_a.clone(), Arc::new(vec!["fn main() {}".to_string()]));
+        cache
+            .lines
+            .insert(path_b.clone(), Arc::new(vec!["fn helper() {}".to_string()]));
 
         // Verify is_populated returns true after adding content
         assert!(cache.is_populated());

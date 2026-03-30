@@ -12,9 +12,9 @@
 //! Dead function detection (fan_in == 0) is handled by DeadCodeDetector.
 
 use crate::detectors::analysis_context::AnalysisContext;
-use crate::graph::GraphQueryExt;
 use crate::detectors::ast_fingerprint::{get_ts_language, parse_root_ext};
 use crate::detectors::base::Detector;
+use crate::graph::GraphQueryExt;
 use crate::models::{Finding, Severity};
 use crate::parsers::lightweight::Language;
 use anyhow::Result;
@@ -35,14 +35,8 @@ impl UnreachableCodeDetector {
     /// Rust conditional compilation attributes that mean a function is only compiled
     /// under certain conditions (cfg, test, bench, etc.) -- not truly unreachable.
     #[allow(dead_code)]
-    const RUST_CONDITIONAL_ATTRS: &'static [&'static str] = &[
-        "cfg(",
-        "cfg_attr(",
-        "test",
-        "bench",
-        "ignore",
-        "cfg_eval",
-    ];
+    const RUST_CONDITIONAL_ATTRS: &'static [&'static str] =
+        &["cfg(", "cfg_attr(", "test", "bench", "ignore", "cfg_eval"];
 
     /// Check if a function is conditionally compiled via Rust attributes.
     ///
@@ -368,17 +362,11 @@ impl UnreachableCodeDetector {
             ),
             Language::Python => matches!(
                 kind,
-                "return_statement"
-                    | "raise_statement"
-                    | "break_statement"
-                    | "continue_statement"
+                "return_statement" | "raise_statement" | "break_statement" | "continue_statement"
             ),
             _ => matches!(
                 kind,
-                "return_statement"
-                    | "throw_statement"
-                    | "break_statement"
-                    | "continue_statement"
+                "return_statement" | "throw_statement" | "break_statement" | "continue_statement"
             ),
         }
     }
@@ -424,7 +412,9 @@ impl Detector for UnreachableCodeDetector {
     }
 
     fn file_extensions(&self) -> &'static [&'static str] {
-        &["py", "js", "ts", "jsx", "tsx", "java", "go", "rs", "c", "cpp", "cs"]
+        &[
+            "py", "js", "ts", "jsx", "tsx", "java", "go", "rs", "c", "cpp", "cs",
+        ]
     }
 
     fn detect(
@@ -436,7 +426,6 @@ impl Detector for UnreachableCodeDetector {
     }
 }
 
-
 impl crate::detectors::RegisteredDetector for UnreachableCodeDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
         std::sync::Arc::new(Self::new(init.repo_path))
@@ -446,9 +435,9 @@ impl crate::detectors::RegisteredDetector for UnreachableCodeDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::graph::builder::GraphBuilder;
     use crate::graph::store_models::ExtraProps;
     use crate::graph::{CodeEdge, CodeNode};
-    use crate::graph::builder::GraphBuilder;
 
     // ── Verify no dead function findings ─────────────────────────────────
 
@@ -462,8 +451,10 @@ mod tests {
         );
 
         let detector = UnreachableCodeDetector::new(".");
-        let ctx =
-            crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &graph,
+            vec![],
+        );
         let findings = detector.detect(&ctx).unwrap();
         assert!(
             findings.is_empty(),
@@ -505,10 +496,7 @@ function foo(x) {
         assert!(
             findings.is_empty(),
             "else branch after return is NOT unreachable, got: {:?}",
-            findings
-                .iter()
-                .map(|f| &f.description)
-                .collect::<Vec<_>>()
+            findings.iter().map(|f| &f.description).collect::<Vec<_>>()
         );
     }
 
@@ -572,10 +560,7 @@ function foo(x) {
         assert!(
             findings.is_empty(),
             "code after if-return at outer scope is reachable, got: {:?}",
-            findings
-                .iter()
-                .map(|f| &f.description)
-                .collect::<Vec<_>>()
+            findings.iter().map(|f| &f.description).collect::<Vec<_>>()
         );
     }
 
@@ -632,10 +617,7 @@ fn foo() -> String {
         assert!(
             findings.is_empty(),
             "return inside string literal should not be flagged, got: {:?}",
-            findings
-                .iter()
-                .map(|f| &f.description)
-                .collect::<Vec<_>>()
+            findings.iter().map(|f| &f.description).collect::<Vec<_>>()
         );
     }
 
@@ -657,10 +639,7 @@ fn foo() -> &'static str {
         assert!(
             findings.is_empty(),
             "return inside raw string should not be flagged, got: {:?}",
-            findings
-                .iter()
-                .map(|f| &f.description)
-                .collect::<Vec<_>>()
+            findings.iter().map(|f| &f.description).collect::<Vec<_>>()
         );
     }
 
@@ -681,10 +660,7 @@ fn foo() -> Result<(), Error> {
         assert!(
             findings.is_empty(),
             "multi-line return should not flag continuation lines, got: {:?}",
-            findings
-                .iter()
-                .map(|f| &f.description)
-                .collect::<Vec<_>>()
+            findings.iter().map(|f| &f.description).collect::<Vec<_>>()
         );
     }
 
@@ -705,10 +681,7 @@ function foo() {
         assert!(
             findings.is_empty(),
             "method chain continuation should not be flagged, got: {:?}",
-            findings
-                .iter()
-                .map(|f| &f.description)
-                .collect::<Vec<_>>()
+            findings.iter().map(|f| &f.description).collect::<Vec<_>>()
         );
     }
 
@@ -730,10 +703,7 @@ fn foo(x: i32) -> &'static str {
         assert!(
             findings.is_empty(),
             "return match should not flag match arms, got: {:?}",
-            findings
-                .iter()
-                .map(|f| &f.description)
-                .collect::<Vec<_>>()
+            findings.iter().map(|f| &f.description).collect::<Vec<_>>()
         );
     }
 
@@ -755,10 +725,7 @@ def foo():
         assert!(
             findings.is_empty(),
             "return in docstring should not be flagged, got: {:?}",
-            findings
-                .iter()
-                .map(|f| &f.description)
-                .collect::<Vec<_>>()
+            findings.iter().map(|f| &f.description).collect::<Vec<_>>()
         );
     }
 
@@ -817,10 +784,7 @@ function foo() {
         assert!(
             findings.is_empty(),
             "comment after return should not be flagged, got: {:?}",
-            findings
-                .iter()
-                .map(|f| &f.description)
-                .collect::<Vec<_>>()
+            findings.iter().map(|f| &f.description).collect::<Vec<_>>()
         );
     }
 
@@ -838,10 +802,7 @@ fn foo() -> i32 {
         assert!(
             findings.is_empty(),
             "comment after return in Rust should not be flagged, got: {:?}",
-            findings
-                .iter()
-                .map(|f| &f.description)
-                .collect::<Vec<_>>()
+            findings.iter().map(|f| &f.description).collect::<Vec<_>>()
         );
     }
 
@@ -859,10 +820,7 @@ function foo() {
         assert!(
             findings.is_empty(),
             "block comment after return should not be flagged, got: {:?}",
-            findings
-                .iter()
-                .map(|f| &f.description)
-                .collect::<Vec<_>>()
+            findings.iter().map(|f| &f.description).collect::<Vec<_>>()
         );
     }
 
@@ -1346,10 +1304,7 @@ export function Other() {
         assert!(
             findings.is_empty(),
             "TSX multiline JSX return should not flag next function as unreachable, got: {:?}",
-            findings
-                .iter()
-                .map(|f| &f.description)
-                .collect::<Vec<_>>()
+            findings.iter().map(|f| &f.description).collect::<Vec<_>>()
         );
     }
 
@@ -1374,10 +1329,7 @@ export function Counter() {
         assert!(
             findings.is_empty(),
             "TSX component with hooks should not produce false positives, got: {:?}",
-            findings
-                .iter()
-                .map(|f| &f.description)
-                .collect::<Vec<_>>()
+            findings.iter().map(|f| &f.description).collect::<Vec<_>>()
         );
     }
 
@@ -1412,7 +1364,8 @@ export function Broken() {
         use std::sync::Arc;
 
         // Leak a GraphBuilder so we can return AnalysisContext<'static>
-        let graph: &'static crate::graph::CodeGraph = Box::leak(Box::new(GraphBuilder::new().freeze()));
+        let graph: &'static crate::graph::CodeGraph =
+            Box::leak(Box::new(GraphBuilder::new().freeze()));
 
         let file_data = vec![(
             PathBuf::from(filename),
@@ -1427,8 +1380,7 @@ export function Broken() {
             intra_function: HashMap::new(),
         });
 
-        let (det_ctx, _file_data) =
-            DetectorContext::build(graph, &[], None, Path::new("/repo"));
+        let (det_ctx, _file_data) = DetectorContext::build(graph, &[], None, Path::new("/repo"));
         let detector_ctx = Arc::new(det_ctx);
 
         AnalysisContext {

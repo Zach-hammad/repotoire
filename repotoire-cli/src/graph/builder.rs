@@ -26,9 +26,7 @@ fn apply_node_metric(node: &mut CodeNode, key: &str, value: &serde_json::Value) 
         "complexity" => node.complexity = value.as_i64().unwrap_or(0) as u16,
         "paramCount" => node.param_count = value.as_i64().unwrap_or(0) as u8,
         "methodCount" => node.method_count = value.as_i64().unwrap_or(0) as u16,
-        "maxNesting" | "nesting_depth" => {
-            node.max_nesting = value.as_i64().unwrap_or(0) as u8
-        }
+        "maxNesting" | "nesting_depth" => node.max_nesting = value.as_i64().unwrap_or(0) as u8,
         "returnCount" => node.return_count = value.as_i64().unwrap_or(0) as u8,
         "commit_count" => node.commit_count = value.as_i64().unwrap_or(0) as u16,
         "is_async" => apply_flag_if_true(node, value, super::store_models::FLAG_IS_ASYNC),
@@ -190,8 +188,7 @@ impl GraphBuilder {
 
         for node in nodes {
             let qn = node.qualified_name;
-            let needs_contains =
-                node.kind == NodeKind::Function || node.kind == NodeKind::Class;
+            let needs_contains = node.kind == NodeKind::Function || node.kind == NodeKind::Class;
 
             if let Some(&idx) = self.node_index.get(&qn) {
                 if let Some(existing) = self.graph.node_weight_mut(idx) {
@@ -253,12 +250,7 @@ impl GraphBuilder {
         let val: serde_json::Value = value.into();
         if let Some(node) = self.graph.node_weight_mut(idx) {
             apply_node_metric(node, key, &val);
-            apply_extra_prop(
-                &mut self.extra_props,
-                intern_qn,
-                key,
-                &val,
-            );
+            apply_extra_prop(&mut self.extra_props, intern_qn, key, &val);
             return true;
         }
         false
@@ -557,7 +549,10 @@ impl GraphBuilder {
     ///
     /// Same as `freeze()` but also passes co-change data to `GraphPrimitives`
     /// so that weighted overlay, hidden coupling, etc. are computed.
-    pub fn freeze_with_co_change(self, co_change: &crate::git::co_change::CoChangeMatrix) -> CodeGraph {
+    pub fn freeze_with_co_change(
+        self,
+        co_change: &crate::git::co_change::CoChangeMatrix,
+    ) -> CodeGraph {
         let indexes = GraphIndexes::build(&self.graph, &self.node_index, Some(co_change));
         CodeGraph::from_parts(self.graph, self.node_index, self.extra_props, indexes)
     }

@@ -7,8 +7,11 @@ use regex::Regex;
 use std::path::PathBuf;
 use std::sync::LazyLock;
 
-static WEAK_HASH: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"(?i)(?:^|[^_\w])(md5|sha1|sha-1)\s*[\.(]|hashlib\.(md5|sha1)|Digest::(MD5|SHA1)|MessageDigest\.getInstance"#).expect("valid regex"));
-static WEAK_CIPHER: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\b(DES|RC4|RC2|Blowfish|ECB)\b").expect("valid regex"));
+static WEAK_HASH: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(?i)(?:^|[^_\w])(md5|sha1|sha-1)\s*[\.(]|hashlib\.(md5|sha1)|Digest::(MD5|SHA1)|MessageDigest\.getInstance"#).expect("valid regex")
+});
+static WEAK_CIPHER: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)\b(DES|RC4|RC2|Blowfish|ECB)\b").expect("valid regex"));
 
 /// Check if a line is merely mentioning a weak hash (in comments, strings, etc.)
 /// rather than actually using it. Returns true if the line should be SKIPPED.
@@ -43,13 +46,21 @@ fn is_hash_mention_not_usage(line: &str) -> bool {
     }
 
     // Skip database function implementations and non-security contexts
-    if lower.contains("_sqlite_") || lower.contains("checksum") || lower.contains("etag") || lower.contains("cache_key") {
+    if lower.contains("_sqlite_")
+        || lower.contains("checksum")
+        || lower.contains("etag")
+        || lower.contains("cache_key")
+    {
         return true;
     }
 
     // Skip non-cryptographic hashing contexts (cache keys, template hashing)
     if (lower.contains("generate_hash") || lower.contains("hexdigest"))
-        && (lower.contains("cache") || lower.contains("template") || lower.contains("loader") || lower.contains("join") || lower.contains("values"))
+        && (lower.contains("cache")
+            || lower.contains("template")
+            || lower.contains("loader")
+            || lower.contains("join")
+            || lower.contains("values"))
     {
         return true;
     }
@@ -329,11 +340,16 @@ impl Detector for InsecureCryptoDetector {
         crate::detectors::detector_context::ContentFlags::HAS_CRYPTO
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let files = &ctx.as_file_provider();
         let mut findings = vec![];
 
-        for path in files.files_with_extensions(&["py", "js", "ts", "java", "go", "rs", "rb", "php", "cs"]) {
+        for path in
+            files.files_with_extensions(&["py", "js", "ts", "java", "go", "rs", "rb", "php", "cs"])
+        {
             if findings.len() >= self.max_findings {
                 break;
             }
@@ -367,11 +383,15 @@ impl Detector for InsecureCryptoDetector {
                 None => continue,
             };
             let raw_lower = raw.to_ascii_lowercase();
-            if !raw_lower.contains("md5") && !raw_lower.contains("sha1")
-                && !raw_lower.contains("sha-1") && !raw_lower.contains("hashlib")
+            if !raw_lower.contains("md5")
+                && !raw_lower.contains("sha1")
+                && !raw_lower.contains("sha-1")
+                && !raw_lower.contains("hashlib")
                 && !raw_lower.contains("messagedigest")
-                && !raw_lower.contains("cipher") && !raw_lower.contains("des")
-                && !raw_lower.contains("rc4") && !raw_lower.contains("ecb")
+                && !raw_lower.contains("cipher")
+                && !raw_lower.contains("des")
+                && !raw_lower.contains("rc4")
+                && !raw_lower.contains("ecb")
                 && !raw_lower.contains("blowfish")
             {
                 continue;
@@ -404,7 +424,12 @@ impl Detector for InsecureCryptoDetector {
                     // e.g., _sqlite_md5, make_cache_key, compute_checksum, etag
                     if trimmed.starts_with("def ") || trimmed.starts_with("fn ") {
                         let lower_trimmed = trimmed.to_lowercase();
-                        if lower_trimmed.contains("_sqlite_") || lower_trimmed.contains("checksum") || lower_trimmed.contains("etag") || lower_trimmed.contains("cache_key") || lower_trimmed.contains("generate_hash") {
+                        if lower_trimmed.contains("_sqlite_")
+                            || lower_trimmed.contains("checksum")
+                            || lower_trimmed.contains("etag")
+                            || lower_trimmed.contains("cache_key")
+                            || lower_trimmed.contains("generate_hash")
+                        {
                             in_non_crypto_func = true;
                             func_indent = indent;
                         } else {
@@ -446,7 +471,10 @@ impl Detector for InsecureCryptoDetector {
 
                     // Skip class/function definitions where MD5/SHA1 is just a name
                     // e.g., "class MD5(Transform):" or "def _sqlite_md5(text):"
-                    if trimmed.starts_with("class ") || trimmed.starts_with("def ") || trimmed.starts_with("fn ") {
+                    if trimmed.starts_with("class ")
+                        || trimmed.starts_with("def ")
+                        || trimmed.starts_with("fn ")
+                    {
                         continue;
                     }
 
@@ -557,7 +585,6 @@ fn test_self_flagging_line_215() {
     );
 }
 
-
 impl crate::detectors::RegisteredDetector for InsecureCryptoDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
         std::sync::Arc::new(Self::new(init.repo_path))
@@ -579,7 +606,9 @@ mod tests {
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(!findings.is_empty(), "Should detect hashlib.md5 usage");
         assert!(
-            findings.iter().any(|f| f.title.contains("MD5") || f.title.contains("SHA1")),
+            findings
+                .iter()
+                .any(|f| f.title.contains("MD5") || f.title.contains("SHA1")),
             "Finding should mention weak hash. Titles: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>()
         );
@@ -593,8 +622,11 @@ mod tests {
             ("crypto_util.py", "import hashlib\n\ndef compute_hash(data):\n    return hashlib.sha256(data).hexdigest()\n"),
         ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
-        assert!(findings.is_empty(), "Should not detect sha256 as insecure. Found: {:?}",
-            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+        assert!(
+            findings.is_empty(),
+            "Should not detect sha256 as insecure. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -605,8 +637,11 @@ mod tests {
             ("cache.py", "import hashlib\n\ndef make_cache_key(data):\n    return hashlib.md5(data.encode(), usedforsecurity=False).hexdigest()\n"),
         ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
-        assert!(findings.is_empty(), "Should not flag md5 with usedforsecurity=False. Found: {:?}",
-            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+        assert!(
+            findings.is_empty(),
+            "Should not flag md5 with usedforsecurity=False. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -617,8 +652,11 @@ mod tests {
             ("text.py", "from django.db.models import Transform\n\nclass MD5(Transform):\n    function = 'MD5'\n    lookup_name = 'md5'\n"),
         ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
-        assert!(findings.is_empty(), "Should not flag class MD5() definition. Found: {:?}",
-            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+        assert!(
+            findings.is_empty(),
+            "Should not flag class MD5() definition. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -629,8 +667,11 @@ mod tests {
             ("_functions.py", "import hashlib\n\ndef _sqlite_md5(text):\n    return hashlib.md5(text.encode()).hexdigest()\n"),
         ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
-        assert!(findings.is_empty(), "Should not flag _sqlite_md5 shim function. Found: {:?}",
-            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+        assert!(
+            findings.is_empty(),
+            "Should not flag _sqlite_md5 shim function. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -641,7 +682,10 @@ mod tests {
             ("auth.py", "import hashlib\n\ndef hash_password(password, salt):\n    return hashlib.md5((salt + password).encode()).hexdigest()\n"),
         ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
-        assert!(!findings.is_empty(), "Should still detect real md5 password hashing");
+        assert!(
+            !findings.is_empty(),
+            "Should still detect real md5 password hashing"
+        );
     }
 
     #[test]

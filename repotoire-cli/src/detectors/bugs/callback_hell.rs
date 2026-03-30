@@ -47,7 +47,9 @@ impl CallbackHellDetector {
             })
             .filter(|f| {
                 // Look for async functions or promise-returning functions
-                f.node_name(i).starts_with("async") || f.node_name(i).contains("Async") || f.node_name(i).ends_with("Async")
+                f.node_name(i).starts_with("async")
+                    || f.node_name(i).contains("Async")
+                    || f.node_name(i).ends_with("Async")
             })
             .map(|f| f.node_name(i).to_string())
             .take(5)
@@ -83,7 +85,10 @@ impl Detector for CallbackHellDetector {
         &["js", "ts", "jsx", "tsx"]
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let files = &ctx.as_file_provider();
         let mut findings = vec![];
@@ -146,14 +151,20 @@ impl Detector for CallbackHellDetector {
                     // anonymous functions explicitly passed as arguments
                     let anon_funcs = {
                         let mut count = 0usize;
-                        for m in line.match_indices("function(").chain(line.match_indices("function (")) {
+                        for m in line
+                            .match_indices("function(")
+                            .chain(line.match_indices("function ("))
+                        {
                             let before = line[..m.0].trim_end();
                             // Skip object methods: key: function(
                             let is_object_method = before.ends_with(':');
                             // Skip prototype assigns: Foo.prototype.bar = function(
                             let is_prototype = before.contains(".prototype.");
                             // Skip variable declarations: var/let/const foo = function(
-                            let is_var_decl = before.ends_with('=') && (before.contains("var ") || before.contains("let ") || before.contains("const "));
+                            let is_var_decl = before.ends_with('=')
+                                && (before.contains("var ")
+                                    || before.contains("let ")
+                                    || before.contains("const "));
                             if !is_object_method && !is_prototype && !is_var_decl {
                                 count += 1;
                             }
@@ -312,7 +323,6 @@ impl Detector for CallbackHellDetector {
     }
 }
 
-
 impl crate::detectors::RegisteredDetector for CallbackHellDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
         std::sync::Arc::new(Self::new(init.repo_path))
@@ -346,9 +356,10 @@ mod tests {
     fn test_no_finding_for_shallow_callbacks() {
         let store = GraphBuilder::new().freeze();
         let detector = CallbackHellDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("shallow.js", "getData(function(a) {\n  process(a);\n});\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![("shallow.js", "getData(function(a) {\n  process(a);\n});\n")],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
@@ -365,7 +376,10 @@ mod tests {
             ("admin.js", "var DateTimeShortcuts = {\n    init: function() {\n        this.setup();\n    },\n    setup: function() {\n        this.render();\n    },\n    render: function() {\n        this.draw();\n    },\n    draw: function() {\n        console.log('done');\n    }\n};\n"),
         ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
-        assert!(findings.is_empty(), "Object methods should not be counted as callback nesting. Found: {:?}",
-            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+        assert!(
+            findings.is_empty(),
+            "Object methods should not be counted as callback nesting. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
     }
 }

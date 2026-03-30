@@ -63,32 +63,32 @@ pub fn extract_file_values(
 
 /// Node kinds that represent function definitions across supported languages.
 const FUNCTION_DEF_KINDS: &[&str] = &[
-    "function_definition",   // Python, C, C++
-    "function_declaration",  // JS/TS, C, C++, Go
-    "function_item",         // Rust
-    "method_definition",     // JS/TS class methods
-    "method_declaration",    // Java, C#
-    "arrow_function",        // JS/TS
+    "function_definition",            // Python, C, C++
+    "function_declaration",           // JS/TS, C, C++, Go
+    "function_item",                  // Rust
+    "method_definition",              // JS/TS class methods
+    "method_declaration",             // Java, C#
+    "arrow_function",                 // JS/TS
     "generator_function_declaration", // JS/TS
-    "constructor_declaration", // Java, C#
+    "constructor_declaration",        // Java, C#
 ];
 
 /// Node kinds that represent class/struct/impl definitions across supported languages.
 const CLASS_DEF_KINDS: &[&str] = &[
-    "class_definition",    // Python
-    "class_declaration",   // JS/TS, Java, C#, C++
-    "class_body",          // used in some grammars
-    "struct_item",         // Rust
-    "impl_item",           // Rust
+    "class_definition",      // Python
+    "class_declaration",     // JS/TS, Java, C#, C++
+    "class_body",            // used in some grammars
+    "struct_item",           // Rust
+    "impl_item",             // Rust
     "interface_declaration", // Java, C#, TS
-    "struct_specifier",    // C, C++
-    "class_specifier",     // C++
+    "struct_specifier",      // C, C++
+    "class_specifier",       // C++
 ];
 
 /// Node kinds that wrap inner declarations (decorators, export, etc.).
 const WRAPPER_KINDS: &[&str] = &[
-    "decorated_definition",     // Python
-    "export_statement",         // JS/TS
+    "decorated_definition",       // Python
+    "export_statement",           // JS/TS
     "export_default_declaration", // JS/TS ESM
 ];
 
@@ -224,9 +224,10 @@ fn extract_assignment(
     let kind = node.kind();
 
     // Strategy 1: Direct left/right fields (Python assignment, Go short_var_declaration)
-    if let (Some(left_node), Some(right_node)) =
-        (node.child_by_field_name("left"), node.child_by_field_name("right"))
-    {
+    if let (Some(left_node), Some(right_node)) = (
+        node.child_by_field_name("left"),
+        node.child_by_field_name("right"),
+    ) {
         push_assignment(
             node_text(left_node, source),
             node_to_symbolic(right_node, source, config, prefix),
@@ -239,9 +240,10 @@ fn extract_assignment(
     }
 
     // Strategy 2: pattern/value fields (Rust let_declaration)
-    if let (Some(pat_node), Some(val_node)) =
-        (node.child_by_field_name("pattern"), node.child_by_field_name("value"))
-    {
+    if let (Some(pat_node), Some(val_node)) = (
+        node.child_by_field_name("pattern"),
+        node.child_by_field_name("value"),
+    ) {
         push_assignment(
             node_text(pat_node, source),
             node_to_symbolic(val_node, source, config, prefix),
@@ -264,9 +266,10 @@ fn extract_assignment(
         for child in node.named_children(&mut cursor) {
             if child.kind() == "variable_declarator" {
                 // JS/TS/Java: name + value
-                if let (Some(name_node), Some(val_node)) =
-                    (child.child_by_field_name("name"), child.child_by_field_name("value"))
-                {
+                if let (Some(name_node), Some(val_node)) = (
+                    child.child_by_field_name("name"),
+                    child.child_by_field_name("value"),
+                ) {
                     push_assignment(
                         node_text(name_node, source),
                         node_to_symbolic(val_node, source, config, prefix),
@@ -286,9 +289,10 @@ fn extract_assignment(
         let mut cursor = node.walk();
         for child in node.named_children(&mut cursor) {
             if child.kind() == "init_declarator" {
-                if let (Some(decl_node), Some(val_node)) =
-                    (child.child_by_field_name("declarator"), child.child_by_field_name("value"))
-                {
+                if let (Some(decl_node), Some(val_node)) = (
+                    child.child_by_field_name("declarator"),
+                    child.child_by_field_name("value"),
+                ) {
                     push_assignment(
                         node_text(decl_node, source),
                         node_to_symbolic(val_node, source, config, prefix),
@@ -360,18 +364,16 @@ fn extract_function_body(
 ) {
     // Most grammars use "body" for the function body. Some (e.g. JS arrow
     // functions) might inline the expression directly.
-    let body_node = func_node
-        .child_by_field_name("body")
-        .or_else(|| {
-            // For arrow functions or single-expression bodies, the entire
-            // function node may be the body.
-            if func_node.kind() == "arrow_function" {
-                // Arrow functions might have a direct expression child instead of block
-                func_node.named_child(func_node.named_child_count().saturating_sub(1))
-            } else {
-                None
-            }
-        });
+    let body_node = func_node.child_by_field_name("body").or_else(|| {
+        // For arrow functions or single-expression bodies, the entire
+        // function node may be the body.
+        if func_node.kind() == "arrow_function" {
+            // Arrow functions might have a direct expression child instead of block
+            func_node.named_child(func_node.named_child_count().saturating_sub(1))
+        } else {
+            None
+        }
+    });
 
     let body_node = match body_node {
         Some(b) => b,
@@ -486,7 +488,7 @@ fn walk_function_body(
                 | "except_clause"         // Python
                 | "using_statement"       // C#
                 | "unsafe_block"          // Rust
-                | "match_arm"             // Rust
+                | "match_arm" // Rust
         ) {
             walk_function_body(child, source, config, func_qn, assignments, last_return);
         }

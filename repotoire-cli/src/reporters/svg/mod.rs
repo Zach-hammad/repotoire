@@ -1,9 +1,9 @@
 //! Pure SVG generation for report visualizations.
 //! No JavaScript, no external dependencies.
 
-pub mod treemap;
 pub mod architecture;
 pub mod bar_chart;
+pub mod treemap;
 
 /// Generate an SVG color on a green-to-red gradient based on a 0.0-1.0 value.
 /// 0.0 = green (#10b981), 0.5 = yellow (#eab308), 1.0 = red (#ef4444)

@@ -106,8 +106,10 @@ pub(crate) fn format_and_output(
     // For file-based export formats (SARIF, HTML, Markdown), use ALL findings
     // to avoid truncating to page size. Pagination is for terminal display only.
     // Use all findings for file-based exports; JSON only when writing to file (#58)
-    let use_all = matches!(format, OutputFormat::Sarif | OutputFormat::Html | OutputFormat::Markdown)
-        || (format == OutputFormat::Json && output_path.is_some());
+    let use_all = matches!(
+        format,
+        OutputFormat::Sarif | OutputFormat::Html | OutputFormat::Markdown
+    ) || (format == OutputFormat::Json && output_path.is_some());
     let report_for_output = if use_all && !all_findings.is_empty() {
         let mut full_report = report.clone();
         full_report.findings = all_findings.to_vec();
@@ -154,8 +156,10 @@ pub(crate) fn format_and_output(
     cache_results(repotoire_dir, report, all_findings)?;
 
     // Show pagination info (suppress for machine-readable and file-based formats)
-    let quiet_mode = matches!(format, OutputFormat::Json | OutputFormat::Sarif | OutputFormat::Html | OutputFormat::Markdown)
-        || output_path.is_some();
+    let quiet_mode = matches!(
+        format,
+        OutputFormat::Json | OutputFormat::Sarif | OutputFormat::Html | OutputFormat::Markdown
+    ) || output_path.is_some();
     if let Some((current_page, total_pages, per_page, total)) =
         pagination_info.filter(|_| !quiet_mode)
     {
@@ -184,7 +188,9 @@ pub(crate) fn check_fail_threshold(fail_on: Option<Severity>, report: &HealthRep
     if let Some(threshold) = fail_on {
         let should_fail = match threshold {
             Severity::Critical => report.findings_summary.critical > 0,
-            Severity::High => report.findings_summary.critical > 0 || report.findings_summary.high > 0,
+            Severity::High => {
+                report.findings_summary.critical > 0 || report.findings_summary.high > 0
+            }
             Severity::Medium => {
                 report.findings_summary.critical > 0
                     || report.findings_summary.high > 0
@@ -244,7 +250,9 @@ fn load_findings_from_file(path: &Path) -> Option<Vec<Finding>> {
 
     let mut findings = Vec::new();
     for f in findings_arr {
-        let severity = f.get("severity")?.as_str()?
+        let severity = f
+            .get("severity")?
+            .as_str()?
             .parse::<Severity>()
             .unwrap_or(Severity::Info);
 
@@ -330,7 +338,10 @@ pub fn cache_results(
     let findings_cache = repotoire_dir.join("last_findings.json");
     let health_cache = repotoire_dir.join("last_health.json");
     if findings_cache.exists() {
-        let _ = fs::copy(&findings_cache, repotoire_dir.join("baseline_findings.json"));
+        let _ = fs::copy(
+            &findings_cache,
+            repotoire_dir.join("baseline_findings.json"),
+        );
     }
     if health_cache.exists() {
         let _ = fs::copy(&health_cache, repotoire_dir.join("baseline_health.json"));
@@ -372,12 +383,8 @@ pub fn cache_results(
             })
         }).collect::<Vec<_>>()
     });
-    fs::write(
-        &findings_cache,
-        serde_json::to_string(&findings_json)?,
-    )?;
+    fs::write(&findings_cache, serde_json::to_string(&findings_json)?)?;
 
     tracing::debug!("Cached analysis results to {}", repotoire_dir.display());
     Ok(())
 }
-

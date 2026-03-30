@@ -268,10 +268,7 @@ fn test_findings_command_after_analyze() {
     // Step 2: Run findings --top 3 against the same path
     // Path must come before subcommand because `findings` has a positional INDEX arg
     let mut cmd = Command::new(repotoire_bin());
-    cmd.arg(dir.path())
-        .arg("findings")
-        .arg("--top")
-        .arg("3");
+    cmd.arg(dir.path()).arg("findings").arg("--top").arg("3");
     let output = cmd.output().expect("Failed to run repotoire findings");
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();

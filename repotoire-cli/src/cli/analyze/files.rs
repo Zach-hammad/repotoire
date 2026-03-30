@@ -96,7 +96,10 @@ fn validate_file(path: &Path, repo_canonical: &Path) -> Option<PathBuf> {
 /// Quick file list collection (no git, no incremental checking) for cache validation
 pub fn collect_file_list(repo_path: &Path, exclude: &ExcludeConfig) -> Result<Vec<PathBuf>> {
     let repo_canonical = repo_path.canonicalize().with_context(|| {
-        format!("Cannot canonicalize repository path: {}", repo_path.display())
+        format!(
+            "Cannot canonicalize repository path: {}",
+            repo_path.display()
+        )
     })?;
     let effective = exclude.effective_patterns();
     let mut files = Vec::new();
@@ -307,7 +310,10 @@ pub(crate) fn walk_files_to_channel(
 /// Collect all source files in the repository, respecting .gitignore
 fn collect_source_files(repo_path: &Path, exclude: &ExcludeConfig) -> Result<Vec<PathBuf>> {
     let repo_canonical = repo_path.canonicalize().with_context(|| {
-        format!("Cannot canonicalize repository path: {}", repo_path.display())
+        format!(
+            "Cannot canonicalize repository path: {}",
+            repo_path.display()
+        )
     })?;
     let effective = exclude.effective_patterns();
 
@@ -377,7 +383,10 @@ fn get_changed_files_since(repo_path: &Path, since: &str) -> Result<Vec<PathBuf>
     }
 
     let repo_canonical = repo_path.canonicalize().with_context(|| {
-        format!("Cannot canonicalize repository path: {}", repo_path.display())
+        format!(
+            "Cannot canonicalize repository path: {}",
+            repo_path.display()
+        )
     })?;
 
     let output = Command::new("git")
@@ -411,14 +420,19 @@ fn get_changed_files_since(repo_path: &Path, since: &str) -> Result<Vec<PathBuf>
         .current_dir(repo_path)
         .output();
 
-    let untracked_files = untracked.ok()
+    let untracked_files = untracked
+        .ok()
         .filter(|out| out.status.success())
         .map(|out| String::from_utf8_lossy(&out.stdout).to_string())
         .unwrap_or_default();
     for line in untracked_files.lines().filter(|l| !l.is_empty()) {
         let path = repo_path.join(line);
-        if !path.exists() { continue; }
-        let Some(validated) = validate_file(&path, &repo_canonical) else { continue; };
+        if !path.exists() {
+            continue;
+        }
+        let Some(validated) = validate_file(&path, &repo_canonical) else {
+            continue;
+        };
         if !files.contains(&validated) {
             files.push(validated);
         }

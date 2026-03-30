@@ -4,8 +4,8 @@
 //! source data. Each sub-struct is independently optional — reporters degrade
 //! gracefully when data is unavailable.
 
-use crate::models::HealthReport;
 use crate::calibrate::StyleProfile;
+use crate::models::HealthReport;
 
 /// Full context for report rendering. Text and HTML reporters use graph/git
 /// data for themed output and visualizations. JSON/SARIF/Markdown reporters

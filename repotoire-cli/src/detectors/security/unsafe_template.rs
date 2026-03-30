@@ -246,13 +246,11 @@ impl UnsafeTemplateDetector {
         // Pre-compile static-assignment regexes outside the file loop
         use std::sync::LazyLock;
         static STATIC_INNERHTML: LazyLock<Regex> = LazyLock::new(|| {
-            Regex::new(r#"\.\s*innerHTML\s*=\s*["'][^"']*["']\s*;?\s*$"#)
-                .expect("valid regex")
+            Regex::new(r#"\.\s*innerHTML\s*=\s*["'][^"']*["']\s*;?\s*$"#).expect("valid regex")
         });
         let static_innerhtml_pat = &*STATIC_INNERHTML;
         static STATIC_OUTERHTML: LazyLock<Regex> = LazyLock::new(|| {
-            Regex::new(r#"\.\s*outerHTML\s*=\s*["'][^"']*["']\s*;?\s*$"#)
-                .expect("valid regex")
+            Regex::new(r#"\.\s*outerHTML\s*=\s*["'][^"']*["']\s*;?\s*$"#).expect("valid regex")
         });
         let static_outerhtml_pat = &*STATIC_OUTERHTML;
 
@@ -673,7 +671,10 @@ impl Detector for UnsafeTemplateDetector {
         crate::detectors::detector_context::ContentFlags::HAS_TEMPLATE
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         debug!("Starting unsafe template detection");
 
@@ -837,10 +838,12 @@ mod tests {
         let content = "function clearContent(el) {\n    el.innerHTML = \"\";\n}\nfunction setLoading(el) {\n    el.innerHTML = \"<div>Loading...</div>\";\n}\n";
 
         let store = GraphBuilder::new().freeze();
-        let detector = UnsafeTemplateDetector::with_repository_path(std::path::PathBuf::from("/mock/repo"));
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("app.js", content),
-        ]);
+        let detector =
+            UnsafeTemplateDetector::with_repository_path(std::path::PathBuf::from("/mock/repo"));
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![("app.js", content)],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         let innerhtml_findings: Vec<_> = findings
             .iter()
@@ -849,7 +852,10 @@ mod tests {
         assert!(
             innerhtml_findings.is_empty(),
             "Should not flag static string innerHTML assignments. Found: {:?}",
-            innerhtml_findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+            innerhtml_findings
+                .iter()
+                .map(|f| &f.title)
+                .collect::<Vec<_>>()
         );
     }
 }

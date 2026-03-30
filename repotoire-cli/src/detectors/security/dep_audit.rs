@@ -533,7 +533,10 @@ impl Detector for DepAuditDetector {
     fn requires_graph(&self) -> bool {
         false
     }
-    fn detect(&self, _ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        _ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         debug!("Starting dependency vulnerability audit");
 
         let deps = self.discover_dependencies();
@@ -635,7 +638,6 @@ impl Detector for DepAuditDetector {
         "security"
     }
 }
-
 
 impl crate::detectors::RegisteredDetector for DepAuditDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {

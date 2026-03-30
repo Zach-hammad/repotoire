@@ -127,7 +127,11 @@ pub(super) fn strip_numeric_suffix(s: &str) -> &str {
 
     // C/C++/Java suffixes: strip trailing [uUlLfFdD]+
     let mut end = bytes.len();
-    while end > 0 && matches!(bytes[end - 1], b'u' | b'U' | b'l' | b'L' | b'f' | b'F' | b'd' | b'D')
+    while end > 0
+        && matches!(
+            bytes[end - 1],
+            b'u' | b'U' | b'l' | b'L' | b'f' | b'F' | b'd' | b'D'
+        )
     {
         end -= 1;
     }

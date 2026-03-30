@@ -8,7 +8,9 @@ use regex::Regex;
 use std::path::PathBuf;
 use std::sync::LazyLock;
 
-static HTTP_CLIENT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(requests\.(get|post|put|delete)|fetch\(|axios\.|http\.get|urllib|urlopen|HttpClient|curl)").expect("valid regex"));
+static HTTP_CLIENT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)(requests\.(get|post|put|delete)|fetch\(|axios\.|http\.get|urllib|urlopen|HttpClient|curl)").expect("valid regex")
+});
 
 pub struct SsrfDetector {
     repository_path: PathBuf,
@@ -56,7 +58,10 @@ impl Detector for SsrfDetector {
         crate::detectors::detector_context::ContentFlags::HAS_HTTP_CLIENT
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let files = &ctx.as_file_provider();
         let mut findings = vec![];
@@ -80,7 +85,9 @@ impl Detector for SsrfDetector {
         taint_paths.extend(intra_paths);
         let taint_result = TaintAnalysisResult::from_paths(taint_paths);
 
-        for path in files.files_with_extensions(&["py", "js", "ts", "jsx", "tsx", "rb", "php", "java", "go"]) {
+        for path in files
+            .files_with_extensions(&["py", "js", "ts", "jsx", "tsx", "rb", "php", "java", "go"])
+        {
             if findings.len() >= self.max_findings {
                 break;
             }
@@ -231,7 +238,6 @@ impl Detector for SsrfDetector {
     }
 }
 
-
 impl crate::detectors::RegisteredDetector for SsrfDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
         std::sync::Arc::new(Self::new(init.repo_path))
@@ -262,7 +268,9 @@ mod tests {
             findings.iter().map(|f| &f.title).collect::<Vec<_>>()
         );
         assert!(
-            findings.iter().any(|f| f.cwe_id.as_deref() == Some("CWE-918")),
+            findings
+                .iter()
+                .any(|f| f.cwe_id.as_deref() == Some("CWE-918")),
             "Finding should have CWE-918"
         );
     }
@@ -295,7 +303,9 @@ mod tests {
             "Should detect fetch() with user-controlled URL from req.body"
         );
         assert!(
-            findings.iter().any(|f| f.cwe_id.as_deref() == Some("CWE-918")),
+            findings
+                .iter()
+                .any(|f| f.cwe_id.as_deref() == Some("CWE-918")),
             "Finding should have CWE-918"
         );
     }

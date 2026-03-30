@@ -290,7 +290,6 @@ impl Default for CoreUtilityDetector {
     }
 }
 
-
 impl Detector for CoreUtilityDetector {
     fn name(&self) -> &'static str {
         "CoreUtilityDetector"
@@ -307,7 +306,10 @@ impl Detector for CoreUtilityDetector {
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
     }
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let i = graph.interner();
         use std::collections::HashSet;
@@ -385,10 +387,9 @@ impl Detector for CoreUtilityDetector {
             // code, not utilities that need extra test coverage attention
             if let Some(role) = ctx.function_role(qn) {
                 use crate::detectors::function_context::FunctionRole;
-                if matches!(role,
-                    FunctionRole::Hub
-                    | FunctionRole::Orchestrator
-                    | FunctionRole::EntryPoint
+                if matches!(
+                    role,
+                    FunctionRole::Hub | FunctionRole::Orchestrator | FunctionRole::EntryPoint
                 ) {
                     continue;
                 }
@@ -449,7 +450,8 @@ impl Detector for CoreUtilityDetector {
                 crate::cache::global_cache().content(std::path::Path::new(func.path(i)))
             {
                 if crate::detectors::content_classifier::is_ast_manipulation_code(
-                    func.node_name(i), &content,
+                    func.node_name(i),
+                    &content,
                 ) {
                     continue;
                 }
@@ -497,7 +499,11 @@ impl Detector for CoreUtilityDetector {
                 id: String::new(),
                 detector: "CoreUtilityDetector".to_string(),
                 severity,
-                title: format!("Core Utility: {} ({} cross-module callers)", func.node_name(i), total_cross_module),
+                title: format!(
+                    "Core Utility: {} ({} cross-module callers)",
+                    func.node_name(i),
+                    total_cross_module
+                ),
                 description,
                 affected_files: vec![func.path(i).to_string().into()],
                 line_start: Some(func.line_start),
@@ -507,7 +513,8 @@ impl Detector for CoreUtilityDetector {
                     1. **Ensure comprehensive test coverage** — bugs here affect many callers\n\n\
                     2. **Avoid breaking changes** — consider deprecation cycles\n\n\
                     3. **Document the contract** — callers depend on stable behavior\n\n\
-                    4. **Monitor performance** — hot path across many modules".to_string()
+                    4. **Monitor performance** — hot path across many modules"
+                        .to_string(),
                 ),
                 estimated_effort: Some("Small (1 hour)".to_string()),
                 category: Some("architecture".to_string()),
@@ -523,7 +530,9 @@ impl Detector for CoreUtilityDetector {
 
         info!(
             "CoreUtilityDetector: {} findings (fan_in_threshold={}, min_cross_module={})",
-            findings.len(), fan_in_threshold, min_cross_module_callers
+            findings.len(),
+            fan_in_threshold,
+            min_cross_module_callers
         );
 
         Ok(findings)

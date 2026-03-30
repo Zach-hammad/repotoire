@@ -56,16 +56,22 @@ fn findings_are_deterministic() {
     assert!(
         score_delta <= 1.0,
         "Scores should be within 1.0 point. Run 1: {:.2}, Run 2: {:.2}, delta: {:.4}",
-        score1, score2, score_delta,
+        score1,
+        score2,
+        score_delta,
     );
 
     // Same set of detectors should fire
     let detectors1: HashSet<&str> = run1["findings"]
-        .as_array().unwrap().iter()
+        .as_array()
+        .unwrap()
+        .iter()
         .filter_map(|f| f["detector"].as_str())
         .collect();
     let detectors2: HashSet<&str> = run2["findings"]
-        .as_array().unwrap().iter()
+        .as_array()
+        .unwrap()
+        .iter()
         .filter_map(|f| f["detector"].as_str())
         .collect();
     let only_in_1: Vec<&&str> = detectors1.difference(&detectors2).collect();
@@ -73,7 +79,8 @@ fn findings_are_deterministic() {
     assert!(
         only_in_1.is_empty() && only_in_2.is_empty(),
         "Different detectors fired. Only in run 1: {:?}, Only in run 2: {:?}",
-        only_in_1, only_in_2,
+        only_in_1,
+        only_in_2,
     );
 
     // Finding counts should be very close (rayon can cause ±1-2 threshold-edge findings)
@@ -83,6 +90,8 @@ fn findings_are_deterministic() {
     assert!(
         count_delta <= 3,
         "Finding counts should be within 3. Run 1: {}, Run 2: {}, delta: {}",
-        count1, count2, count_delta,
+        count1,
+        count2,
+        count_delta,
     );
 }

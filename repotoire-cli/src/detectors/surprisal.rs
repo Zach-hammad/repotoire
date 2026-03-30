@@ -16,8 +16,8 @@
 //! - Style drift over time
 
 use crate::calibrate::NgramModel;
-use crate::graph::GraphQueryExt;
 use crate::detectors::base::Detector;
+use crate::graph::GraphQueryExt;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use std::path::{Path, PathBuf};
@@ -55,8 +55,13 @@ impl SurprisalDetector {
 
         // Get functions from the graph for this file
         let all_funcs = graph.get_functions_shared();
-        let functions: Vec<_> = all_funcs.iter()
-            .filter(|f| f.path(i) == rel_str.as_ref() || rel_str.ends_with(f.path(i)) || f.path(i).ends_with(&*rel_str))
+        let functions: Vec<_> = all_funcs
+            .iter()
+            .filter(|f| {
+                f.path(i) == rel_str.as_ref()
+                    || rel_str.ends_with(f.path(i))
+                    || f.path(i).ends_with(&*rel_str)
+            })
             .collect();
 
         for func in &functions {
@@ -69,16 +74,25 @@ impl SurprisalDetector {
             let func_lines = &lines[start..end];
 
             // Respect inline suppression (check function lines + line before function)
-            let prev_before_func = if start > 0 { lines.get(start - 1).copied() } else { None };
+            let prev_before_func = if start > 0 {
+                lines.get(start - 1).copied()
+            } else {
+                None
+            };
             let suppressed = func_lines.iter().enumerate().any(|(i, line)| {
-                let prev = if i > 0 { Some(func_lines[i - 1]) } else { prev_before_func };
+                let prev = if i > 0 {
+                    Some(func_lines[i - 1])
+                } else {
+                    prev_before_func
+                };
                 super::is_line_suppressed_for(line, prev, "surprisal")
             });
             if suppressed {
                 continue;
             }
 
-            let (avg_surprisal, max_surprisal, peak_line) = self.model.function_surprisal(func_lines);
+            let (avg_surprisal, max_surprisal, peak_line) =
+                self.model.function_surprisal(func_lines);
 
             if avg_surprisal <= 0.0 {
                 continue;
@@ -105,10 +119,13 @@ impl SurprisalDetector {
             };
 
             let _peak_line_num = start + peak_line + 1;
-            let peak_content = func_lines.get(peak_line)
+            let peak_content = func_lines
+                .get(peak_line)
                 .map(|l| l.trim())
                 .unwrap_or("")
-                .chars().take(80).collect::<String>();
+                .chars()
+                .take(80)
+                .collect::<String>();
 
             findings.push(Finding {
                 id: String::new(),
@@ -172,7 +189,10 @@ impl Detector for SurprisalDetector {
         "Detects statistically unusual code patterns using predictive coding"
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let files = &ctx.as_file_provider();
         let i = graph.interner();
@@ -188,11 +208,12 @@ impl Detector for SurprisalDetector {
         let mut file_data: Vec<(PathBuf, String)> = Vec::new();
 
         // First pass: compute per-function surprisal to build baseline
-        for path in files.files_with_extensions(&["rs", "py", "ts", "tsx", "js", "jsx", "go", "java",
-                "c", "cpp", "cc", "h", "hpp", "cs", "kt"]) {
-            if crate::detectors::content_classifier::is_non_production_path(
-                &path.to_string_lossy()
-            ) {
+        for path in files.files_with_extensions(&[
+            "rs", "py", "ts", "tsx", "js", "jsx", "go", "java", "c", "cpp", "cc", "h", "hpp", "cs",
+            "kt",
+        ]) {
+            if crate::detectors::content_classifier::is_non_production_path(&path.to_string_lossy())
+            {
                 continue;
             }
 
@@ -202,14 +223,21 @@ impl Detector for SurprisalDetector {
                 let rel_str = rel_path.to_string_lossy();
 
                 let all_funcs = graph.get_functions_shared();
-                let functions: Vec<_> = all_funcs.iter()
-                    .filter(|f| f.path(i) == rel_str.as_ref() || rel_str.ends_with(f.path(i)) || f.path(i).ends_with(&*rel_str))
+                let functions: Vec<_> = all_funcs
+                    .iter()
+                    .filter(|f| {
+                        f.path(i) == rel_str.as_ref()
+                            || rel_str.ends_with(f.path(i))
+                            || f.path(i).ends_with(&*rel_str)
+                    })
                     .collect();
 
                 for func in &functions {
                     let start = func.line_start.saturating_sub(1) as usize;
                     let end = (func.line_end as usize).min(lines.len());
-                    if start >= end || end - start < 8 { continue; }
+                    if start >= end || end - start < 8 {
+                        continue;
+                    }
 
                     let func_lines = &lines[start..end];
                     let (avg, _, _) = self.model.function_surprisal(func_lines);
@@ -223,41 +251,61 @@ impl Detector for SurprisalDetector {
         }
 
         if all_surprisals.len() < 20 {
-            info!("SurprisalDetector: not enough functions to establish baseline ({})", all_surprisals.len());
+            info!(
+                "SurprisalDetector: not enough functions to establish baseline ({})",
+                all_surprisals.len()
+            );
             return Ok(vec![]);
         }
 
         // Compute baseline statistics
         let n = all_surprisals.len() as f64;
         let mean = all_surprisals.iter().sum::<f64>() / n;
-        let variance = all_surprisals.iter().map(|s| (s - mean).powi(2)).sum::<f64>() / n;
+        let variance = all_surprisals
+            .iter()
+            .map(|s| (s - mean).powi(2))
+            .sum::<f64>()
+            / n;
         let std = variance.sqrt();
 
         info!(
             "SurprisalDetector baseline: mean={:.2} bits, std={:.2}, n={} functions",
-            mean, std, all_surprisals.len()
+            mean,
+            std,
+            all_surprisals.len()
         );
 
         // Second pass: flag unusual functions
         let mut findings = Vec::new();
         for (path, content) in &file_data {
-            if findings.len() >= self.max_findings { break; }
+            if findings.len() >= self.max_findings {
+                break;
+            }
             let mut file_findings = self.analyze_file(path, content, graph, mean, std);
             findings.append(&mut file_findings);
         }
 
         // Sort by z-score (most unusual first)
         findings.sort_by(|a, b| {
-            let za = a.threshold_metadata.get("z_score")
-                .and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0);
-            let zb = b.threshold_metadata.get("z_score")
-                .and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0);
+            let za = a
+                .threshold_metadata
+                .get("z_score")
+                .and_then(|s| s.parse::<f64>().ok())
+                .unwrap_or(0.0);
+            let zb = b
+                .threshold_metadata
+                .get("z_score")
+                .and_then(|s| s.parse::<f64>().ok())
+                .unwrap_or(0.0);
             zb.partial_cmp(&za).unwrap_or(std::cmp::Ordering::Equal)
         });
 
         findings.truncate(self.max_findings);
 
-        info!("SurprisalDetector found {} unusual functions", findings.len());
+        info!(
+            "SurprisalDetector found {} unusual functions",
+            findings.len()
+        );
         Ok(findings)
     }
 }
@@ -342,7 +390,10 @@ def foo():
 
         let store = GraphBuilder::new().freeze();
         let detector = SurprisalDetector::new(dir.path(), model);
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),

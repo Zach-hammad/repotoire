@@ -562,7 +562,9 @@ mod tests {
         let report = crate::reporters::tests::test_report();
         let sarif_str = render(&report).expect("render SARIF");
         let parsed: serde_json::Value = serde_json::from_str(&sarif_str).expect("parse SARIF JSON");
-        let results = parsed["runs"][0]["results"].as_array().expect("results array");
+        let results = parsed["runs"][0]["results"]
+            .as_array()
+            .expect("results array");
         assert!(!results.is_empty());
     }
 

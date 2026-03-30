@@ -39,7 +39,10 @@ impl WorkerClient {
             .stderr(Stdio::inherit()) // worker logs go to parent's stderr
             .spawn()?;
         // Take stdout and wrap in BufReader — stored for the lifetime of the child
-        let stdout = child.stdout.take().ok_or_else(|| anyhow::anyhow!("No stdout"))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("No stdout"))?;
         self.reader = Some(BufReader::new(stdout));
         self.child = Some(child);
         Ok(())
@@ -49,7 +52,9 @@ impl WorkerClient {
     /// falling back to the CLI path if not provided.
     pub fn send_init(&mut self, workspace_root: Option<&PathBuf>) -> Result<u64> {
         let id = self.next_id();
-        let path = workspace_root.cloned().unwrap_or_else(|| self.repo_path.clone());
+        let path = workspace_root
+            .cloned()
+            .unwrap_or_else(|| self.repo_path.clone());
         let cmd = protocol::Command::Init {
             id,
             path,
@@ -139,8 +144,14 @@ impl WorkerClient {
     }
 
     fn send_command(&mut self, cmd: &protocol::Command) -> Result<()> {
-        let child = self.child.as_mut().ok_or_else(|| anyhow::anyhow!("Worker not running"))?;
-        let stdin = child.stdin.as_mut().ok_or_else(|| anyhow::anyhow!("No stdin"))?;
+        let child = self
+            .child
+            .as_mut()
+            .ok_or_else(|| anyhow::anyhow!("Worker not running"))?;
+        let stdin = child
+            .stdin
+            .as_mut()
+            .ok_or_else(|| anyhow::anyhow!("No stdin"))?;
         serde_json::to_writer(&mut *stdin, cmd)?;
         stdin.write_all(b"\n")?;
         stdin.flush()?;

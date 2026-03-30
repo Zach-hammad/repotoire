@@ -155,10 +155,14 @@ impl CoChangeMatrix {
     /// - 0.8+ = strong coupling (almost always co-change)
     pub fn confidence(&self, a: StrKey, b: StrKey) -> f32 {
         let pair = self.pair_commit_count(a, b);
-        if pair == 0 { return 0.0; }
+        if pair == 0 {
+            return 0.0;
+        }
         let count_a = self.file_commit_count(a);
         let count_b = self.file_commit_count(b);
-        if count_a == 0 || count_b == 0 { return 0.0; }
+        if count_a == 0 || count_b == 0 {
+            return 0.0;
+        }
         let conf_ab = pair as f32 / count_a as f32;
         let conf_ba = pair as f32 / count_b as f32;
         conf_ab.min(conf_ba)
@@ -307,7 +311,10 @@ fn canonical_pair(a: StrKey, b: StrKey) -> (StrKey, StrKey) {
 /// Opens the repository via `GitHistory`, fetches recent commits, converts
 /// them into the `(DateTime, Vec<String>)` format, and delegates to
 /// `CoChangeMatrix::from_commits()`.
-pub fn compute_from_repo(repo_path: &std::path::Path, config: &CoChangeConfig) -> Result<CoChangeMatrix> {
+pub fn compute_from_repo(
+    repo_path: &std::path::Path,
+    config: &CoChangeConfig,
+) -> Result<CoChangeMatrix> {
     use crate::git::history::GitHistory;
 
     let history = GitHistory::open(repo_path)?;
@@ -344,7 +351,11 @@ mod tests {
     use chrono::Duration;
 
     /// Helper: create a commit entry at a given age (days before `now`).
-    fn commit_at(now: DateTime<Utc>, age_days: i64, files: Vec<&str>) -> (DateTime<Utc>, Vec<String>) {
+    fn commit_at(
+        now: DateTime<Utc>,
+        age_days: i64,
+        files: Vec<&str>,
+    ) -> (DateTime<Utc>, Vec<String>) {
         let ts = now - Duration::days(age_days);
         (ts, files.into_iter().map(String::from).collect())
     }
@@ -400,7 +411,9 @@ mod tests {
 
         let m = CoChangeMatrix::from_commits(&commits, &config, now);
 
-        let w_recent = m.weight_by_path("src/a.rs", "src/b.rs").expect("recent pair");
+        let w_recent = m
+            .weight_by_path("src/a.rs", "src/b.rs")
+            .expect("recent pair");
         let w_old = m.weight_by_path("src/c.rs", "src/d.rs").expect("old pair");
 
         // Old commit at 2 half-lives should have ~0.25 weight
@@ -424,11 +437,7 @@ mod tests {
         };
 
         // This commit has 4 files, exceeding max_files_per_commit=3
-        let commits = vec![commit_at(
-            now,
-            0,
-            vec!["a.rs", "b.rs", "c.rs", "d.rs"],
-        )];
+        let commits = vec![commit_at(now, 0, vec!["a.rs", "b.rs", "c.rs", "d.rs"])];
 
         let m = CoChangeMatrix::from_commits(&commits, &config, now);
 
@@ -466,9 +475,7 @@ mod tests {
 
         // 5 commits, but max_commits=2 so only first 2 should be processed
         let commits: Vec<_> = (0..5)
-            .map(|i| {
-                commit_at(now, i, vec!["a.py", "b.py"])
-            })
+            .map(|i| commit_at(now, i, vec!["a.py", "b.py"]))
             .collect();
 
         let m = CoChangeMatrix::from_commits(&commits, &config, now);
@@ -510,7 +517,9 @@ mod tests {
 
         let m = CoChangeMatrix::from_commits(&commits, &config, now);
 
-        let w = m.weight_by_path("shared_a.rs", "shared_b.rs").expect("accumulated pair");
+        let w = m
+            .weight_by_path("shared_a.rs", "shared_b.rs")
+            .expect("accumulated pair");
 
         // Two near-recent commits should accumulate to ~2.0
         assert!(w > 1.5, "expected accumulated weight > 1.5, got {w}");
@@ -543,9 +552,18 @@ mod tests {
         let wc = m.file_weight(kc).expect("c.rs should have file weight");
 
         // All commits at age=0, so decay=1.0 for each
-        assert!((wa - 3.0).abs() < 0.01, "a.rs appears in 3 commits, expected ~3.0, got {wa}");
-        assert!((wb - 2.0).abs() < 0.01, "b.rs appears in 2 commits, expected ~2.0, got {wb}");
-        assert!((wc - 1.0).abs() < 0.01, "c.rs appears in 1 commit, expected ~1.0, got {wc}");
+        assert!(
+            (wa - 3.0).abs() < 0.01,
+            "a.rs appears in 3 commits, expected ~3.0, got {wa}"
+        );
+        assert!(
+            (wb - 2.0).abs() < 0.01,
+            "b.rs appears in 2 commits, expected ~2.0, got {wb}"
+        );
+        assert!(
+            (wc - 1.0).abs() < 0.01,
+            "c.rs appears in 1 commit, expected ~1.0, got {wc}"
+        );
     }
 
     #[test]
@@ -634,6 +652,9 @@ mod tests {
         let si = global_interner();
         let ka = si.intern("nonexistent_a.rs");
         let kb = si.intern("nonexistent_b.rs");
-        assert!(m.lift(ka, kb).is_none(), "lift should be None for files not in matrix");
+        assert!(
+            m.lift(ka, kb).is_none(),
+            "lift should be None for files not in matrix"
+        );
     }
 }

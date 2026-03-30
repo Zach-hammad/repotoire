@@ -86,8 +86,7 @@ impl Detector for CriticalPathSingleOwnerDetector {
         let graph = ctx.graph;
         let gi = graph.interner();
         let prims = graph.primitives();
-        let centrality_percentile: usize =
-            self.config.get_option_or("centrality_percentile", 90);
+        let centrality_percentile: usize = self.config.get_option_or("centrality_percentile", 90);
 
         // Build per-file centrality aggregation: max PageRank, max betweenness,
         // and whether any node in the file is an articulation point.
@@ -187,7 +186,9 @@ impl Detector for CriticalPathSingleOwnerDetector {
                     "File '{}' has bus factor 1 (sole author: {}) and is on a critical \
                      dependency path ({}). Many other files depend on this code, \
                      but only one person understands it.",
-                    path, author, reasons.join(", ")
+                    path,
+                    author,
+                    reasons.join(", ")
                 ),
                 affected_files: vec![PathBuf::from(path)],
                 suggested_fix: Some(

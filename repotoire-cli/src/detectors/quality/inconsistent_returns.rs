@@ -22,14 +22,31 @@ pub struct InconsistentReturnsDetector {
 /// Names that indicate constructor/factory/builder functions.
 /// These commonly have early-return validation patterns that are intentional.
 const CONSTRUCTOR_NAMES: &[&str] = &[
-    "new", "init", "__init__", "create", "build", "make", "from", "of",
-    "with", "setup", "configure", "initialize",
+    "new",
+    "init",
+    "__init__",
+    "create",
+    "build",
+    "make",
+    "from",
+    "of",
+    "with",
+    "setup",
+    "configure",
+    "initialize",
 ];
 
 /// Prefixes that indicate constructor/factory/builder functions.
 const CONSTRUCTOR_PREFIXES: &[&str] = &[
-    "new_", "init_", "create_", "build_", "make_", "from_", "setup_",
-    "configure_", "initialize_",
+    "new_",
+    "init_",
+    "create_",
+    "build_",
+    "make_",
+    "from_",
+    "setup_",
+    "configure_",
+    "initialize_",
 ];
 
 impl InconsistentReturnsDetector {
@@ -64,11 +81,14 @@ impl InconsistentReturnsDetector {
                             callers_using_value += 1;
                             break;
                         }
-                        if line.contains("if") && line.contains(&format!("{}(", func.node_name(i))) {
+                        if line.contains("if") && line.contains(&format!("{}(", func.node_name(i)))
+                        {
                             callers_using_value += 1;
                             break;
                         }
-                        if line.contains("await") && line.contains(&format!("{}(", func.node_name(i))) {
+                        if line.contains("await")
+                            && line.contains(&format!("{}(", func.node_name(i)))
+                        {
                             callers_using_value += 1;
                             break;
                         }
@@ -249,7 +269,10 @@ impl Detector for InconsistentReturnsDetector {
         &["py", "js", "ts", "jsx", "tsx", "java", "go", "rs"]
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let i = graph.interner();
         let mut findings = vec![];
@@ -265,7 +288,10 @@ impl Detector for InconsistentReturnsDetector {
 
             // ── 1. Skip test functions ──────────────────────────────────
             // Test functions often have conditional returns that are intentional
-            if ctx.is_test_function(qn) || func_name.starts_with("test_") || Self::is_test_context(func_path, qn) {
+            if ctx.is_test_function(qn)
+                || func_name.starts_with("test_")
+                || Self::is_test_context(func_path, qn)
+            {
                 continue;
             }
 
@@ -308,7 +334,9 @@ impl Detector for InconsistentReturnsDetector {
                 // ── 5. Use graph callers for severity ───────────────────
                 // Use pre-computed callers from DetectorContext instead of
                 // expensive regex-based file scanning
-                let graph_callers = ctx.detector_ctx.callers_by_qn
+                let graph_callers = ctx
+                    .detector_ctx
+                    .callers_by_qn
                     .get(qn)
                     .map(|v| v.len())
                     .unwrap_or(0);
@@ -350,13 +378,13 @@ impl Detector for InconsistentReturnsDetector {
                 // Build context notes
                 let mut notes = Vec::new();
                 if analysis.return_count > 0 {
-                    notes.push(format!(
-                        "{} return statements found",
-                        analysis.return_count
-                    ));
+                    notes.push(format!("{} return statements found", analysis.return_count));
                 }
                 if analysis.has_return_value {
-                    notes.push(format!("{} paths return a value", analysis.value_return_count));
+                    notes.push(format!(
+                        "{} paths return a value",
+                        analysis.value_return_count
+                    ));
                 }
                 if analysis.has_return_none {
                     notes.push("Some paths return None/null".to_string());
@@ -430,7 +458,6 @@ impl Detector for InconsistentReturnsDetector {
     }
 }
 
-
 impl crate::detectors::RegisteredDetector for InconsistentReturnsDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
         std::sync::Arc::new(Self::new(init.repo_path))
@@ -440,8 +467,8 @@ impl crate::detectors::RegisteredDetector for InconsistentReturnsDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::{CodeNode};
     use crate::graph::builder::GraphBuilder;
+    use crate::graph::CodeNode;
 
     #[test]
     fn test_detects_inconsistent_returns() {
@@ -465,7 +492,10 @@ mod tests {
         store.add_node(func);
 
         let detector = InconsistentReturnsDetector::new(dir.path());
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
@@ -497,7 +527,10 @@ mod tests {
         store.add_node(func);
 
         let detector = InconsistentReturnsDetector::new(dir.path());
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
@@ -526,7 +559,10 @@ mod tests {
         store.add_node(func);
 
         let detector = InconsistentReturnsDetector::new(dir.path());
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
@@ -556,7 +592,10 @@ mod tests {
         store.add_node(func);
 
         let detector = InconsistentReturnsDetector::new(dir.path());
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
@@ -587,7 +626,10 @@ mod tests {
         store.add_node(func);
 
         let detector = InconsistentReturnsDetector::new(dir.path());
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
@@ -611,14 +653,30 @@ mod tests {
 
     #[test]
     fn test_constructor_name_detection() {
-        assert!(InconsistentReturnsDetector::is_constructor_or_factory("new"));
-        assert!(InconsistentReturnsDetector::is_constructor_or_factory("__init__"));
-        assert!(InconsistentReturnsDetector::is_constructor_or_factory("create_user"));
-        assert!(InconsistentReturnsDetector::is_constructor_or_factory("build_config"));
-        assert!(InconsistentReturnsDetector::is_constructor_or_factory("from_str"));
-        assert!(InconsistentReturnsDetector::is_constructor_or_factory("setup_logging"));
-        assert!(!InconsistentReturnsDetector::is_constructor_or_factory("process_data"));
-        assert!(!InconsistentReturnsDetector::is_constructor_or_factory("find_item"));
+        assert!(InconsistentReturnsDetector::is_constructor_or_factory(
+            "new"
+        ));
+        assert!(InconsistentReturnsDetector::is_constructor_or_factory(
+            "__init__"
+        ));
+        assert!(InconsistentReturnsDetector::is_constructor_or_factory(
+            "create_user"
+        ));
+        assert!(InconsistentReturnsDetector::is_constructor_or_factory(
+            "build_config"
+        ));
+        assert!(InconsistentReturnsDetector::is_constructor_or_factory(
+            "from_str"
+        ));
+        assert!(InconsistentReturnsDetector::is_constructor_or_factory(
+            "setup_logging"
+        ));
+        assert!(!InconsistentReturnsDetector::is_constructor_or_factory(
+            "process_data"
+        ));
+        assert!(!InconsistentReturnsDetector::is_constructor_or_factory(
+            "find_item"
+        ));
     }
 
     #[test]

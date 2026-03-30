@@ -637,11 +637,7 @@ impl ProjectConfig {
     }
 
     /// Threshold value for a detector
-    pub fn threshold(
-        &self,
-        detector_name: &str,
-        threshold_name: &str,
-    ) -> Option<&ThresholdValue> {
+    pub fn threshold(&self, detector_name: &str, threshold_name: &str) -> Option<&ThresholdValue> {
         let normalized = normalize_detector_name(detector_name);
 
         self.detectors

@@ -78,7 +78,12 @@ impl GraphPrimitives {
             return Self::default();
         }
 
-        let _span = tracing::info_span!("graph_primitives", functions = functions.len(), call_edges = all_call_edges.len()).entered();
+        let _span = tracing::info_span!(
+            "graph_primitives",
+            functions = functions.len(),
+            call_edges = all_call_edges.len()
+        )
+        .entered();
 
         // 1. SCCs first (needed by dominator for disconnected SCC handling)
         let call_cycles = compute_call_cycles(all_call_edges, graph);
@@ -120,14 +125,31 @@ impl GraphPrimitives {
             if let Some(co_change) = co_change {
                 if !co_change.is_empty() {
                     compute_weighted_phase(
-                        functions, files, all_call_edges, all_import_edges,
-                        co_change, graph, edge_fingerprint,
+                        functions,
+                        files,
+                        all_call_edges,
+                        all_import_edges,
+                        co_change,
+                        graph,
+                        edge_fingerprint,
                     )
                 } else {
-                    (HashMap::new(), HashMap::new(), HashMap::new(), 0.0, Vec::new())
+                    (
+                        HashMap::new(),
+                        HashMap::new(),
+                        HashMap::new(),
+                        0.0,
+                        Vec::new(),
+                    )
                 }
             } else {
-                (HashMap::new(), HashMap::new(), HashMap::new(), 0.0, Vec::new())
+                (
+                    HashMap::new(),
+                    HashMap::new(),
+                    HashMap::new(),
+                    0.0,
+                    Vec::new(),
+                )
             };
 
         Self {
@@ -171,7 +193,15 @@ mod tests {
     fn test_compute_empty_graph_returns_default() {
         let graph = StableGraph::new();
         let p = GraphPrimitives::compute(
-            &graph, &[], &[], &[], &[], &HashMap::new(), &HashMap::new(), 0, None,
+            &graph,
+            &[],
+            &[],
+            &[],
+            &[],
+            &HashMap::new(),
+            &HashMap::new(),
+            0,
+            None,
         );
         assert!(p.idom.is_empty());
         assert!(p.page_rank.is_empty());
@@ -300,8 +330,14 @@ mod tests {
         call_callers.insert(b, vec![a]);
         call_callers.insert(c, vec![b]);
 
-        let (idom, dominated, _frontier, dom_depth) =
-            compute_dominators(&functions, &call_edges, &call_callers, &call_callees, &[], &graph);
+        let (idom, dominated, _frontier, dom_depth) = compute_dominators(
+            &functions,
+            &call_edges,
+            &call_callers,
+            &call_callees,
+            &[],
+            &graph,
+        );
 
         // entry dominates all
         assert_eq!(idom.get(&a), Some(&entry), "entry should dominate A");
@@ -342,8 +378,14 @@ mod tests {
         call_callers.insert(b, vec![entry]);
         call_callers.insert(join, vec![a, b]);
 
-        let (idom, _dominated, _frontier, _dom_depth) =
-            compute_dominators(&functions, &call_edges, &call_callers, &call_callees, &[], &graph);
+        let (idom, _dominated, _frontier, _dom_depth) = compute_dominators(
+            &functions,
+            &call_edges,
+            &call_callers,
+            &call_callees,
+            &[],
+            &graph,
+        );
 
         // Neither A nor B dominates join — entry dominates join (two paths)
         assert_eq!(
@@ -369,35 +411,36 @@ mod tests {
         let functions = vec![a, b, c, d, e, f];
         // Triangle 1 edges (undirected via both directions in call edges)
         let call_edges = vec![
-            (a, b), (b, a),
-            (b, c), (c, b),
-            (a, c), (c, a),
+            (a, b),
+            (b, a),
+            (b, c),
+            (c, b),
+            (a, c),
+            (c, a),
             // Bridge
-            (c, d), (d, c),
+            (c, d),
+            (d, c),
             // Triangle 2
-            (d, e), (e, d),
-            (e, f), (f, e),
-            (d, f), (f, d),
+            (d, e),
+            (e, d),
+            (e, f),
+            (f, e),
+            (d, f),
+            (f, d),
         ];
 
         let (ap_vec, ap_set, bridges, _comp_sizes) =
             compute_articulation_points(&functions, &call_edges, &[], &[]);
 
         // c and d should be articulation points (bridge nodes)
-        assert!(
-            ap_set.contains(&c),
-            "c should be an articulation point"
-        );
-        assert!(
-            ap_set.contains(&d),
-            "d should be an articulation point"
-        );
+        assert!(ap_set.contains(&c), "c should be an articulation point");
+        assert!(ap_set.contains(&d), "d should be an articulation point");
         assert_eq!(ap_set.len(), 2, "Should have exactly 2 articulation points");
 
         // c-d should be a bridge
-        let has_bridge = bridges.iter().any(|&(s, t)| {
-            (s == c && t == d) || (s == d && t == c)
-        });
+        let has_bridge = bridges
+            .iter()
+            .any(|&(s, t)| (s == c && t == d) || (s == d && t == c));
         assert!(has_bridge, "c-d should be a bridge");
     }
 
@@ -412,12 +455,18 @@ mod tests {
 
         let functions = vec![a, b, c, d];
         let call_edges = vec![
-            (a, b), (b, a),
-            (a, c), (c, a),
-            (a, d), (d, a),
-            (b, c), (c, b),
-            (b, d), (d, b),
-            (c, d), (d, c),
+            (a, b),
+            (b, a),
+            (a, c),
+            (c, a),
+            (a, d),
+            (d, a),
+            (b, c),
+            (c, b),
+            (b, d),
+            (d, b),
+            (c, d),
+            (d, c),
         ];
 
         let (_ap_vec, ap_set, bridges, _comp_sizes) =
@@ -612,14 +661,14 @@ mod tests {
         // Functions
         let entry1 = graph.add_node(CodeNode::function("entry1", "app.py"));
         let entry2 = graph.add_node(CodeNode::function("entry2", "app.py"));
-        let hub    = graph.add_node(CodeNode::function("hub", "lib.py"));
-        let leaf1  = graph.add_node(CodeNode::function("leaf1", "lib.py"));
-        let leaf2  = graph.add_node(CodeNode::function("leaf2", "util.py"));
+        let hub = graph.add_node(CodeNode::function("hub", "lib.py"));
+        let leaf1 = graph.add_node(CodeNode::function("leaf1", "lib.py"));
+        let leaf2 = graph.add_node(CodeNode::function("leaf2", "util.py"));
         let helper = graph.add_node(CodeNode::function("helper", "util.py"));
-        let rec_a  = graph.add_node(CodeNode::function("rec_a", "lib.py"));
-        let rec_b  = graph.add_node(CodeNode::function("rec_b", "lib.py"));
-        let deep1  = graph.add_node(CodeNode::function("deep1", "util.py"));
-        let deep2  = graph.add_node(CodeNode::function("deep2", "util.py"));
+        let rec_a = graph.add_node(CodeNode::function("rec_a", "lib.py"));
+        let rec_b = graph.add_node(CodeNode::function("rec_b", "lib.py"));
+        let deep1 = graph.add_node(CodeNode::function("deep1", "util.py"));
+        let deep2 = graph.add_node(CodeNode::function("deep2", "util.py"));
 
         // Import edges
         graph.add_edge(file_app, file_lib, CodeEdge::imports());
@@ -637,14 +686,22 @@ mod tests {
         graph.add_edge(hub, deep1, CodeEdge::calls());
         graph.add_edge(deep1, deep2, CodeEdge::calls());
 
-        let functions = vec![entry1, entry2, hub, leaf1, leaf2, helper, rec_a, rec_b, deep1, deep2];
+        let functions = vec![
+            entry1, entry2, hub, leaf1, leaf2, helper, rec_a, rec_b, deep1, deep2,
+        ];
         let files = vec![file_app, file_lib, file_util];
 
         let all_call_edges = vec![
-            (entry1, hub), (entry2, hub), (entry1, helper),
-            (hub, leaf1), (hub, leaf2), (hub, rec_a),
-            (rec_a, rec_b), (rec_b, rec_a),
-            (hub, deep1), (deep1, deep2),
+            (entry1, hub),
+            (entry2, hub),
+            (entry1, helper),
+            (hub, leaf1),
+            (hub, leaf2),
+            (hub, rec_a),
+            (rec_a, rec_b),
+            (rec_b, rec_a),
+            (hub, deep1),
+            (deep1, deep2),
         ];
         let all_import_edges = vec![(file_app, file_lib), (file_lib, file_util)];
 
@@ -677,8 +734,14 @@ mod tests {
         let pr_hub = p.page_rank[&hub];
         let pr_leaf1 = p.page_rank[&leaf1];
         let pr_leaf2 = p.page_rank[&leaf2];
-        assert!(pr_hub > pr_leaf1, "Hub PR ({pr_hub}) > leaf1 PR ({pr_leaf1})");
-        assert!(pr_hub > pr_leaf2, "Hub PR ({pr_hub}) > leaf2 PR ({pr_leaf2})");
+        assert!(
+            pr_hub > pr_leaf1,
+            "Hub PR ({pr_hub}) > leaf1 PR ({pr_leaf1})"
+        );
+        assert!(
+            pr_hub > pr_leaf2,
+            "Hub PR ({pr_hub}) > leaf2 PR ({pr_leaf2})"
+        );
 
         // ── Betweenness centrality ──
         // Hub should have the highest betweenness (it's the bridge between entries and leaves)
@@ -695,7 +758,8 @@ mod tests {
             !p.call_cycles.is_empty(),
             "Should detect at least one call cycle"
         );
-        let cycle_members: HashSet<NodeIndex> = p.call_cycles
+        let cycle_members: HashSet<NodeIndex> = p
+            .call_cycles
             .iter()
             .flat_map(|c| c.iter().copied())
             .collect();
@@ -723,10 +787,7 @@ mod tests {
         // Entry points have no immediate dominator (they are roots)
         // hub is dominated by... well, it has 2 entry callers so the virtual
         // root dominates it. The key check: dominated set is populated.
-        assert!(
-            !p.idom.is_empty(),
-            "Dominator tree should be populated"
-        );
+        assert!(!p.idom.is_empty(), "Dominator tree should be populated");
         assert!(
             !p.dom_depth.is_empty(),
             "Dominator depths should be populated"
@@ -763,7 +824,12 @@ mod tests {
         let co_change = CoChangeMatrix::empty();
 
         let (overlay, hidden_coupling) = build_weighted_overlay(
-            &functions, &files, &call_edges, &import_edges, &co_change, &graph,
+            &functions,
+            &files,
+            &call_edges,
+            &import_edges,
+            &co_change,
+            &graph,
         );
 
         // Should have 2 nodes and 1 edge
@@ -803,8 +869,14 @@ mod tests {
             ..Default::default()
         };
         let commits = vec![
-            (now, vec!["src/alpha.rs".to_string(), "src/beta.rs".to_string()]),
-            (now, vec!["src/alpha.rs".to_string(), "src/beta.rs".to_string()]),
+            (
+                now,
+                vec!["src/alpha.rs".to_string(), "src/beta.rs".to_string()],
+            ),
+            (
+                now,
+                vec!["src/alpha.rs".to_string(), "src/beta.rs".to_string()],
+            ),
         ];
         let co_change = CoChangeMatrix::from_commits(&commits, &config, now);
 
@@ -812,10 +884,18 @@ mod tests {
         let cc_weight = co_change
             .weight_by_path("src/alpha.rs", "src/beta.rs")
             .expect("co-change should exist");
-        assert!(cc_weight > 1.0, "Two recent commits should give weight > 1.0");
+        assert!(
+            cc_weight > 1.0,
+            "Two recent commits should give weight > 1.0"
+        );
 
         let (overlay, hidden_coupling) = build_weighted_overlay(
-            &functions, &files, &call_edges, &import_edges, &co_change, &graph,
+            &functions,
+            &files,
+            &call_edges,
+            &import_edges,
+            &co_change,
+            &graph,
         );
 
         assert_eq!(overlay.edge_count(), 1, "Overlay should have 1 edge");
@@ -836,7 +916,10 @@ mod tests {
             "Expected weight {expected}, got {weight}"
         );
 
-        assert!(hidden_coupling.is_empty(), "No hidden coupling expected (structural edge exists)");
+        assert!(
+            hidden_coupling.is_empty(),
+            "No hidden coupling expected (structural edge exists)"
+        );
     }
 
     #[test]
@@ -872,12 +955,21 @@ mod tests {
             .expect("co-change should exist");
 
         let (overlay, hidden_coupling) = build_weighted_overlay(
-            &functions, &files, &call_edges, &import_edges, &co_change, &graph,
+            &functions,
+            &files,
+            &call_edges,
+            &import_edges,
+            &co_change,
+            &graph,
         );
 
         // Should have overlay edges between the function pair (hidden coupling)
         assert_eq!(overlay.node_count(), 2, "Overlay should have 2 nodes");
-        assert_eq!(overlay.edge_count(), 1, "Should have 1 hidden coupling edge");
+        assert_eq!(
+            overlay.edge_count(),
+            1,
+            "Should have 1 hidden coupling edge"
+        );
 
         let edge_idx = overlay.edge_indices().next().expect("should have one edge");
         let weight = overlay[edge_idx];
@@ -890,7 +982,11 @@ mod tests {
         );
 
         // Hidden coupling should be recorded at file level
-        assert_eq!(hidden_coupling.len(), 1, "Should have 1 hidden coupling entry");
+        assert_eq!(
+            hidden_coupling.len(),
+            1,
+            "Should have 1 hidden coupling entry"
+        );
         let (hc_a, hc_b, hc_w, hc_lift, hc_confidence) = hidden_coupling[0];
 
         // The file-level NodeIndex values should be from the files parameter
@@ -1104,7 +1200,10 @@ mod tests {
         assert_eq!(c3, c5, "Nodes 3 and 5 should be in the same community");
 
         // The two cliques should be in different communities
-        assert_ne!(c0, c3, "Clique 1 and clique 2 should be in different communities");
+        assert_ne!(
+            c0, c3,
+            "Clique 1 and clique 2 should be in different communities"
+        );
 
         // Exactly 2 distinct communities
         let distinct: HashSet<usize> = community_map.values().copied().collect();
@@ -1175,9 +1274,18 @@ mod tests {
         // Create co-change data: both files appear together in 3 recent commits
         let now = chrono::Utc::now();
         let commits = vec![
-            (now, vec!["phase_b_a.py".to_string(), "phase_b_b.py".to_string()]),
-            (now, vec!["phase_b_a.py".to_string(), "phase_b_b.py".to_string()]),
-            (now, vec!["phase_b_a.py".to_string(), "phase_b_b.py".to_string()]),
+            (
+                now,
+                vec!["phase_b_a.py".to_string(), "phase_b_b.py".to_string()],
+            ),
+            (
+                now,
+                vec!["phase_b_a.py".to_string(), "phase_b_b.py".to_string()],
+            ),
+            (
+                now,
+                vec!["phase_b_a.py".to_string(), "phase_b_b.py".to_string()],
+            ),
         ];
         let config = crate::git::co_change::CoChangeConfig::default();
         let co_change = crate::git::co_change::CoChangeMatrix::from_commits(&commits, &config, now);

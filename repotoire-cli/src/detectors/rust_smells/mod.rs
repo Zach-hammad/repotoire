@@ -24,20 +24,27 @@ use std::sync::LazyLock;
 
 // Compiled regex patterns (shared across detectors)
 
-static UNWRAP_CALL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\.unwrap\s*\(\s*\)").expect("valid regex"));
-static EXPECT_CALL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"\.expect\s*\(\s*["']"#).expect("valid regex"));
-static UNSAFE_BLOCK: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bunsafe\s*\{").expect("valid regex"));
+static UNWRAP_CALL: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\.unwrap\s*\(\s*\)").expect("valid regex"));
+static EXPECT_CALL: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"\.expect\s*\(\s*["']"#).expect("valid regex"));
+static UNSAFE_BLOCK: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\bunsafe\s*\{").expect("valid regex"));
 static SAFETY_COMMENT: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"(?i)//\s*SAFETY:|///\s*#\s*Safety|//\s*SAFETY\s*:").expect("valid regex")
-    });
-static CLONE_CALL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\.clone\s*\(\s*\)").expect("valid regex"));
+    Regex::new(r"(?i)//\s*SAFETY:|///\s*#\s*Safety|//\s*SAFETY\s*:").expect("valid regex")
+});
+static CLONE_CALL: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\.clone\s*\(\s*\)").expect("valid regex"));
 static HOT_PATH_INDICATOR: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"(?i)\b(loop|while|for|iter|map|filter|fold|reduce|collect|into_iter)\b")
-            .expect("valid regex")
-    });
-static MUST_USE_ATTR: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"#\[must_use").expect("valid regex"));
-static BOX_DYN_TRAIT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"Box\s*<\s*dyn\s+\w+").expect("valid regex"));
-static MUTEX_UNWRAP: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\.lock\s*\(\s*\)\s*\.unwrap\s*\(\s*\)").expect("valid regex"));
+    Regex::new(r"(?i)\b(loop|while|for|iter|map|filter|fold|reduce|collect|into_iter)\b")
+        .expect("valid regex")
+});
+static MUST_USE_ATTR: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"#\[must_use").expect("valid regex"));
+static BOX_DYN_TRAIT: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"Box\s*<\s*dyn\s+\w+").expect("valid regex"));
+static MUTEX_UNWRAP: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\.lock\s*\(\s*\)\s*\.unwrap\s*\(\s*\)").expect("valid regex"));
 
 /// Check if a line is in a test context
 pub(crate) fn is_test_context(_line: &str, content: &str, line_idx: usize) -> bool {
@@ -74,10 +81,10 @@ pub(crate) fn precompute_test_context(lines: &[&str]) -> Vec<bool> {
             && (trimmed.contains("#[cfg(test)]")
                 || trimmed.starts_with("mod tests")
                 || trimmed.contains("#[test]"))
-            {
-                test_brace_depth = Some(brace_depth);
-                is_test[i] = true;
-            }
+        {
+            test_brace_depth = Some(brace_depth);
+            is_test[i] = true;
+        }
 
         // Update brace depth
         for ch in line.chars() {
@@ -186,9 +193,13 @@ mod tests {
     fn test_unwrap_detection() {
         let graph = GraphBuilder::new().freeze();
         let detector = UnwrapWithoutContextDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![
-            ("test.rs", "fn main() {\n    let x = some_result.unwrap();\n}\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &graph,
+            vec![(
+                "test.rs",
+                "fn main() {\n    let x = some_result.unwrap();\n}\n",
+            )],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert_eq!(findings.len(), 1);
         assert!(findings[0].title.contains("unwrap"));
@@ -199,10 +210,13 @@ mod tests {
         let graph = GraphBuilder::new().freeze();
         let detector = UnwrapWithoutContextDetector::new("/mock/repo");
         // Python and JS files with .unwrap() — should not fire (not Rust)
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![
-            ("model.py", "value = some_result.unwrap()\n"),
-            ("component.tsx", "const x = result.unwrap();\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &graph,
+            vec![
+                ("model.py", "value = some_result.unwrap()\n"),
+                ("component.tsx", "const x = result.unwrap();\n"),
+            ],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
@@ -215,9 +229,13 @@ mod tests {
     fn test_unwrap_in_test_skipped() {
         let graph = GraphBuilder::new().freeze();
         let detector = UnwrapWithoutContextDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![
-            ("test.rs", "#[test]\nfn test_something() {\n    let x = some_result.unwrap();\n}\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &graph,
+            vec![(
+                "test.rs",
+                "#[test]\nfn test_something() {\n    let x = some_result.unwrap();\n}\n",
+            )],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(findings.is_empty());
     }
@@ -226,9 +244,13 @@ mod tests {
     fn test_unsafe_without_safety() {
         let graph = GraphBuilder::new().freeze();
         let detector = UnsafeWithoutSafetyCommentDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![
-            ("test.rs", "fn dangerous() {\n    unsafe {\n        do_something();\n    }\n}\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &graph,
+            vec![(
+                "test.rs",
+                "fn dangerous() {\n    unsafe {\n        do_something();\n    }\n}\n",
+            )],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert_eq!(findings.len(), 1);
     }
@@ -260,9 +282,13 @@ mod tests {
     fn test_missing_must_use() {
         let graph = GraphBuilder::new().freeze();
         let detector = MissingMustUseDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![
-            ("test.rs", "pub fn do_something() -> Result<(), Error> {\n    Ok(())\n}\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &graph,
+            vec![(
+                "test.rs",
+                "pub fn do_something() -> Result<(), Error> {\n    Ok(())\n}\n",
+            )],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert_eq!(findings.len(), 1);
     }
@@ -271,9 +297,13 @@ mod tests {
     fn test_must_use_present_ok() {
         let graph = GraphBuilder::new().freeze();
         let detector = MissingMustUseDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![
-            ("test.rs", "#[must_use]\npub fn do_something() -> Result<(), Error> {\n    Ok(())\n}\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &graph,
+            vec![(
+                "test.rs",
+                "#[must_use]\npub fn do_something() -> Result<(), Error> {\n    Ok(())\n}\n",
+            )],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(findings.is_empty());
     }
@@ -293,9 +323,13 @@ mod tests {
     fn test_box_dyn_in_vec_ok() {
         let graph = GraphBuilder::new().freeze();
         let detector = BoxDynTraitDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&graph, vec![
-            ("test.rs", "fn get_handlers() -> Vec<Box<dyn Handler>> {\n    vec![]\n}\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &graph,
+            vec![(
+                "test.rs",
+                "fn get_handlers() -> Vec<Box<dyn Handler>> {\n    vec![]\n}\n",
+            )],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(findings.is_empty());
     }

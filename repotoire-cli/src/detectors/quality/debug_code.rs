@@ -16,7 +16,9 @@ use std::path::PathBuf;
 use std::sync::LazyLock;
 use tracing::info;
 
-static DEBUG_PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(console\.(log|debug|info|warn)|\bprint\(|debugger;?|binding\.pry|byebug|import\s+pdb|pdb\.set_trace)").expect("valid regex"));
+static DEBUG_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)(console\.(log|debug|info|warn)|\bprint\(|debugger;?|binding\.pry|byebug|import\s+pdb|pdb\.set_trace)").expect("valid regex")
+});
 
 pub struct DebugCodeDetector {
     #[allow(dead_code)] // Part of detector pattern, used for file scanning
@@ -30,8 +32,8 @@ impl DebugCodeDetector {
     /// Check if function is a logging/debug utility (acceptable)
     fn is_logging_utility(func_name: &str) -> bool {
         let logging_patterns = [
-            "log", "debug", "trace", "print", "dump", "inspect", "show", "display",
-            "info", "output", "report",
+            "log", "debug", "trace", "print", "dump", "inspect", "show", "display", "info",
+            "output", "report",
         ];
         let name_lower = func_name.to_lowercase();
         logging_patterns.iter().any(|p| name_lower.contains(p))
@@ -56,10 +58,13 @@ impl DebugCodeDetector {
             "ogrinspect",
         ];
         // Normalize: ensure path starts with '/' so patterns like "/management/" match relative paths
-        let normalized = if path.starts_with('/') { path.to_string() } else { format!("/{}", path) };
+        let normalized = if path.starts_with('/') {
+            path.to_string()
+        } else {
+            format!("/{}", path)
+        };
         dev_patterns.iter().any(|p| normalized.contains(p))
     }
-
 }
 
 impl Detector for DebugCodeDetector {
@@ -78,13 +83,18 @@ impl Detector for DebugCodeDetector {
         &["py", "js", "ts", "jsx", "tsx", "rb", "java", "go", "rs"]
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let files = &ctx.as_file_provider();
         let mut findings = vec![];
         let mut debug_per_file: HashMap<String, usize> = HashMap::new();
 
-        for path in files.files_with_extensions(&["py", "js", "ts", "jsx", "tsx", "rb", "java", "go"]) {
+        for path in
+            files.files_with_extensions(&["py", "js", "ts", "jsx", "tsx", "rb", "java", "go"])
+        {
             if findings.len() >= self.max_findings {
                 break;
             }
@@ -134,7 +144,9 @@ impl Detector for DebugCodeDetector {
                     if trimmed.starts_with("print(") || trimmed.starts_with("print (") {
                         if let Some(prev) = prev_line {
                             let prev_trimmed = prev.trim();
-                            if prev_trimmed.contains("verbosity") || prev_trimmed.contains("verbose") {
+                            if prev_trimmed.contains("verbosity")
+                                || prev_trimmed.contains("verbose")
+                            {
                                 continue;
                             }
                         }
@@ -147,9 +159,14 @@ impl Detector for DebugCodeDetector {
                         let mut in_except = false;
                         for prev_idx in (0..i).rev() {
                             let prev_trimmed = lines[prev_idx].trim();
-                            if prev_trimmed.is_empty() { continue; }
+                            if prev_trimmed.is_empty() {
+                                continue;
+                            }
                             let prev_indent = lines[prev_idx].len() - prev_trimmed.len();
-                            if prev_indent < current_indent && (prev_trimmed.starts_with("except") || prev_trimmed.starts_with("except:")) {
+                            if prev_indent < current_indent
+                                && (prev_trimmed.starts_with("except")
+                                    || prev_trimmed.starts_with("except:"))
+                            {
                                 in_except = true;
                                 break;
                             }
@@ -165,7 +182,10 @@ impl Detector for DebugCodeDetector {
                     if DEBUG_PATTERN.is_match(line) {
                         let line_num = (i + 1) as u32;
                         let containing_func =
-                            graph.find_function_at(&path_str, line_num).map(|f| f.node_name(crate::graph::interner::global_interner()).to_string());
+                            graph.find_function_at(&path_str, line_num).map(|f| {
+                                f.node_name(crate::graph::interner::global_interner())
+                                    .to_string()
+                            });
 
                         // Skip if in a logging utility function
                         if let Some(ref func) = containing_func {
@@ -269,7 +289,6 @@ impl Detector for DebugCodeDetector {
     }
 }
 
-
 impl crate::detectors::RegisteredDetector for DebugCodeDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
         std::sync::Arc::new(Self::new(init.repo_path))
@@ -285,9 +304,13 @@ mod tests {
     fn test_detects_print_statement() {
         let store = GraphBuilder::new().freeze();
         let detector = DebugCodeDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("app.py", "def process(data):\n    print(data)\n    return data + 1\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "app.py",
+                "def process(data):\n    print(data)\n    return data + 1\n",
+            )],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
@@ -345,36 +368,57 @@ mod tests {
     fn test_no_finding_for_pprint() {
         let store = GraphBuilder::new().freeze();
         let detector = DebugCodeDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("filters.py", "def pprint(value):\n    return str(value)\n\nresult = pprint(data)\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "filters.py",
+                "def pprint(value):\n    return str(value)\n\nresult = pprint(data)\n",
+            )],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
-        assert!(findings.is_empty(), "Should not flag pprint(). Found: {:?}",
-            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+        assert!(
+            findings.is_empty(),
+            "Should not flag pprint(). Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
     }
 
     #[test]
     fn test_no_finding_for_verbosity_guarded_print() {
         let store = GraphBuilder::new().freeze();
         let detector = DebugCodeDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("mgmt.py", "def handle(self):\n    if verbosity >= 2:\n        print(\"Processing...\")\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "mgmt.py",
+                "def handle(self):\n    if verbosity >= 2:\n        print(\"Processing...\")\n",
+            )],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
-        assert!(findings.is_empty(), "Should not flag verbosity-guarded print(). Found: {:?}",
-            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+        assert!(
+            findings.is_empty(),
+            "Should not flag verbosity-guarded print(). Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
     }
 
     #[test]
     fn test_no_finding_for_management_command_path() {
         let store = GraphBuilder::new().freeze();
         let detector = DebugCodeDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("management/commands/migrate.py", "def handle(self):\n    print(\"Running migrations...\")\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "management/commands/migrate.py",
+                "def handle(self):\n    print(\"Running migrations...\")\n",
+            )],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
-        assert!(findings.is_empty(), "Should not flag print() in management commands. Found: {:?}",
-            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+        assert!(
+            findings.is_empty(),
+            "Should not flag print() in management commands. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -385,8 +429,11 @@ mod tests {
             ("views.py", "from django.template import Engine\n\nDEBUG_ENGINE = Engine(\n    debug=True,\n    libraries={},\n)\n"),
         ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
-        assert!(findings.is_empty(), "Should not flag debug=True as keyword argument. Found: {:?}",
-            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+        assert!(
+            findings.is_empty(),
+            "Should not flag debug=True as keyword argument. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
     }
 
     #[test]

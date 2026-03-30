@@ -169,17 +169,19 @@ impl PredictiveCodingEngine {
         let structural_scorer = structural::StructuralScorer::from_features(&feature_vecs);
 
         // === L1.5: Dependency chain surprisal ===
-        let calls: Vec<(String, String)> = graph.get_calls().into_iter().map(|(a, b)| (i.resolve(a).to_string(), i.resolve(b).to_string())).collect();
+        let calls: Vec<(String, String)> = graph
+            .get_calls()
+            .into_iter()
+            .map(|(a, b)| (i.resolve(a).to_string(), i.resolve(b).to_string()))
+            .collect();
         // Cap chains to 10k to avoid combinatorial explosion on large call graphs.
         // 10k chains is more than enough for distributional statistics.
         let chains = dependency_chain::extract_dependency_chains_bounded(&calls, 4, 10_000);
         let mut chain_scorer = dependency_chain::DependencyChainScorer::new();
 
         // Build a lookup map to avoid O(n^2) scanning inside the chain loop
-        let fn_by_name: HashMap<&str, &crate::graph::CodeNode> = functions
-            .iter()
-            .map(|f| (f.qn(i), f))
-            .collect();
+        let fn_by_name: HashMap<&str, &crate::graph::CodeNode> =
+            functions.iter().map(|f| (f.qn(i), f)).collect();
 
         // Score chains using L1 model — find a confident language model.
         // Cache pre-split lines per file to avoid repeated lines().collect() on large files.
@@ -190,13 +192,13 @@ impl PredictiveCodingEngine {
                 .iter()
                 .filter_map(|qn| fn_by_name.get(qn.as_str()).copied())
                 .filter_map(|f| {
-                    let cached_lines = lines_cache
-                        .entry(f.path(i))
-                        .or_insert_with(|| {
-                            let path = repo_path.join(f.path(i));
-                            let content = files.content(&path).unwrap_or_else(|| Arc::new(String::new()));
-                            content.lines().map(|l| l.to_string()).collect()
-                        });
+                    let cached_lines = lines_cache.entry(f.path(i)).or_insert_with(|| {
+                        let path = repo_path.join(f.path(i));
+                        let content = files
+                            .content(&path)
+                            .unwrap_or_else(|| Arc::new(String::new()));
+                        content.lines().map(|l| l.to_string()).collect()
+                    });
                     if cached_lines.is_empty() {
                         return None;
                     }
@@ -222,7 +224,11 @@ impl PredictiveCodingEngine {
             }
         }
         drop(lines_cache); // Free cached lines before scoring phase
-        debug!("[predictive] L1.5 extracted {} chains from {} calls", chains.len(), calls.len());
+        debug!(
+            "[predictive] L1.5 extracted {} chains from {} calls",
+            chains.len(),
+            calls.len()
+        );
 
         // === L3: Relational graph features (Mahalanobis distance) ===
         let relational_scorer = relational::GraphRelationalScorer::from_contexts(contexts);
@@ -301,12 +307,14 @@ impl PredictiveCodingEngine {
         // On large repos (>MAX_SCORED functions), pre-filter by L2 structural distance
         // to avoid scoring all functions (O(n) n-gram scoring is expensive at 72k+).
         let scored_indices: Vec<usize> = if functions.len() > MAX_SCORED {
-            let mut indexed_dists: Vec<(usize, f64)> = models.func_features
+            let mut indexed_dists: Vec<(usize, f64)> = models
+                .func_features
                 .iter()
                 .enumerate()
                 .map(|(i, (_, feat))| (i, models.structural_scorer.mahalanobis_distance(feat)))
                 .collect();
-            indexed_dists.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+            indexed_dists
+                .sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
             indexed_dists.truncate(MAX_SCORED);
             indexed_dists.into_iter().map(|(i, _)| i).collect()
         } else {
@@ -335,19 +343,18 @@ impl PredictiveCodingEngine {
             let ext = func.path(i).rsplit('.').next().unwrap_or("rs");
 
             // L1: Token surprisal — skip if no confident model for this language
-            let has_model = models.token_scorer
+            let has_model = models
+                .token_scorer
                 .models
                 .get(ext)
                 .map(|m| m.is_confident())
                 .unwrap_or(false);
 
             let token_score = if has_model {
-                let content = file_cache
-                    .entry(func.path(i))
-                    .or_insert_with(|| {
-                        let path = repo_path.join(func.path(i));
-                        files.content(&path)
-                    });
+                let content = file_cache.entry(func.path(i)).or_insert_with(|| {
+                    let path = repo_path.join(func.path(i));
+                    files.content(&path)
+                });
                 if let Some(content) = content {
                     let lines: Vec<&str> = content.lines().collect();
                     let start = func.line_start.saturating_sub(1) as usize;
@@ -365,7 +372,8 @@ impl PredictiveCodingEngine {
             };
 
             // L2: Structural distance
-            let structural_score = models.func_features
+            let structural_score = models
+                .func_features
                 .get(idx)
                 .map(|(_, feat)| models.structural_scorer.mahalanobis_distance(feat))
                 .unwrap_or(0.0);

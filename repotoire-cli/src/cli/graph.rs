@@ -1,7 +1,7 @@
 //! Graph command - query the code graph directly
 
-use crate::graph::CodeGraph;
 use crate::graph::traits::GraphQueryExt;
+use crate::graph::CodeGraph;
 use anyhow::{Context, Result};
 use console::style;
 use std::path::Path;
@@ -16,8 +16,12 @@ fn load_graph(repo_path: &Path) -> Result<CodeGraph> {
             style("repotoire analyze").cyan()
         );
     }
-    CodeGraph::load_cache(&graph_path)
-        .ok_or_else(|| anyhow::anyhow!("Failed to load graph cache (corrupt or version mismatch). Run {} again.", style("repotoire analyze").cyan()))
+    CodeGraph::load_cache(&graph_path).ok_or_else(|| {
+        anyhow::anyhow!(
+            "Failed to load graph cache (corrupt or version mismatch). Run {} again.",
+            style("repotoire analyze").cyan()
+        )
+    })
 }
 
 /// Run a query against the code graph
@@ -62,7 +66,11 @@ fn query_functions(graph: &CodeGraph, json_output: bool) -> Result<()> {
         let json: Vec<_> = functions.iter().map(function_to_json).collect();
         println!("{}", serde_json::to_string_pretty(&json)?);
     } else {
-        println!("\n{} Functions ({})\n", style("\u{1f4ca}").bold(), functions.len());
+        println!(
+            "\n{} Functions ({})\n",
+            style("\u{1f4ca}").bold(),
+            functions.len()
+        );
         for func in functions.iter().take(50) {
             println!(
                 "  {} ({}:{})",
@@ -85,7 +93,11 @@ fn query_classes(graph: &CodeGraph, json_output: bool) -> Result<()> {
         let json: Vec<_> = classes.iter().map(class_to_json).collect();
         println!("{}", serde_json::to_string_pretty(&json)?);
     } else {
-        println!("\n{} Classes ({})\n", style("\u{1f4ca}").bold(), classes.len());
+        println!(
+            "\n{} Classes ({})\n",
+            style("\u{1f4ca}").bold(),
+            classes.len()
+        );
         for class in classes.iter().take(50) {
             println!(
                 "  {} ({}:{})",
@@ -105,7 +117,10 @@ fn query_files(graph: &CodeGraph, json_output: bool) -> Result<()> {
     let i = graph.interner();
     let files = graph.get_files();
     if json_output {
-        let json: Vec<_> = files.iter().map(|f| serde_json::json!({"path": f.path(i)})).collect();
+        let json: Vec<_> = files
+            .iter()
+            .map(|f| serde_json::json!({"path": f.path(i)}))
+            .collect();
         println!("{}", serde_json::to_string_pretty(&json)?);
     } else {
         println!("\n{} Files ({})\n", style("\u{1f4ca}").bold(), files.len());
@@ -123,12 +138,23 @@ fn query_calls(graph: &CodeGraph, json_output: bool) -> Result<()> {
     let i = graph.interner();
     let calls = graph.get_calls();
     if json_output {
-        let json: Vec<_> = calls.iter().map(|(from, to)| serde_json::json!({"from": i.resolve(*from), "to": i.resolve(*to)})).collect();
+        let json: Vec<_> = calls
+            .iter()
+            .map(|(from, to)| serde_json::json!({"from": i.resolve(*from), "to": i.resolve(*to)}))
+            .collect();
         println!("{}", serde_json::to_string_pretty(&json)?);
     } else {
-        println!("\n{} Call Edges ({})\n", style("\u{1f4ca}").bold(), calls.len());
+        println!(
+            "\n{} Call Edges ({})\n",
+            style("\u{1f4ca}").bold(),
+            calls.len()
+        );
         for (from, to) in calls.iter().take(50) {
-            println!("  {} -> {}", style(i.resolve(*from)).cyan(), style(i.resolve(*to)).green());
+            println!(
+                "  {} -> {}",
+                style(i.resolve(*from)).cyan(),
+                style(i.resolve(*to)).green()
+            );
         }
         if calls.len() > 50 {
             println!("  ... and {} more", calls.len() - 50);
@@ -141,7 +167,10 @@ fn query_imports(graph: &CodeGraph, json_output: bool) -> Result<()> {
     let i = graph.interner();
     let imports = graph.get_imports();
     if json_output {
-        let json: Vec<_> = imports.iter().map(|(from, to)| serde_json::json!({"from": i.resolve(*from), "to": i.resolve(*to)})).collect();
+        let json: Vec<_> = imports
+            .iter()
+            .map(|(from, to)| serde_json::json!({"from": i.resolve(*from), "to": i.resolve(*to)}))
+            .collect();
         println!("{}", serde_json::to_string_pretty(&json)?);
     } else {
         println!(
@@ -150,7 +179,11 @@ fn query_imports(graph: &CodeGraph, json_output: bool) -> Result<()> {
             imports.len()
         );
         for (from, to) in imports.iter().take(50) {
-            println!("  {} -> {}", style(i.resolve(*from)).cyan(), style(i.resolve(*to)).green());
+            println!(
+                "  {} -> {}",
+                style(i.resolve(*from)).cyan(),
+                style(i.resolve(*to)).green()
+            );
         }
         if imports.len() > 50 {
             println!("  ... and {} more", imports.len() - 50);
@@ -167,7 +200,9 @@ fn print_usage() {
     println!("  - calls: List call edges");
     println!("  - imports: List import edges");
     println!("  - stats: Show graph statistics");
-    println!("\nNote: Cypher queries are not supported. You can also run 'repotoire stats' directly.");
+    println!(
+        "\nNote: Cypher queries are not supported. You can also run 'repotoire stats' directly."
+    );
 }
 
 /// Show graph statistics

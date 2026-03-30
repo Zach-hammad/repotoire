@@ -58,7 +58,12 @@ impl CodeGraph {
         // Build string table: raw Spur u32 → interned string for all StrKeys in nodes
         let mut string_table: HashMap<u32, String> = HashMap::new();
         for node in self.raw_graph().node_weights() {
-            for &key in &[node.name, node.qualified_name, node.file_path, node.language] {
+            for &key in &[
+                node.name,
+                node.qualified_name,
+                node.file_path,
+                node.language,
+            ] {
                 let raw = key.into_inner().get();
                 string_table
                     .entry(raw)
@@ -182,7 +187,12 @@ impl CodeGraph {
         let indexes = GraphIndexes::build(&graph, &node_index, None);
 
         tracing::info!("Loaded CodeGraph cache ({} nodes)", node_index.len());
-        Some(CodeGraph::from_parts(graph, node_index, extra_props, indexes))
+        Some(CodeGraph::from_parts(
+            graph,
+            node_index,
+            extra_props,
+            indexes,
+        ))
     }
 }
 

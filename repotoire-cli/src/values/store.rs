@@ -302,10 +302,9 @@ mod tests {
     #[test]
     fn test_resolve_at_unknown_for_missing_var() {
         let mut store = ValueStore::new();
-        store.function_values.insert(
-            "mod.func".to_string(),
-            vec![assign("x", int_val(1), 5)],
-        );
+        store
+            .function_values
+            .insert("mod.func".to_string(), vec![assign("x", int_val(1), 5)]);
 
         assert_eq!(
             store.resolve_at("mod.func", "y", 10),
@@ -373,11 +372,7 @@ mod tests {
     #[test]
     fn test_try_evaluate_binary_op() {
         let store = ValueStore::new();
-        let expr = SymbolicValue::BinaryOp(
-            BinOp::Add,
-            Box::new(int_val(1)),
-            Box::new(int_val(2)),
-        );
+        let expr = SymbolicValue::BinaryOp(BinOp::Add, Box::new(int_val(1)), Box::new(int_val(2)));
 
         assert_eq!(store.try_evaluate(&expr), Some(LiteralValue::Integer(3)));
     }
@@ -403,9 +398,7 @@ mod tests {
     #[test]
     fn test_try_evaluate_variable_resolves_constant() {
         let mut store = ValueStore::new();
-        store
-            .constants
-            .insert("mod.BASE".to_string(), int_val(100));
+        store.constants.insert("mod.BASE".to_string(), int_val(100));
 
         let expr = SymbolicValue::Variable("mod.BASE".to_string());
         assert_eq!(store.try_evaluate(&expr), Some(LiteralValue::Integer(100)));
@@ -431,11 +424,7 @@ mod tests {
     #[test]
     fn test_try_evaluate_div_by_zero_returns_none() {
         let store = ValueStore::new();
-        let expr = SymbolicValue::BinaryOp(
-            BinOp::Div,
-            Box::new(int_val(10)),
-            Box::new(int_val(0)),
-        );
+        let expr = SymbolicValue::BinaryOp(BinOp::Div, Box::new(int_val(10)), Box::new(int_val(0)));
 
         assert_eq!(store.try_evaluate(&expr), None);
     }
@@ -483,16 +472,9 @@ mod tests {
     #[test]
     fn test_try_evaluate_comparison() {
         let store = ValueStore::new();
-        let expr = SymbolicValue::BinaryOp(
-            BinOp::Lt,
-            Box::new(int_val(3)),
-            Box::new(int_val(5)),
-        );
+        let expr = SymbolicValue::BinaryOp(BinOp::Lt, Box::new(int_val(3)), Box::new(int_val(5)));
 
-        assert_eq!(
-            store.try_evaluate(&expr),
-            Some(LiteralValue::Boolean(true))
-        );
+        assert_eq!(store.try_evaluate(&expr), Some(LiteralValue::Boolean(true)));
     }
 
     #[test]
@@ -504,10 +486,7 @@ mod tests {
             Box::new(SymbolicValue::Literal(LiteralValue::Float(4.0))),
         );
 
-        assert_eq!(
-            store.try_evaluate(&expr),
-            Some(LiteralValue::Float(10.0))
-        );
+        assert_eq!(store.try_evaluate(&expr), Some(LiteralValue::Float(10.0)));
     }
 
     #[test]
@@ -521,10 +500,7 @@ mod tests {
             ],
             function_assignments: {
                 let mut m = HashMap::new();
-                m.insert(
-                    "mod.func".to_string(),
-                    vec![assign("x", int_val(10), 5)],
-                );
+                m.insert("mod.func".to_string(), vec![assign("x", int_val(10), 5)]);
                 m
             },
             return_expressions: {
@@ -550,10 +526,7 @@ mod tests {
             module_constants: vec![],
             function_assignments: {
                 let mut m = HashMap::new();
-                m.insert(
-                    "mod.func".to_string(),
-                    vec![assign("x", int_val(1), 5)],
-                );
+                m.insert("mod.func".to_string(), vec![assign("x", int_val(1), 5)]);
                 m
             },
             return_expressions: HashMap::new(),
@@ -563,10 +536,7 @@ mod tests {
             module_constants: vec![],
             function_assignments: {
                 let mut m = HashMap::new();
-                m.insert(
-                    "mod.func".to_string(),
-                    vec![assign("x", int_val(2), 10)],
-                );
+                m.insert("mod.func".to_string(), vec![assign("x", int_val(2), 10)]);
                 m
             },
             return_expressions: HashMap::new(),
@@ -582,12 +552,20 @@ mod tests {
     #[test]
     fn test_evaluate_binary_op_mod() {
         assert_eq!(
-            evaluate_binary_op(BinOp::Mod, &LiteralValue::Integer(10), &LiteralValue::Integer(3)),
+            evaluate_binary_op(
+                BinOp::Mod,
+                &LiteralValue::Integer(10),
+                &LiteralValue::Integer(3)
+            ),
             Some(LiteralValue::Integer(1))
         );
         // Mod by zero returns None.
         assert_eq!(
-            evaluate_binary_op(BinOp::Mod, &LiteralValue::Integer(10), &LiteralValue::Integer(0)),
+            evaluate_binary_op(
+                BinOp::Mod,
+                &LiteralValue::Integer(10),
+                &LiteralValue::Integer(0)
+            ),
             None
         );
     }
@@ -595,7 +573,11 @@ mod tests {
     #[test]
     fn test_evaluate_binary_op_float_div_by_zero() {
         assert_eq!(
-            evaluate_binary_op(BinOp::Div, &LiteralValue::Float(1.0), &LiteralValue::Float(0.0)),
+            evaluate_binary_op(
+                BinOp::Div,
+                &LiteralValue::Float(1.0),
+                &LiteralValue::Float(0.0)
+            ),
             None
         );
     }

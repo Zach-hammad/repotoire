@@ -16,22 +16,22 @@ use std::sync::LazyLock;
 use tracing::info;
 
 static NONE_ALG: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r#"(?i)(algorithm\s*[=:]\s*["']?none["']?|alg["']?\s*:\s*["']?none)"#)
-            .expect("valid regex")
-    });
+    Regex::new(r#"(?i)(algorithm\s*[=:]\s*["']?none["']?|alg["']?\s*:\s*["']?none)"#)
+        .expect("valid regex")
+});
 static HS256_ALG: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r#"(?i)(algorithm\s*[=:]\s*["']?HS256["']?|alg["']?\s*:\s*["']?HS256)"#)
-            .expect("valid regex")
-    });
+    Regex::new(r#"(?i)(algorithm\s*[=:]\s*["']?HS256["']?|alg["']?\s*:\s*["']?HS256)"#)
+        .expect("valid regex")
+});
 #[allow(dead_code)]
 static JWT_VERIFY: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"(?i)(jwt\.(decode|verify)|verify_jwt|verifyToken|JWTVerifier)")
-            .expect("valid regex")
-    });
+    Regex::new(r"(?i)(jwt\.(decode|verify)|verify_jwt|verifyToken|JWTVerifier)")
+        .expect("valid regex")
+});
 static ALG_PARAM: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"(?i)(algorithms?\s*[=:]\s*\[|verify\s*=\s*False|options.*verify)")
-            .expect("valid regex")
-    });
+    Regex::new(r"(?i)(algorithms?\s*[=:]\s*\[|verify\s*=\s*False|options.*verify)")
+        .expect("valid regex")
+});
 
 pub struct JwtWeakDetector {
     #[allow(dead_code)] // Part of detector pattern, used for file scanning
@@ -226,7 +226,10 @@ impl Detector for JwtWeakDetector {
         crate::detectors::detector_context::ContentFlags::HAS_CRYPTO
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let files = &ctx.as_file_provider();
         let mut findings = vec![];
@@ -278,11 +281,16 @@ impl Detector for JwtWeakDetector {
                         continue;
                     }
 
-                    let containing_func =
-                        graph.find_function_at(&path_str, (i + 1) as u32);
+                    let containing_func = graph.find_function_at(&path_str, (i + 1) as u32);
                     let containing_info = containing_func.as_ref().map(|f| {
-                        let callers = graph.get_callers(f.qn(crate::graph::interner::global_interner())).len();
-                        (f.node_name(crate::graph::interner::global_interner()).to_string(), callers)
+                        let callers = graph
+                            .get_callers(f.qn(crate::graph::interner::global_interner()))
+                            .len();
+                        (
+                            f.node_name(crate::graph::interner::global_interner())
+                                .to_string(),
+                            callers,
+                        )
                     });
                     let is_auth = containing_info
                         .as_ref()
@@ -338,7 +346,6 @@ impl Detector for JwtWeakDetector {
     }
 }
 
-
 impl crate::detectors::RegisteredDetector for JwtWeakDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
         std::sync::Arc::new(Self::new(init.repo_path))
@@ -358,10 +365,7 @@ mod tests {
             ("auth.py", "import jwt\n\ndef decode_token(token):\n    payload = jwt.decode(token, algorithm=\"none\")\n    return payload\n"),
         ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
-        assert!(
-            !findings.is_empty(),
-            "Should detect JWT algorithm='none'"
-        );
+        assert!(!findings.is_empty(), "Should detect JWT algorithm='none'");
         assert!(
             findings.iter().any(|f| f.title.contains("none")),
             "Finding should mention 'none' algorithm. Titles: {:?}",

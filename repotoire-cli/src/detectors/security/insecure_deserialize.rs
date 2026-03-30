@@ -17,10 +17,13 @@ use tracing::info;
 
 use crate::detectors::user_input::has_nearby_user_input;
 
-static DESERIALIZE_PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(JSON\.parse|yaml\.load|yaml\.safe_load|unserialize|ObjectInputStream|Marshal\.load|eval\s*\()").expect("valid regex"));
+static DESERIALIZE_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)(JSON\.parse|yaml\.load|yaml\.safe_load|unserialize|ObjectInputStream|Marshal\.load|eval\s*\()").expect("valid regex")
+});
 
 static JAVA_DESERIALIZE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?:ObjectInputStream|XMLDecoder|readObject|readUnshared)\s*\(").expect("valid regex")
+    Regex::new(r"(?:ObjectInputStream|XMLDecoder|readObject|readUnshared)\s*\(")
+        .expect("valid regex")
 });
 
 /// Categorize the deserialization method
@@ -94,24 +97,22 @@ impl InsecureDeserializeDetector {
         line: u32,
     ) -> Option<(String, usize, bool)> {
         let i = graph.interner();
-        graph
-            .find_function_at(file_path, line)
-            .map(|f| {
-                let callers = graph.get_callers(f.qn(i));
-                let name_lower = f.node_name(i).to_lowercase();
+        graph.find_function_at(file_path, line).map(|f| {
+            let callers = graph.get_callers(f.qn(i));
+            let name_lower = f.node_name(i).to_lowercase();
 
-                // Check if this is a route handler
-                let is_handler = name_lower.contains("handler")
-                    || name_lower.contains("route")
-                    || name_lower.contains("api")
-                    || name_lower.contains("endpoint")
-                    || name_lower.starts_with("get")
-                    || name_lower.starts_with("post")
-                    || name_lower.starts_with("put")
-                    || name_lower.starts_with("delete");
+            // Check if this is a route handler
+            let is_handler = name_lower.contains("handler")
+                || name_lower.contains("route")
+                || name_lower.contains("api")
+                || name_lower.contains("endpoint")
+                || name_lower.starts_with("get")
+                || name_lower.starts_with("post")
+                || name_lower.starts_with("put")
+                || name_lower.starts_with("delete");
 
-                (f.node_name(i).to_string(), callers.len(), is_handler)
-            })
+            (f.node_name(i).to_string(), callers.len(), is_handler)
+        })
     }
 
     /// Check for validation/sanitization in surrounding code
@@ -159,7 +160,10 @@ impl Detector for InsecureDeserializeDetector {
         true
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let files = &ctx.as_file_provider();
         let mut findings = vec![];
@@ -360,7 +364,6 @@ impl Detector for InsecureDeserializeDetector {
     }
 }
 
-
 impl crate::detectors::RegisteredDetector for InsecureDeserializeDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
         std::sync::Arc::new(Self::new(init.repo_path))
@@ -380,9 +383,14 @@ mod tests {
             ("config_loader.py", "import yaml\nfrom flask import request\n\ndef load_config():\n    payload = request.get_json()\n    config = yaml.load(payload)\n    return config\n"),
         ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
-        assert!(!findings.is_empty(), "Should detect yaml.load without SafeLoader");
         assert!(
-            findings.iter().any(|f| f.title.contains("YAML") || f.title.contains("yaml")),
+            !findings.is_empty(),
+            "Should detect yaml.load without SafeLoader"
+        );
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.title.contains("YAML") || f.title.contains("yaml")),
             "Finding should mention YAML. Titles: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>()
         );
@@ -396,7 +404,10 @@ mod tests {
             ("Handler.java", "import java.io.*;\nimport javax.servlet.*;\n\npublic class Handler {\n    public void handle(HttpServletRequest request) {\n        InputStream in = request.getInputStream();\n        ObjectInputStream ois = new ObjectInputStream(in);\n        Object obj = ois.readObject();\n    }\n}\n"),
         ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
-        assert!(!findings.is_empty(), "Should detect ObjectInputStream deserialization");
+        assert!(
+            !findings.is_empty(),
+            "Should detect ObjectInputStream deserialization"
+        );
     }
 
     #[test]
@@ -407,7 +418,10 @@ mod tests {
             ("config_loader.py", "import json\n\ndef save_config(config):\n    output = json.dumps(config, indent=2)\n    with open(\"config.json\", \"w\") as f:\n        f.write(output)\n"),
         ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
-        assert!(findings.is_empty(), "Should not detect json.dumps (serialization, not deserialization). Found: {:?}",
-            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+        assert!(
+            findings.is_empty(),
+            "Should not detect json.dumps (serialization, not deserialization). Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
     }
 }

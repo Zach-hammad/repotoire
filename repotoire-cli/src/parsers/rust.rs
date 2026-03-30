@@ -58,10 +58,13 @@ pub fn parse_source(source: &str, path: &Path) -> Result<ParseResult> {
 
 /// Parse Rust source code and return both the ParseResult and the tree-sitter Tree.
 /// Used by the pipeline to extract structural fingerprints without re-parsing.
-pub fn parse_source_with_tree(source: &str, path: &Path) -> Result<(ParseResult, tree_sitter::Tree)> {
-    let tree = RS_PARSER.with(|cell| {
-        cell.borrow_mut().parse(source, None)
-    }).context("Failed to parse Rust source")?;
+pub fn parse_source_with_tree(
+    source: &str,
+    path: &Path,
+) -> Result<(ParseResult, tree_sitter::Tree)> {
+    let tree = RS_PARSER
+        .with(|cell| cell.borrow_mut().parse(source, None))
+        .context("Failed to parse Rust source")?;
 
     let root = tree.root_node();
     let source_bytes = source.as_bytes();
@@ -432,7 +435,9 @@ fn extract_impl_methods(
 
     // Record trait implementation relationship
     if let Some(ref trait_n) = trait_name {
-        result.trait_impls.push((type_name.clone(), trait_n.clone()));
+        result
+            .trait_impls
+            .push((type_name.clone(), trait_n.clone()));
     }
 
     // Extract methods from the impl body
@@ -919,7 +924,10 @@ pub fn no_attrs() {}
 
         let main_fn = result.functions.iter().find(|f| f.name == "main").unwrap();
         assert!(
-            main_fn.annotations.iter().any(|a| a.contains("tokio::main")),
+            main_fn
+                .annotations
+                .iter()
+                .any(|a| a.contains("tokio::main")),
             "main should have #[tokio::main] annotation, got: {:?}",
             main_fn.annotations
         );
@@ -942,10 +950,7 @@ pub fn no_attrs() {}
             .unwrap();
         // no_attrs has no #[attribute] annotations, but it is `pub` so it has "exported"
         assert!(
-            no_attrs_fn
-                .annotations
-                .iter()
-                .all(|a| a == "exported"),
+            no_attrs_fn.annotations.iter().all(|a| a == "exported"),
             "no_attrs should only have 'exported' (no #[attr]), got: {:?}",
             no_attrs_fn.annotations
         );
@@ -978,7 +983,11 @@ mod tests {
         assert!(
             test_fn.is_some(),
             "test_something inside mod tests should be found. Functions: {:?}",
-            result.functions.iter().map(|f| (&f.name, &f.annotations)).collect::<Vec<_>>()
+            result
+                .functions
+                .iter()
+                .map(|f| (&f.name, &f.annotations))
+                .collect::<Vec<_>>()
         );
 
         if let Some(tf) = test_fn {
@@ -1103,12 +1112,16 @@ impl Detector for GodClassDetector {
         }
 
         // Find the IMPL method (not the trait signature)
-        let detect_impl = result.functions.iter()
+        let detect_impl = result
+            .functions
+            .iter()
             .find(|f| f.name == "detect" && f.qualified_name.contains("impl<"))
             .expect("Should find impl method for detect");
 
         assert!(
-            detect_impl.qualified_name.contains("impl<Detector for GodClassDetector>"),
+            detect_impl
+                .qualified_name
+                .contains("impl<Detector for GodClassDetector>"),
             "Trait impl method QN should contain impl<Trait for Type>, got: {}",
             detect_impl.qualified_name
         );

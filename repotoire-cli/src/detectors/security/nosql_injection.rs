@@ -15,14 +15,14 @@ use std::sync::LazyLock;
 use tracing::info;
 
 static NOSQL_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"(?i)(\.find\(|\.findOne\(|\.findById\(|\.updateOne\(|\.updateMany\(|\.deleteOne\(|\.deleteMany\(|\.aggregate\(|\.countDocuments\(|db\.\w+\.)").expect("valid regex")
-    });
+    Regex::new(r"(?i)(\.find\(|\.findOne\(|\.findById\(|\.updateOne\(|\.updateMany\(|\.deleteOne\(|\.deleteMany\(|\.aggregate\(|\.countDocuments\(|db\.\w+\.)").expect("valid regex")
+});
 static DANGEROUS_OPS: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"(\$where|\$regex|\$expr|\$function|\$accumulator)").expect("valid regex")
-    });
+    Regex::new(r"(\$where|\$regex|\$expr|\$function|\$accumulator)").expect("valid regex")
+});
 static USER_INPUT: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"(req\.(body|query|params|headers)|request\.(body|query)|ctx\.(request|body)|input|JSON\.parse)").expect("valid regex")
-    });
+    Regex::new(r"(req\.(body|query|params|headers)|request\.(body|query)|ctx\.(request|body)|input|JSON\.parse)").expect("valid regex")
+});
 
 /// Categorize the type of NoSQL injection risk
 fn categorize_risk(line: &str) -> (&'static str, &'static str) {
@@ -156,7 +156,10 @@ impl Detector for NosqlInjectionDetector {
         crate::detectors::detector_context::ContentFlags::HAS_SQL
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let files = &ctx.as_file_provider();
         let mut findings = vec![];
@@ -223,8 +226,14 @@ impl Detector for NosqlInjectionDetector {
                     // Get function context
                     let containing_func =
                         graph.find_function_at(&path_str, (i + 1) as u32).map(|f| {
-                            let callers = graph.get_callers(f.qn(crate::graph::interner::global_interner())).len();
-                            (f.node_name(crate::graph::interner::global_interner()).to_string(), callers)
+                            let callers = graph
+                                .get_callers(f.qn(crate::graph::interner::global_interner()))
+                                .len();
+                            (
+                                f.node_name(crate::graph::interner::global_interner())
+                                    .to_string(),
+                                callers,
+                            )
                         });
                     let is_handler = containing_func
                         .as_ref()
@@ -372,7 +381,6 @@ impl Detector for NosqlInjectionDetector {
     }
 }
 
-
 impl crate::detectors::RegisteredDetector for NosqlInjectionDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
         std::sync::Arc::new(Self::new(init.repo_path))
@@ -431,7 +439,9 @@ mod tests {
             "Should detect MongoDB findOne with unsanitized req.body"
         );
         assert!(
-            findings.iter().any(|f| f.cwe_id.as_deref() == Some("CWE-943")),
+            findings
+                .iter()
+                .any(|f| f.cwe_id.as_deref() == Some("CWE-943")),
             "Finding should have CWE-943"
         );
     }

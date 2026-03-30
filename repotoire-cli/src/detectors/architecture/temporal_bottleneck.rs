@@ -98,7 +98,12 @@ impl Detector for TemporalBottleneckDetector {
         let entries: Vec<(petgraph::graph::NodeIndex, f64)> = functions
             .iter()
             .map(|&idx| {
-                let wbw = graph.primitives().weighted_betweenness.get(&idx).copied().unwrap_or(0.0);
+                let wbw = graph
+                    .primitives()
+                    .weighted_betweenness
+                    .get(&idx)
+                    .copied()
+                    .unwrap_or(0.0);
                 (idx, wbw)
             })
             .collect();
@@ -128,7 +133,14 @@ impl Detector for TemporalBottleneckDetector {
         // Compute percentile ranks for unweighted (structural) betweenness.
         let unweighted_entries: Vec<f64> = entries
             .iter()
-            .map(|&(idx, _)| graph.primitives().betweenness.get(&idx).copied().unwrap_or(0.0))
+            .map(|&(idx, _)| {
+                graph
+                    .primitives()
+                    .betweenness
+                    .get(&idx)
+                    .copied()
+                    .unwrap_or(0.0)
+            })
             .collect();
         let mut unweighted_order: Vec<usize> = (0..n).collect();
         unweighted_order.sort_by(|&a, &b| {
@@ -200,7 +212,13 @@ impl Detector for TemporalBottleneckDetector {
             // propagation patterns, not code quality issues — cap at Low.
             let severity = Severity::Low;
 
-            let confidence_val = if pct_gap >= 50 { 0.90 } else if pct_gap >= 30 { 0.80 } else { 0.70 };
+            let confidence_val = if pct_gap >= 50 {
+                0.90
+            } else if pct_gap >= 30 {
+                0.80
+            } else {
+                0.70
+            };
 
             findings.push(Finding {
                 id: String::new(),
@@ -301,7 +319,10 @@ mod tests {
         let detector = TemporalBottleneckDetector::new();
         let ctx = crate::detectors::analysis_context::AnalysisContext::test(&graph);
         let findings = detector.detect(&ctx).expect("detection should succeed");
-        assert!(findings.is_empty(), "Empty graph should produce no findings");
+        assert!(
+            findings.is_empty(),
+            "Empty graph should produce no findings"
+        );
     }
 
     #[test]
@@ -390,13 +411,12 @@ mod tests {
             commits.push((now, vec![path.clone()]));
         }
 
-        let co_change =
-            crate::git::co_change::CoChangeMatrix::from_commits(&commits, &config, now);
+        let co_change = crate::git::co_change::CoChangeMatrix::from_commits(&commits, &config, now);
         let graph = builder.freeze_with_co_change(&co_change);
 
         // Use lower percentile threshold for ~31 node graph
-        let config = DetectorConfig::new()
-            .with_option("percentile_threshold", serde_json::json!(80));
+        let config =
+            DetectorConfig::new().with_option("percentile_threshold", serde_json::json!(80));
         let detector = TemporalBottleneckDetector::with_config(config);
         let ctx = crate::detectors::analysis_context::AnalysisContext::test(&graph);
         let findings = detector.detect(&ctx).expect("detection should succeed");
@@ -410,7 +430,8 @@ mod tests {
         for f in &findings {
             assert_eq!(f.detector, "temporal-bottleneck");
             assert_eq!(
-                f.severity, Severity::Low,
+                f.severity,
+                Severity::Low,
                 "Temporal bottleneck findings should be Low"
             );
         }

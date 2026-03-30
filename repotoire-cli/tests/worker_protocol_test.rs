@@ -89,9 +89,7 @@ fn worker_analyze_after_file_change() {
     let event: serde_json::Value = serde_json::from_str(&response).unwrap();
     // Should be delta, unchanged, or error — not a crash
     assert!(
-        event["event"] == "delta"
-            || event["event"] == "unchanged"
-            || event["event"] == "error"
+        event["event"] == "delta" || event["event"] == "unchanged" || event["event"] == "error"
     );
     assert_eq!(event["id"], 2);
 
@@ -108,7 +106,10 @@ fn worker_invalid_command() {
     let response = recv(&mut proc);
     let event: serde_json::Value = serde_json::from_str(&response).unwrap();
     assert_eq!(event["event"], "error");
-    assert!(event["message"].as_str().unwrap().contains("Invalid command"));
+    assert!(event["message"]
+        .as_str()
+        .unwrap()
+        .contains("Invalid command"));
 
     // Worker should still be alive
     send(&mut proc, r#"{"cmd":"shutdown","id":1}"#);

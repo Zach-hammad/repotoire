@@ -5,8 +5,8 @@
 
 #![allow(dead_code)] // Module under development - structs/helpers used in tests only
 
-use crate::graph::{EdgeKind, NodeKind};
 use crate::graph::GraphQueryExt;
+use crate::graph::{EdgeKind, NodeKind};
 use std::collections::{HashMap, HashSet};
 use tracing::{debug, info};
 
@@ -96,8 +96,13 @@ const FRAMEWORK_PATTERNS: &[&str] = &["Application", "Framework", "Server", "Gat
 
 /// Suffixes that indicate framework core classes (e.g., Django internals)
 const FRAMEWORK_CORE_SUFFIXES: &[&str] = &[
-    "SchemaEditor", "Autodetector", "Compiler", "Admin",
-    "Manager", "Registry", "Dispatcher",
+    "SchemaEditor",
+    "Autodetector",
+    "Compiler",
+    "Admin",
+    "Manager",
+    "Registry",
+    "Dispatcher",
 ];
 
 /// Names/suffixes that indicate orchestrator classes (controllers, routers, dispatchers)
@@ -112,11 +117,11 @@ const ORCHESTRATOR_NAME_PATTERNS: &[&str] = &[
     "Mediator",
     "Presenter",
     "Endpoint",
-    "Resource",    // JAX-RS resource classes
-    "ViewSet",     // Django REST framework
+    "Resource", // JAX-RS resource classes
+    "ViewSet",  // Django REST framework
     "Viewset",
-    "View",        // MVC views that dispatch
-    "Resolver",    // GraphQL resolvers
+    "View",     // MVC views that dispatch
+    "Resolver", // GraphQL resolvers
     "Middleware",
 ];
 
@@ -251,10 +256,11 @@ impl<'a> ClassContextBuilder<'a> {
         let call_map: HashMap<&str, HashSet<&str>> = {
             let mut map: HashMap<&str, HashSet<&str>> = HashMap::new();
             for &(caller_idx, callee_idx) in call_edges {
-                if let (Some(caller), Some(callee)) = (self.graph.node_idx(caller_idx), self.graph.node_idx(callee_idx)) {
-                    map.entry(caller.qn(i))
-                        .or_default()
-                        .insert(callee.qn(i));
+                if let (Some(caller), Some(callee)) = (
+                    self.graph.node_idx(caller_idx),
+                    self.graph.node_idx(callee_idx),
+                ) {
+                    map.entry(caller.qn(i)).or_default().insert(callee.qn(i));
                 }
             }
             map
@@ -315,11 +321,15 @@ impl<'a> ClassContextBuilder<'a> {
             let mut usages: HashMap<&str, usize> = HashMap::new();
 
             for &(caller_idx, callee_idx) in call_edges {
-                if let (Some(caller), Some(callee)) = (self.graph.node_idx(caller_idx), self.graph.node_idx(callee_idx)) {
+                if let (Some(caller), Some(callee)) = (
+                    self.graph.node_idx(caller_idx),
+                    self.graph.node_idx(callee_idx),
+                ) {
                     let caller_class = method_to_class.get(caller.qn(i));
                     let callee_class = method_to_class.get(callee.qn(i));
                     if let (Some(&from_class), Some(&to_class)) = (caller_class, callee_class) {
-                        if from_class != to_class && class_pair_seen.insert((from_class, to_class)) {
+                        if from_class != to_class && class_pair_seen.insert((from_class, to_class))
+                        {
                             *usages.entry(to_class).or_insert(0) += 1;
                         }
                     }
@@ -331,7 +341,9 @@ impl<'a> ClassContextBuilder<'a> {
         let mut contexts = ClassContextMap::new();
 
         for &class_idx in class_idxs {
-            let Some(class) = self.graph.node_idx(class_idx) else { continue };
+            let Some(class) = self.graph.node_idx(class_idx) else {
+                continue;
+            };
             let qn = class.qn(i);
 
             let methods = class_methods.get(qn).cloned().unwrap_or_default();
@@ -380,7 +392,10 @@ impl<'a> ClassContextBuilder<'a> {
             };
 
             // Count public methods (heuristic: doesn't start with _)
-            let public_methods = methods.iter().filter(|m| !m.node_name(i).starts_with('_')).count();
+            let public_methods = methods
+                .iter()
+                .filter(|m| !m.node_name(i).starts_with('_'))
+                .count();
 
             let usages = *class_usages.get(qn).unwrap_or(&0);
             let is_test = self.is_test_path(class.path(i));
@@ -442,7 +457,10 @@ impl<'a> ClassContextBuilder<'a> {
         classes: &std::sync::Arc<[crate::graph::store_models::CodeNode]>,
     ) -> ClassContextMap {
         let start = std::time::Instant::now();
-        info!("Building class context for {} classes (legacy)", classes.len());
+        info!(
+            "Building class context for {} classes (legacy)",
+            classes.len()
+        );
 
         let calls = self.graph.get_calls_shared();
 
@@ -471,7 +489,9 @@ impl<'a> ClassContextBuilder<'a> {
                 for class in file_classes {
                     let methods: Vec<_> = file_funcs
                         .iter()
-                        .filter(|f| f.line_start >= class.line_start && f.line_end <= class.line_end)
+                        .filter(|f| {
+                            f.line_start >= class.line_start && f.line_end <= class.line_end
+                        })
                         .cloned()
                         .collect();
                     if !methods.is_empty() {
@@ -507,47 +527,78 @@ impl<'a> ClassContextBuilder<'a> {
         for class in classes.iter() {
             let qn = class.qn(i);
             let methods = class_methods.get(qn).cloned().unwrap_or_default();
-            let method_count = class.get_i64("methodCount").map(|n| n as usize).unwrap_or(methods.len());
+            let method_count = class
+                .get_i64("methodCount")
+                .map(|n| n as usize)
+                .unwrap_or(methods.len());
             let total_complexity: i64 = methods.iter().filter_map(|m| m.complexity_opt()).sum();
-            let avg_complexity = if method_count > 0 { total_complexity as f64 / method_count as f64 } else { 0.0 };
+            let avg_complexity = if method_count > 0 {
+                total_complexity as f64 / method_count as f64
+            } else {
+                0.0
+            };
             let mut delegating_count = 0;
             let mut external_deps: HashSet<String> = HashSet::new();
             for method in &methods {
                 if let Some(callees) = call_map.get(method.qn(i)) {
-                    let ext: Vec<_> = callees.iter().filter(|c| !methods.iter().any(|m| m.qn(i) == **c)).collect();
+                    let ext: Vec<_> = callees
+                        .iter()
+                        .filter(|c| !methods.iter().any(|m| m.qn(i) == **c))
+                        .collect();
                     if !ext.is_empty() {
                         delegating_count += 1;
-                        for e in ext { if let Some(m) = e.rsplit("::").nth(1) { external_deps.insert(m.to_string()); } }
+                        for e in ext {
+                            if let Some(m) = e.rsplit("::").nth(1) {
+                                external_deps.insert(m.to_string());
+                            }
+                        }
                     }
                 }
             }
-            let delegation_ratio = if method_count > 0 { delegating_count as f64 / method_count as f64 } else { 0.0 };
-            let public_methods = methods.iter().filter(|m| !m.node_name(i).starts_with('_')).count();
+            let delegation_ratio = if method_count > 0 {
+                delegating_count as f64 / method_count as f64
+            } else {
+                0.0
+            };
+            let public_methods = methods
+                .iter()
+                .filter(|m| !m.node_name(i).starts_with('_'))
+                .count();
             let usages = *class_usages.get(qn).unwrap_or(&0);
             let is_test = self.is_test_path(class.path(i));
             let is_framework_path = self.is_framework_path(class.path(i));
             let (role, role_reason) = self.infer_role(
-                class.node_name(i), class.path(i), method_count, avg_complexity,
-                delegation_ratio, external_deps.len(), usages, is_test, is_framework_path,
-            );
-            contexts.insert(qn.to_string(), ClassContext {
-                qualified_name: qn.to_string(),
-                name: class.node_name(i).to_string(),
-                file_path: class.path(i).to_string(),
+                class.node_name(i),
+                class.path(i),
                 method_count,
-                loc: class.loc() as usize,
-                complexity: total_complexity as usize,
-                avg_method_complexity: avg_complexity,
-                delegating_methods: delegating_count,
+                avg_complexity,
                 delegation_ratio,
-                public_methods,
-                external_dependencies: external_deps.len(),
+                external_deps.len(),
                 usages,
-                role,
                 is_test,
                 is_framework_path,
-                role_reason,
-            });
+            );
+            contexts.insert(
+                qn.to_string(),
+                ClassContext {
+                    qualified_name: qn.to_string(),
+                    name: class.node_name(i).to_string(),
+                    file_path: class.path(i).to_string(),
+                    method_count,
+                    loc: class.loc() as usize,
+                    complexity: total_complexity as usize,
+                    avg_method_complexity: avg_complexity,
+                    delegating_methods: delegating_count,
+                    delegation_ratio,
+                    public_methods,
+                    external_dependencies: external_deps.len(),
+                    usages,
+                    role,
+                    is_test,
+                    is_framework_path,
+                    role_reason,
+                },
+            );
         }
 
         let elapsed = start.elapsed();
@@ -623,7 +674,10 @@ impl<'a> ClassContextBuilder<'a> {
                 ClassRole::Orchestrator,
                 format!(
                     "In orchestrator path '{}': {} ({} methods, {:.0}% delegate)",
-                    pattern, name, method_count, delegation_ratio * 100.0
+                    pattern,
+                    name,
+                    method_count,
+                    delegation_ratio * 100.0
                 ),
             );
         }
@@ -734,10 +788,21 @@ mod tests {
         let store = crate::graph::GraphBuilder::new().freeze();
         let builder = ClassContextBuilder::new(&store);
 
-        let (role, _) = builder.infer_role("Flask", "src/app.py", 50, 5.0, 0.8, 3, 10, false, false);
+        let (role, _) =
+            builder.infer_role("Flask", "src/app.py", 50, 5.0, 0.8, 3, 10, false, false);
         assert_eq!(role, ClassRole::FrameworkCore);
 
-        let (role, _) = builder.infer_role("MyApplication", "src/app.py", 30, 3.0, 0.5, 2, 5, false, false);
+        let (role, _) = builder.infer_role(
+            "MyApplication",
+            "src/app.py",
+            30,
+            3.0,
+            0.5,
+            2,
+            5,
+            false,
+            false,
+        );
         assert_eq!(role, ClassRole::FrameworkCore);
     }
 
@@ -748,7 +813,17 @@ mod tests {
 
         // High method count, low complexity, high delegation
         // Note: name must not match orchestrator patterns, and ext deps < 4 to avoid orchestrator metric match
-        let (role, _) = builder.infer_role("ApiClient", "src/client.py", 20, 2.0, 0.7, 3, 2, false, false);
+        let (role, _) = builder.infer_role(
+            "ApiClient",
+            "src/client.py",
+            20,
+            2.0,
+            0.7,
+            3,
+            2,
+            false,
+            false,
+        );
         assert_eq!(role, ClassRole::Facade);
     }
 
@@ -757,7 +832,8 @@ mod tests {
         let store = crate::graph::GraphBuilder::new().freeze();
         let builder = ClassContextBuilder::new(&store);
 
-        let (role, _) = builder.infer_role("UserDTO", "src/models.py", 10, 1.0, 0.1, 0, 2, false, false);
+        let (role, _) =
+            builder.infer_role("UserDTO", "src/models.py", 10, 1.0, 0.1, 0, 2, false, false);
         assert_eq!(role, ClassRole::DataClass);
     }
 
@@ -767,19 +843,64 @@ mod tests {
         let builder = ClassContextBuilder::new(&store);
 
         // Controller suffix
-        let (role, reason) = builder.infer_role("UserController", "src/api.py", 15, 2.0, 0.8, 5, 3, false, false);
-        assert_eq!(role, ClassRole::Orchestrator, "Controller should be Orchestrator: {}", reason);
+        let (role, reason) = builder.infer_role(
+            "UserController",
+            "src/api.py",
+            15,
+            2.0,
+            0.8,
+            5,
+            3,
+            false,
+            false,
+        );
+        assert_eq!(
+            role,
+            ClassRole::Orchestrator,
+            "Controller should be Orchestrator: {}",
+            reason
+        );
 
         // Handler suffix
-        let (role, _) = builder.infer_role("RequestHandler", "src/server.py", 10, 1.5, 0.7, 3, 2, false, false);
+        let (role, _) = builder.infer_role(
+            "RequestHandler",
+            "src/server.py",
+            10,
+            1.5,
+            0.7,
+            3,
+            2,
+            false,
+            false,
+        );
         assert_eq!(role, ClassRole::Orchestrator);
 
         // Dispatcher suffix
-        let (role, _) = builder.infer_role("EventDispatcher", "src/events.py", 8, 2.0, 0.6, 4, 1, false, false);
+        let (role, _) = builder.infer_role(
+            "EventDispatcher",
+            "src/events.py",
+            8,
+            2.0,
+            0.6,
+            4,
+            1,
+            false,
+            false,
+        );
         assert_eq!(role, ClassRole::Orchestrator);
 
         // Orchestrator suffix
-        let (role, _) = builder.infer_role("WorkflowOrchestrator", "src/workflows.py", 12, 1.0, 0.9, 6, 2, false, false);
+        let (role, _) = builder.infer_role(
+            "WorkflowOrchestrator",
+            "src/workflows.py",
+            12,
+            1.0,
+            0.9,
+            6,
+            2,
+            false,
+            false,
+        );
         assert_eq!(role, ClassRole::Orchestrator);
     }
 
@@ -789,11 +910,31 @@ mod tests {
         let builder = ClassContextBuilder::new(&store);
 
         // File in controllers/ directory
-        let (role, _) = builder.infer_role("Users", "src/controllers/users.py", 10, 2.0, 0.5, 3, 2, false, false);
+        let (role, _) = builder.infer_role(
+            "Users",
+            "src/controllers/users.py",
+            10,
+            2.0,
+            0.5,
+            3,
+            2,
+            false,
+            false,
+        );
         assert_eq!(role, ClassRole::Orchestrator);
 
         // File in handlers/ directory
-        let (role, _) = builder.infer_role("Auth", "src/handlers/auth.ts", 8, 1.5, 0.4, 2, 1, false, false);
+        let (role, _) = builder.infer_role(
+            "Auth",
+            "src/handlers/auth.ts",
+            8,
+            1.5,
+            0.4,
+            2,
+            1,
+            false,
+            false,
+        );
         assert_eq!(role, ClassRole::Orchestrator);
     }
 
@@ -805,10 +946,22 @@ mod tests {
         // High delegation + many external deps + low complexity = orchestrator
         // Name and path are generic (not matching name/path patterns)
         let (role, reason) = builder.infer_role(
-            "OrderService", "src/services/orders.py",
-            8, 2.0, 0.7, 5, 2, false, false,
+            "OrderService",
+            "src/services/orders.py",
+            8,
+            2.0,
+            0.7,
+            5,
+            2,
+            false,
+            false,
         );
-        assert_eq!(role, ClassRole::Orchestrator, "Metric-based orchestrator: {}", reason);
+        assert_eq!(
+            role,
+            ClassRole::Orchestrator,
+            "Metric-based orchestrator: {}",
+            reason
+        );
     }
 
     #[test]
@@ -818,8 +971,15 @@ mod tests {
 
         // Low delegation + few external deps = NOT orchestrator (should be data class)
         let (role, _) = builder.infer_role(
-            "OrderService", "src/services/orders.py",
-            8, 1.0, 0.2, 1, 2, false, false,
+            "OrderService",
+            "src/services/orders.py",
+            8,
+            1.0,
+            0.2,
+            1,
+            2,
+            false,
+            false,
         );
         assert_ne!(role, ClassRole::Orchestrator);
     }

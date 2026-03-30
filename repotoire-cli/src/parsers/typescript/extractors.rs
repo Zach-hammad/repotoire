@@ -515,9 +515,7 @@ fn extract_class_methods(
             match child.kind() {
                 "method_definition" => {
                     // Regular class method
-                    if let Some(mut func) =
-                        parse_method_node(&child, source, path, class_name)
-                    {
+                    if let Some(mut func) = parse_method_node(&child, source, path, class_name) {
                         if class_is_exported && !has_private_modifier(&child, source) {
                             func.annotations.push("exported".to_string());
                         }
@@ -535,8 +533,7 @@ fn extract_class_methods(
                                 path,
                                 class_name,
                             ) {
-                                if class_is_exported && !has_private_modifier(&child, source)
-                                {
+                                if class_is_exported && !has_private_modifier(&child, source) {
                                     func.annotations.push("exported".to_string());
                                 }
                                 result.functions.push(func);
@@ -690,7 +687,9 @@ pub(crate) fn extract_imports(
                         .trim_end_matches(['"', '\''])
                         .to_string();
                     if !import.is_empty() && !result.imports.iter().any(|i| i.path == import) {
-                        result.imports.push(super::super::ImportInfo::runtime(import));
+                        result
+                            .imports
+                            .push(super::super::ImportInfo::runtime(import));
                     }
                 }
             }
@@ -717,7 +716,9 @@ fn extract_jsdoc_comment(node: &Node, source: &[u8]) -> Option<String> {
     if let Some(parent) = node.parent() {
         if parent.kind() == "variable_declarator" {
             if let Some(grandparent) = parent.parent() {
-                if grandparent.kind() == "lexical_declaration" || grandparent.kind() == "variable_declaration" {
+                if grandparent.kind() == "lexical_declaration"
+                    || grandparent.kind() == "variable_declaration"
+                {
                     target = grandparent;
                     if let Some(ggp) = grandparent.parent() {
                         if ggp.kind() == "export_statement" {

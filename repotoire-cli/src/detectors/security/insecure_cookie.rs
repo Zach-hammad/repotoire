@@ -15,11 +15,11 @@ use std::sync::LazyLock;
 use tracing::info;
 
 static COOKIE_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(
+    Regex::new(
             r"(?i)(\.set_cookie\s*\(|response\.set_cookie\s*\(|res\.cookie\s*\(|response\.cookie\s*\(|setcookie\s*\()",
         )
         .expect("valid regex")
-    });
+});
 
 pub struct InsecureCookieDetector {
     #[allow(dead_code)] // Part of detector pattern, used for file scanning
@@ -79,7 +79,6 @@ impl InsecureCookieDetector {
             },
         }
     }
-
 }
 
 struct CookieFlags {
@@ -109,7 +108,10 @@ impl Detector for InsecureCookieDetector {
         &["py", "js", "ts", "jsx", "tsx", "rb", "php", "java"]
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let files = &ctx.as_file_provider();
         let mut findings = vec![];
@@ -134,8 +136,10 @@ impl Detector for InsecureCookieDetector {
                 Some(c) => c,
                 None => continue,
             };
-            if !raw.contains("set_cookie") && !raw.contains("setCookie")
-                && !raw.contains("setcookie") && !raw.contains(".cookie(")
+            if !raw.contains("set_cookie")
+                && !raw.contains("setCookie")
+                && !raw.contains("setcookie")
+                && !raw.contains(".cookie(")
                 && !raw.contains("res.cookie")
             {
                 continue;
@@ -159,7 +163,10 @@ impl Detector for InsecureCookieDetector {
                             Self::is_sensitive_cookie(line, &surrounding);
                         let flags = Self::check_cookie_flags(&lines, i);
                         let containing_func =
-                            graph.find_function_at(&path_str, (i + 1) as u32).map(|f| f.node_name(crate::graph::interner::global_interner()).to_string());
+                            graph.find_function_at(&path_str, (i + 1) as u32).map(|f| {
+                                f.node_name(crate::graph::interner::global_interner())
+                                    .to_string()
+                            });
 
                         // Collect missing flags
                         let mut missing = Vec::new();
@@ -281,7 +288,6 @@ impl Detector for InsecureCookieDetector {
     }
 }
 
-
 impl crate::detectors::RegisteredDetector for InsecureCookieDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
         std::sync::Arc::new(Self::new(init.repo_path))
@@ -301,9 +307,14 @@ mod tests {
             ("app.py", "from flask import make_response\n\ndef set_session(user_id):\n    resp = make_response(\"OK\")\n    resp.set_cookie('session_id', user_id)\n    return resp\n"),
         ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
-        assert!(!findings.is_empty(), "Should detect cookie without security flags");
         assert!(
-            findings.iter().any(|f| f.title.contains("HttpOnly") || f.title.contains("Secure") || f.title.contains("SameSite")),
+            !findings.is_empty(),
+            "Should detect cookie without security flags"
+        );
+        assert!(
+            findings.iter().any(|f| f.title.contains("HttpOnly")
+                || f.title.contains("Secure")
+                || f.title.contains("SameSite")),
             "Finding should mention missing flag. Titles: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>()
         );
@@ -317,8 +328,11 @@ mod tests {
             ("app.py", "from flask import make_response\n\ndef set_session(user_id):\n    resp = make_response(\"OK\")\n    resp.set_cookie('session_id', user_id, httponly=True, secure=True, samesite='Lax')\n    return resp\n"),
         ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
-        assert!(findings.is_empty(), "Should not detect anything for secure cookie. Found: {:?}",
-            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+        assert!(
+            findings.is_empty(),
+            "Should not detect anything for secure cookie. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -359,8 +373,11 @@ mod tests {
             ("response.py", "def set_cookie(self, key, value):\n    self.cookies[key] = value\n    self.cookies[key][\"secure\"] = True\n    self.cookies[key][\"httponly\"] = True\n"),
         ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
-        assert!(findings.is_empty(), "Should not flag self.cookies[] attribute access. Found: {:?}",
-            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+        assert!(
+            findings.is_empty(),
+            "Should not flag self.cookies[] attribute access. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -371,7 +388,10 @@ mod tests {
             ("middleware.py", "def process_response(self, request, response):\n    response.set_cookie(\n        settings.SESSION_COOKIE_NAME,\n        request.session.session_key,\n        max_age=max_age,\n        expires=expires,\n        domain=settings.SESSION_COOKIE_DOMAIN,\n        path=settings.SESSION_COOKIE_PATH,\n        secure=settings.SESSION_COOKIE_SECURE or None,\n        httponly=settings.SESSION_COOKIE_HTTPONLY or None,\n        samesite=settings.SESSION_COOKIE_SAMESITE,\n    )\n"),
         ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
-        assert!(findings.is_empty(), "Should detect flags in multi-line set_cookie() call. Found: {:?}",
-            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+        assert!(
+            findings.is_empty(),
+            "Should detect flags in multi-line set_cookie() call. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
     }
 }

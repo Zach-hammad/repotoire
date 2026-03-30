@@ -283,7 +283,11 @@ mod tests {
         let python_files = provider.files_with_extensions(&["py", "pyi"]);
         assert_eq!(python_files.len(), 2);
         for p in &python_files {
-            let ext = p.extension().expect("should have extension").to_str().expect("should have extension");
+            let ext = p
+                .extension()
+                .expect("should have extension")
+                .to_str()
+                .expect("should have extension");
             assert!(ext == "py" || ext == "pyi");
         }
 

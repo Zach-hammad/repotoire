@@ -45,10 +45,13 @@ pub fn parse_source(source: &str, path: &Path) -> Result<ParseResult> {
 }
 
 /// Parse Java source code and return both the ParseResult and the tree-sitter Tree.
-pub fn parse_source_with_tree(source: &str, path: &Path) -> Result<(ParseResult, tree_sitter::Tree)> {
-    let tree = JAVA_PARSER.with(|cell| {
-        cell.borrow_mut().parse(source, None)
-    }).context("Failed to parse Java source")?;
+pub fn parse_source_with_tree(
+    source: &str,
+    path: &Path,
+) -> Result<(ParseResult, tree_sitter::Tree)> {
+    let tree = JAVA_PARSER
+        .with(|cell| cell.borrow_mut().parse(source, None))
+        .context("Failed to parse Java source")?;
 
     let root = tree.root_node();
     let source_bytes = source.as_bytes();
@@ -609,9 +612,9 @@ fn extract_doc_comment(node: &Node, source: &[u8]) -> Option<String> {
                                     .lines()
                                     .map(|line| {
                                         let trimmed = line.trim();
-                                        trimmed.strip_prefix("* ").unwrap_or(
-                                            trimmed.strip_prefix('*').unwrap_or(trimmed),
-                                        )
+                                        trimmed
+                                            .strip_prefix("* ")
+                                            .unwrap_or(trimmed.strip_prefix('*').unwrap_or(trimmed))
                                     })
                                     .collect::<Vec<_>>()
                                     .join("\n")
@@ -969,12 +972,23 @@ public class Calculator {
 
         let class = &result.classes[0];
         assert!(class.doc_comment.is_some(), "Class should have Javadoc");
-        let doc = class.doc_comment.as_ref().expect("class should have Javadoc");
+        let doc = class
+            .doc_comment
+            .as_ref()
+            .expect("class should have Javadoc");
         assert!(doc.contains("Calculates the sum"), "Got: {}", doc);
 
-        let method = result.functions.iter().find(|f| f.name == "add").expect("should find add method");
+        let method = result
+            .functions
+            .iter()
+            .find(|f| f.name == "add")
+            .expect("should find add method");
         assert!(method.doc_comment.is_some(), "Method should have Javadoc");
-        assert!(method.doc_comment.as_ref().expect("method should have Javadoc").contains("Add two integers"));
+        assert!(method
+            .doc_comment
+            .as_ref()
+            .expect("method should have Javadoc")
+            .contains("Add two integers"));
     }
 
     #[test]
@@ -996,21 +1010,36 @@ public class Service {
         let path = PathBuf::from("Service.java");
         let result = parse_source(source, &path).expect("should parse Java source");
 
-        let to_string = result.functions.iter().find(|f| f.name == "toString").expect("should find toString");
+        let to_string = result
+            .functions
+            .iter()
+            .find(|f| f.name == "toString")
+            .expect("should find toString");
         assert!(
             to_string.annotations.iter().any(|a| a.contains("Override")),
             "toString should have @Override, got: {:?}",
             to_string.annotations
         );
 
-        let old_method = result.functions.iter().find(|f| f.name == "oldMethod").expect("should find oldMethod");
+        let old_method = result
+            .functions
+            .iter()
+            .find(|f| f.name == "oldMethod")
+            .expect("should find oldMethod");
         assert!(
-            old_method.annotations.iter().any(|a| a.contains("Deprecated")),
+            old_method
+                .annotations
+                .iter()
+                .any(|a| a.contains("Deprecated")),
             "oldMethod should have @Deprecated, got: {:?}",
             old_method.annotations
         );
 
-        let no_ann = result.functions.iter().find(|f| f.name == "noAnnotation").expect("should find noAnnotation");
+        let no_ann = result
+            .functions
+            .iter()
+            .find(|f| f.name == "noAnnotation")
+            .expect("should find noAnnotation");
         assert_eq!(
             no_ann.annotations,
             vec!["exported"],
@@ -1044,16 +1073,44 @@ public class MyClass {
         let path = PathBuf::from("MyClass.java");
         let result = parse_source(source, &path).expect("should parse Java source");
 
-        let public_m = result.functions.iter().find(|f| f.name == "publicMethod").expect("should find publicMethod");
-        assert!(public_m.annotations.contains(&"exported".to_string()), "public method should be exported");
+        let public_m = result
+            .functions
+            .iter()
+            .find(|f| f.name == "publicMethod")
+            .expect("should find publicMethod");
+        assert!(
+            public_m.annotations.contains(&"exported".to_string()),
+            "public method should be exported"
+        );
 
-        let private_m = result.functions.iter().find(|f| f.name == "privateMethod").expect("should find privateMethod");
-        assert!(!private_m.annotations.contains(&"exported".to_string()), "private method should not be exported");
+        let private_m = result
+            .functions
+            .iter()
+            .find(|f| f.name == "privateMethod")
+            .expect("should find privateMethod");
+        assert!(
+            !private_m.annotations.contains(&"exported".to_string()),
+            "private method should not be exported"
+        );
 
-        let protected_m = result.functions.iter().find(|f| f.name == "protectedMethod").expect("should find protectedMethod");
-        assert!(!protected_m.annotations.contains(&"exported".to_string()), "protected method should not be exported");
+        let protected_m = result
+            .functions
+            .iter()
+            .find(|f| f.name == "protectedMethod")
+            .expect("should find protectedMethod");
+        assert!(
+            !protected_m.annotations.contains(&"exported".to_string()),
+            "protected method should not be exported"
+        );
 
-        let package_m = result.functions.iter().find(|f| f.name == "packagePrivateMethod").expect("should find packagePrivateMethod");
-        assert!(!package_m.annotations.contains(&"exported".to_string()), "package-private method should not be exported");
+        let package_m = result
+            .functions
+            .iter()
+            .find(|f| f.name == "packagePrivateMethod")
+            .expect("should find packagePrivateMethod");
+        assert!(
+            !package_m.annotations.contains(&"exported".to_string()),
+            "package-private method should not be exported"
+        );
     }
 }

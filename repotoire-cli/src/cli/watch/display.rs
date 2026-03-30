@@ -1,60 +1,79 @@
-use std::path::{Path, PathBuf};
-use std::time::Duration;
-use console::style;
 use super::delta::WatchDelta;
 use crate::engine::AnalysisResult;
 use crate::models::Severity;
+use console::style;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 /// Display a compact summary after the initial cold analysis.
 pub fn display_initial(result: &AnalysisResult, elapsed: Duration, _no_emoji: bool, quiet: bool) {
-    if quiet { return; }
-    println!("  {} Initial analysis: {} findings, score {:.1} ({:.2}s)",
-        style("✓").green(), result.findings.len(), result.score.overall, elapsed.as_secs_f64());
+    if quiet {
+        return;
+    }
+    println!(
+        "  {} Initial analysis: {} findings, score {:.1} ({:.2}s)",
+        style("✓").green(),
+        result.findings.len(),
+        result.score.overall,
+        elapsed.as_secs_f64()
+    );
     println!();
 }
 
 /// Display an analysis error with context about which files triggered it.
 pub fn display_error(message: &str, changed_files: &[PathBuf], repo_path: &Path, no_emoji: bool) {
     let time = chrono::Local::now().format("%H:%M:%S");
-    let file_list: String = changed_files.iter()
+    let file_list: String = changed_files
+        .iter()
         .map(|p| p.strip_prefix(repo_path).unwrap_or(p).display().to_string())
-        .collect::<Vec<_>>().join(", ");
-    eprintln!("{} {} {} {}", style(format!("[{}]", time)).dim(),
-        if no_emoji { "ERR" } else { "❌" }, style(&file_list).dim(),
-        style(format!("Analysis error: {}", message)).red());
+        .collect::<Vec<_>>()
+        .join(", ");
+    eprintln!(
+        "{} {} {} {}",
+        style(format!("[{}]", time)).dim(),
+        if no_emoji { "ERR" } else { "❌" },
+        style(&file_list).dim(),
+        style(format!("Analysis error: {}", message)).red()
+    );
     eprintln!("           {}", style("Watching for next change...").dim());
 }
 
 /// Display a compact unchanged line when there are no new or fixed findings.
-pub fn display_unchanged(changed_files: &[PathBuf], repo_path: &Path, total_findings: usize, score: Option<f64>, no_emoji: bool) {
+pub fn display_unchanged(
+    changed_files: &[PathBuf],
+    repo_path: &Path,
+    total_findings: usize,
+    score: Option<f64>,
+    no_emoji: bool,
+) {
     let time = chrono::Local::now().format("%H:%M:%S");
-    let file_list: String = changed_files.iter()
+    let file_list: String = changed_files
+        .iter()
         .map(|p| p.strip_prefix(repo_path).unwrap_or(p).display().to_string())
-        .collect::<Vec<_>>().join(", ");
-    let score_str = score.map(|s| format!(", score {:.1}", s)).unwrap_or_default();
-    println!("{} {} {} ({} total findings{})", style(format!("[{}]", time)).dim(),
-        if no_emoji { "→" } else { "📝" }, style(&file_list).dim(), total_findings, score_str);
+        .collect::<Vec<_>>()
+        .join(", ");
+    let score_str = score
+        .map(|s| format!(", score {:.1}", s))
+        .unwrap_or_default();
+    println!(
+        "{} {} {} ({} total findings{})",
+        style(format!("[{}]", time)).dim(),
+        if no_emoji { "→" } else { "📝" },
+        style(&file_list).dim(),
+        total_findings,
+        score_str
+    );
 }
 
 /// Display the results of an incremental update.
-pub fn display_delta(
-    delta: &WatchDelta,
-    repo_path: &Path,
-    no_emoji: bool,
-    quiet: bool,
-) {
+pub fn display_delta(delta: &WatchDelta, repo_path: &Path, no_emoji: bool, quiet: bool) {
     let time = chrono::Local::now().format("%H:%M:%S");
 
     // Build a display-friendly list of changed files (relative paths)
     let file_list: String = delta
         .changed_files
         .iter()
-        .map(|p| {
-            p.strip_prefix(repo_path)
-                .unwrap_or(p)
-                .display()
-                .to_string()
-        })
+        .map(|p| p.strip_prefix(repo_path).unwrap_or(p).display().to_string())
         .collect::<Vec<_>>()
         .join(", ");
 
@@ -180,10 +199,16 @@ pub fn severity_icon(severity: Severity, no_emoji: bool) -> &'static str {
 pub fn filter_delta_by_severity(delta: WatchDelta, min_severity: Severity) -> WatchDelta {
     // Severity derives Ord with Info < Low < Medium < High < Critical
     WatchDelta {
-        new_findings: delta.new_findings.into_iter()
-            .filter(|f| f.severity >= min_severity).collect(),
-        fixed_findings: delta.fixed_findings.into_iter()
-            .filter(|f| f.severity >= min_severity).collect(),
+        new_findings: delta
+            .new_findings
+            .into_iter()
+            .filter(|f| f.severity >= min_severity)
+            .collect(),
+        fixed_findings: delta
+            .fixed_findings
+            .into_iter()
+            .filter(|f| f.severity >= min_severity)
+            .collect(),
         ..delta
     }
 }

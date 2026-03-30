@@ -445,7 +445,8 @@ mod tests {
         std::fs::write(&h, "namespace n { class A {}; }").expect("should write test header");
         assert_eq!(Language::from_path(&h), Language::Cpp);
 
-        std::fs::write(&h, "#ifndef X_H\nint sum(int a, int b);\n#endif").expect("should write C header");
+        std::fs::write(&h, "#ifndef X_H\nint sum(int a, int b);\n#endif")
+            .expect("should write C header");
         assert_eq!(Language::from_path(&h), Language::C);
     }
 

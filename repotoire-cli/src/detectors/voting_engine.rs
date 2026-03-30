@@ -281,8 +281,12 @@ impl VotingEngine {
     }
 
     /// Group findings by the entity they target (BTreeMap for deterministic iteration)
-    fn group_by_entity(&self, findings: &[Finding]) -> std::collections::BTreeMap<String, Vec<Finding>> {
-        let mut groups: std::collections::BTreeMap<String, Vec<Finding>> = std::collections::BTreeMap::new();
+    fn group_by_entity(
+        &self,
+        findings: &[Finding],
+    ) -> std::collections::BTreeMap<String, Vec<Finding>> {
+        let mut groups: std::collections::BTreeMap<String, Vec<Finding>> =
+            std::collections::BTreeMap::new();
 
         for finding in findings {
             let key = self.get_entity_key(finding);
@@ -807,7 +811,10 @@ mod tests {
         let engine = VotingEngine::new();
         let (results, stats) = engine.vote(vec![]);
 
-        assert!(results.is_empty(), "Empty input should produce empty output");
+        assert!(
+            results.is_empty(),
+            "Empty input should produce empty output"
+        );
         assert_eq!(stats.total_input, 0);
         assert_eq!(stats.total_output, 0);
     }

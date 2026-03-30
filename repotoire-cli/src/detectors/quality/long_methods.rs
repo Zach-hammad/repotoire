@@ -15,9 +15,9 @@
 //! - Unreachable code severity reduction
 
 use crate::detectors::analysis_context::AnalysisContext;
-use crate::graph::GraphQueryExt;
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::detectors::function_context::FunctionRole;
+use crate::graph::GraphQueryExt;
 use crate::models::{Finding, Severity};
 use anyhow::Result;
 use std::collections::HashSet;
@@ -60,8 +60,9 @@ impl LongMethodsDetector {
     pub fn with_config(repository_path: impl Into<PathBuf>, config: DetectorConfig) -> Self {
         use crate::calibrate::MetricKind;
         let default_threshold = 80usize;
-        let adaptive_threshold =
-            config.adaptive.warn_usize(MetricKind::FunctionLength, default_threshold);
+        let adaptive_threshold = config
+            .adaptive
+            .warn_usize(MetricKind::FunctionLength, default_threshold);
         let threshold = config.get_option_or("max_lines", adaptive_threshold) as u32;
         Self {
             repository_path: repository_path.into(),
@@ -134,7 +135,9 @@ impl Detector for LongMethodsDetector {
     }
 
     fn file_extensions(&self) -> &'static [&'static str] {
-        &["py", "js", "ts", "jsx", "tsx", "rb", "java", "go", "rs", "c", "cpp", "cs"]
+        &[
+            "py", "js", "ts", "jsx", "tsx", "rb", "java", "go", "rs", "c", "cpp", "cs",
+        ]
     }
 
     fn detect(&self, ctx: &AnalysisContext) -> Result<Vec<Finding>> {
@@ -162,9 +165,10 @@ impl Detector for LongMethodsDetector {
                 .and_then(|e| e.to_str())
                 .unwrap_or("");
             let lang_base = language_line_threshold(ext);
-            let threshold = lang_base
-                .max(ctx.threshold(crate::calibrate::MetricKind::FunctionLength, lang_base as f64) as usize)
-                as u32;
+            let threshold = lang_base.max(ctx.threshold(
+                crate::calibrate::MetricKind::FunctionLength,
+                lang_base as f64,
+            ) as usize) as u32;
 
             // Quick pre-filter: skip functions clearly under the threshold.
             if lines <= threshold {
@@ -176,10 +180,8 @@ impl Detector for LongMethodsDetector {
 
             // Determine orchestrator status from pre-computed FunctionRole first,
             // then fall back to graph heuristic.
-            let is_orchestrator = matches!(
-                ctx.function_role(qn),
-                Some(FunctionRole::Orchestrator)
-            ) || self.is_graph_orchestrator(graph, qn, lines, complexity);
+            let is_orchestrator = matches!(ctx.function_role(qn), Some(FunctionRole::Orchestrator))
+                || self.is_graph_orchestrator(graph, qn, lines, complexity);
 
             let is_test = ctx.is_test_function(qn);
             let callee_clusters = self.find_callee_clusters(graph, qn);
@@ -297,7 +299,10 @@ impl Detector for LongMethodsDetector {
                 title: format!("Long method: {} ({} lines)", func.node_name(i), lines),
                 description: format!(
                     "Function '{}' has {} lines (effective threshold: {}).{}",
-                    func.node_name(i), lines, threshold, context_notes
+                    func.node_name(i),
+                    lines,
+                    threshold,
+                    context_notes
                 ),
                 affected_files: vec![PathBuf::from(func.path(i))],
                 line_start: Some(func.line_start),
@@ -329,15 +334,18 @@ impl Detector for LongMethodsDetector {
 
 impl crate::detectors::RegisteredDetector for LongMethodsDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
-        std::sync::Arc::new(Self::with_config(init.repo_path, init.config_for("long-methods")))
+        std::sync::Arc::new(Self::with_config(
+            init.repo_path,
+            init.config_for("long-methods"),
+        ))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::{CodeNode, NodeKind};
     use crate::graph::builder::GraphBuilder;
+    use crate::graph::{CodeNode, NodeKind};
 
     #[test]
     fn test_language_threshold_long_methods() {
@@ -360,7 +368,10 @@ mod tests {
         store.add_node(func);
 
         let detector = LongMethodsDetector::new(dir.path());
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
@@ -385,7 +396,10 @@ mod tests {
         store.add_node(func);
 
         let detector = LongMethodsDetector::new(dir.path());
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
@@ -412,11 +426,17 @@ mod tests {
         // is empty. We just verify that the default-path severity computation
         // works. For the FP-reduction in production, `ctx.is_test_function()`
         // uses the populated FunctionContextMap.
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         // Without the test context, it will still fire but as High severity
         // (the test mock doesn't populate FunctionContextMap)
-        assert!(!findings.is_empty(), "Should still detect the 250-line function");
+        assert!(
+            !findings.is_empty(),
+            "Should still detect the 250-line function"
+        );
     }
 
     #[test]
@@ -431,10 +451,17 @@ mod tests {
         store.add_node(func);
 
         let detector = LongMethodsDetector::new(dir.path());
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].severity, Severity::Low, "Slight overshoot should be Low");
+        assert_eq!(
+            findings[0].severity,
+            Severity::Low,
+            "Slight overshoot should be Low"
+        );
     }
 
     #[test]
@@ -448,7 +475,10 @@ mod tests {
         store.add_node(func);
 
         let detector = LongMethodsDetector::new(dir.path());
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(!findings.is_empty());
         assert!(
@@ -470,7 +500,10 @@ mod tests {
         store.add_node(func);
 
         let detector = LongMethodsDetector::new(dir.path());
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
@@ -490,7 +523,10 @@ mod tests {
         store.add_node(func);
 
         let detector = LongMethodsDetector::new(dir.path());
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),

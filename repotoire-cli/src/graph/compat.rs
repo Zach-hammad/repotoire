@@ -275,27 +275,45 @@ impl super::traits::GraphQuery for GraphBuilder {
         self.snapshot().files()
     }
 
-    fn callers_idx(&self, idx: petgraph::stable_graph::NodeIndex) -> &[petgraph::stable_graph::NodeIndex] {
+    fn callers_idx(
+        &self,
+        idx: petgraph::stable_graph::NodeIndex,
+    ) -> &[petgraph::stable_graph::NodeIndex] {
         self.snapshot().callers(idx)
     }
 
-    fn callees_idx(&self, idx: petgraph::stable_graph::NodeIndex) -> &[petgraph::stable_graph::NodeIndex] {
+    fn callees_idx(
+        &self,
+        idx: petgraph::stable_graph::NodeIndex,
+    ) -> &[petgraph::stable_graph::NodeIndex] {
         self.snapshot().callees(idx)
     }
 
-    fn importers_idx(&self, idx: petgraph::stable_graph::NodeIndex) -> &[petgraph::stable_graph::NodeIndex] {
+    fn importers_idx(
+        &self,
+        idx: petgraph::stable_graph::NodeIndex,
+    ) -> &[petgraph::stable_graph::NodeIndex] {
         self.snapshot().importers(idx)
     }
 
-    fn importees_idx(&self, idx: petgraph::stable_graph::NodeIndex) -> &[petgraph::stable_graph::NodeIndex] {
+    fn importees_idx(
+        &self,
+        idx: petgraph::stable_graph::NodeIndex,
+    ) -> &[petgraph::stable_graph::NodeIndex] {
         self.snapshot().importees(idx)
     }
 
-    fn parent_classes_idx(&self, idx: petgraph::stable_graph::NodeIndex) -> &[petgraph::stable_graph::NodeIndex] {
+    fn parent_classes_idx(
+        &self,
+        idx: petgraph::stable_graph::NodeIndex,
+    ) -> &[petgraph::stable_graph::NodeIndex] {
         self.snapshot().parent_classes(idx)
     }
 
-    fn child_classes_idx(&self, idx: petgraph::stable_graph::NodeIndex) -> &[petgraph::stable_graph::NodeIndex] {
+    fn child_classes_idx(
+        &self,
+        idx: petgraph::stable_graph::NodeIndex,
+    ) -> &[petgraph::stable_graph::NodeIndex] {
         self.snapshot().child_classes(idx)
     }
 
@@ -315,19 +333,38 @@ impl super::traits::GraphQuery for GraphBuilder {
         self.snapshot().classes_in_file(file_path)
     }
 
-    fn function_at_idx(&self, file_path: &str, line: u32) -> Option<petgraph::stable_graph::NodeIndex> {
+    fn function_at_idx(
+        &self,
+        file_path: &str,
+        line: u32,
+    ) -> Option<petgraph::stable_graph::NodeIndex> {
         self.snapshot().function_at(file_path, line)
     }
 
-    fn all_call_edges(&self) -> &[(petgraph::stable_graph::NodeIndex, petgraph::stable_graph::NodeIndex)] {
+    fn all_call_edges(
+        &self,
+    ) -> &[(
+        petgraph::stable_graph::NodeIndex,
+        petgraph::stable_graph::NodeIndex,
+    )] {
         CodeGraph::all_call_edges(self.snapshot())
     }
 
-    fn all_import_edges(&self) -> &[(petgraph::stable_graph::NodeIndex, petgraph::stable_graph::NodeIndex)] {
+    fn all_import_edges(
+        &self,
+    ) -> &[(
+        petgraph::stable_graph::NodeIndex,
+        petgraph::stable_graph::NodeIndex,
+    )] {
         CodeGraph::all_import_edges(self.snapshot())
     }
 
-    fn all_inheritance_edges(&self) -> &[(petgraph::stable_graph::NodeIndex, petgraph::stable_graph::NodeIndex)] {
+    fn all_inheritance_edges(
+        &self,
+    ) -> &[(
+        petgraph::stable_graph::NodeIndex,
+        petgraph::stable_graph::NodeIndex,
+    )] {
         CodeGraph::all_inheritance_edges(self.snapshot())
     }
 

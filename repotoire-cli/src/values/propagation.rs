@@ -275,17 +275,10 @@ mod tests {
             }],
         );
 
-        resolve_cross_function(
-            &mut store,
-            &["foo".into(), "bar".into()],
-            &HashMap::new(),
-        );
+        resolve_cross_function(&mut store, &["foo".into(), "bar".into()], &HashMap::new());
 
         let resolved = store.resolve_at("bar", "x", 10);
-        assert_eq!(
-            resolved,
-            SymbolicValue::Literal(LiteralValue::Integer(42))
-        );
+        assert_eq!(resolved, SymbolicValue::Literal(LiteralValue::Integer(42)));
     }
 
     #[test]
@@ -307,17 +300,10 @@ mod tests {
             }],
         );
 
-        resolve_cross_function(
-            &mut store,
-            &["foo".into(), "bar".into()],
-            &HashMap::new(),
-        );
+        resolve_cross_function(&mut store, &["foo".into(), "bar".into()], &HashMap::new());
 
         let resolved = store.resolve_at("bar", "result", 10);
-        assert_eq!(
-            resolved,
-            SymbolicValue::Literal(LiteralValue::Integer(42))
-        );
+        assert_eq!(resolved, SymbolicValue::Literal(LiteralValue::Integer(42)));
     }
 
     #[test]
@@ -331,11 +317,7 @@ mod tests {
             .insert("b".into(), SymbolicValue::Call("a".into(), vec![]));
 
         // Should not hang — cycles are detected.
-        resolve_cross_function(
-            &mut store,
-            &["a".into(), "b".into()],
-            &HashMap::new(),
-        );
+        resolve_cross_function(&mut store, &["a".into(), "b".into()], &HashMap::new());
         // Just verify it completes.
     }
 
@@ -376,11 +358,7 @@ mod tests {
             ),
         );
 
-        resolve_cross_function(
-            &mut store,
-            &["foo".into(), "bar".into()],
-            &HashMap::new(),
-        );
+        resolve_cross_function(&mut store, &["foo".into(), "bar".into()], &HashMap::new());
 
         // bar's return should now be BinaryOp(Add, Literal(10), Literal(5)).
         let ret = store.return_value("bar");
@@ -566,10 +544,9 @@ mod tests {
     #[test]
     fn test_empty_topo_order_is_noop() {
         let mut store = ValueStore::new();
-        store.return_values.insert(
-            "foo".into(),
-            SymbolicValue::Variable("config.X".into()),
-        );
+        store
+            .return_values
+            .insert("foo".into(), SymbolicValue::Variable("config.X".into()));
 
         resolve_cross_function(&mut store, &[], &HashMap::new());
 

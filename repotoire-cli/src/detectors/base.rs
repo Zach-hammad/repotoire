@@ -16,7 +16,9 @@ use serde::{Deserialize, Serialize};
 /// incremental cache on toolchain upgrades.
 pub fn finding_id(detector: &str, file: &str, line: u32) -> String {
     let mut h: u64 = 0xcbf29ce484222325; // FNV offset basis
-    for b in detector.as_bytes().iter()
+    for b in detector
+        .as_bytes()
+        .iter()
         .chain(&[0xff]) // separator
         .chain(file.as_bytes().iter())
         .chain(&[0xff])
@@ -487,7 +489,6 @@ pub trait Detector: Send + Sync {
     fn bypass_postprocessor(&self) -> bool {
         false
     }
-
 }
 
 /// Progress callback for detector execution

@@ -66,7 +66,8 @@ pub fn capture(event: &str, distinct_id: &str, properties: Value) -> std::thread
 }
 
 /// Global list of pending telemetry threads. Flushed before process exit.
-static PENDING: std::sync::Mutex<Vec<std::thread::JoinHandle<()>>> = std::sync::Mutex::new(Vec::new());
+static PENDING: std::sync::Mutex<Vec<std::thread::JoinHandle<()>>> =
+    std::sync::Mutex::new(Vec::new());
 
 /// Queue a telemetry event (convenience wrapper that tracks the handle).
 pub fn capture_queued(event: &str, distinct_id: &str, properties: Value) {

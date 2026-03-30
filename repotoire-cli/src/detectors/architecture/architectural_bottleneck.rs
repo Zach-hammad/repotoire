@@ -70,7 +70,12 @@ impl ArchitecturalBottleneckDetector {
     ///
     /// Architectural bottlenecks are structural observations, not code quality
     /// issues — all severities are capped at Low.
-    fn calculate_severity(&self, _fan_in: usize, _complexity: usize, _role: FunctionRole) -> Severity {
+    fn calculate_severity(
+        &self,
+        _fan_in: usize,
+        _complexity: usize,
+        _role: FunctionRole,
+    ) -> Severity {
         Severity::Low
     }
 
@@ -245,7 +250,10 @@ impl Detector for ArchitecturalBottleneckDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let contexts = &ctx.functions;
         let i = graph.interner();
@@ -258,7 +266,9 @@ impl Detector for ArchitecturalBottleneckDetector {
         );
 
         for &func_idx in func_idxs {
-            let Some(func) = graph.node_idx(func_idx) else { continue };
+            let Some(func) = graph.node_idx(func_idx) else {
+                continue;
+            };
             // Skip by name pattern (CLI entry points, common utilities)
             if self.should_skip_by_name(func.node_name(i)) {
                 continue;
@@ -266,7 +276,9 @@ impl Detector for ArchitecturalBottleneckDetector {
 
             // Skip CLI entry points (expected to coordinate many things)
             if func.path(i).contains("/cli/")
-                && (func.node_name(i) == "run" || func.node_name(i) == "execute" || func.node_name(i) == "main")
+                && (func.node_name(i) == "run"
+                    || func.node_name(i) == "execute"
+                    || func.node_name(i) == "main")
             {
                 continue;
             }
@@ -294,7 +306,12 @@ impl Detector for ArchitecturalBottleneckDetector {
                 // Fall back to graph queries + pre-computed betweenness
                 let fan_in = graph.call_fan_in_idx(func_idx);
                 let complexity = func.complexity_opt().unwrap_or(1) as usize;
-                let raw_b = graph.primitives().betweenness.get(&func_idx).copied().unwrap_or(0.0);
+                let raw_b = graph
+                    .primitives()
+                    .betweenness
+                    .get(&func_idx)
+                    .copied()
+                    .unwrap_or(0.0);
                 let betweenness = if raw_b > 0.0 { Some(raw_b) } else { None };
                 (fan_in, complexity, FunctionRole::Unknown, betweenness)
             };
@@ -307,7 +324,9 @@ impl Detector for ArchitecturalBottleneckDetector {
                 if role == FunctionRole::Utility && fan_in < 30 && complexity < 20 {
                     debug!(
                         "Skipping utility {} (fan_in={}, complexity={})",
-                        func.node_name(i), fan_in, complexity
+                        func.node_name(i),
+                        fan_in,
+                        complexity
                     );
                     continue;
                 }
@@ -335,7 +354,9 @@ impl Detector for ArchitecturalBottleneckDetector {
 
 impl crate::detectors::RegisteredDetector for ArchitecturalBottleneckDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
-        std::sync::Arc::new(Self::with_config(init.config_for("ArchitecturalBottleneckDetector")))
+        std::sync::Arc::new(Self::with_config(
+            init.config_for("ArchitecturalBottleneckDetector"),
+        ))
     }
 }
 

@@ -63,8 +63,6 @@ pub struct GraphIndexes {
     pub(crate) primitives: super::primitives::GraphPrimitives,
 }
 
-
-
 impl GraphIndexes {
     /// Build all indexes from a graph and node_index in one pass.
     ///
@@ -313,8 +311,7 @@ fn compute_import_cycles(graph: &StableGraph<CodeNode, CodeEdge>) -> Vec<Vec<Nod
         if edge.weight().is_type_only() {
             continue;
         }
-        if let (Some(&from), Some(&to)) =
-            (idx_map.get(&edge.source()), idx_map.get(&edge.target()))
+        if let (Some(&from), Some(&to)) = (idx_map.get(&edge.source()), idx_map.get(&edge.target()))
         {
             filtered_graph.add_edge(from, to, ());
         }
@@ -494,12 +491,8 @@ mod tests {
         let mut graph = StableGraph::new();
 
         // Add functions out of order
-        let f2 = graph.add_node(
-            CodeNode::function("bar", "test.py").with_lines(20, 30),
-        );
-        let f1 = graph.add_node(
-            CodeNode::function("foo", "test.py").with_lines(1, 10),
-        );
+        let f2 = graph.add_node(CodeNode::function("bar", "test.py").with_lines(20, 30));
+        let f1 = graph.add_node(CodeNode::function("foo", "test.py").with_lines(1, 10));
         let _ = (f1, f2);
 
         let node_index = HashMap::new();

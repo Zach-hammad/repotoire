@@ -54,15 +54,15 @@ pub fn postprocess_stage(input: PostprocessInput) -> Result<PostprocessOutput> {
         &mut findings,
         input.project_config,
         &mut dummy_cache,
-        false,  // is_incremental_mode — no caching in the new engine's postprocess
-        &[],    // files_to_parse — empty, not used in non-incremental mode
+        false, // is_incremental_mode — no caching in the new engine's postprocess
+        &[],   // files_to_parse — empty, not used in non-incremental mode
         input.all_files,
-        0,      // max_files — 0 means no limit (already applied in collect stage)
+        0, // max_files — 0 means no limit (already applied in collect stage)
         input.verify,
         input.graph,
-        false,  // rank — ranking is a presentation concern, not a pipeline transform
-        None,   // min_confidence — no threshold filtering in postprocess
-        false,  // show_all — irrelevant when min_confidence is None
+        false, // rank — ranking is a presentation concern, not a pipeline transform
+        None,  // min_confidence — no threshold filtering in postprocess
+        false, // show_all — irrelevant when min_confidence is None
         input.repo_path,
         &input.bypass_set,
     );
@@ -75,7 +75,7 @@ pub fn postprocess_stage(input: PostprocessInput) -> Result<PostprocessOutput> {
         stats: PostprocessStats {
             input_count,
             output_count,
-            suppressed: 0,       // Individual breakdowns not available from existing function
+            suppressed: 0, // Individual breakdowns not available from existing function
             excluded: 0,
             deduped: 0,
             fp_filtered: total_removed,

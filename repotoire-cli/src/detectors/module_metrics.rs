@@ -3,8 +3,8 @@
 //! Pre-computed once during the startup phase and shared with all detectors
 //! via `AnalysisContext`.
 
+use crate::graph::builder::GraphBuilder;
 use crate::graph::{GraphQuery, GraphQueryExt};
-    use crate::graph::builder::GraphBuilder;
 use std::collections::{HashMap, HashSet};
 
 /// Per-module metrics computed from the call graph.
@@ -278,9 +278,9 @@ fn build_class_cohesion_indexed(
             .iter()
             .copied()
             .filter(|&idx| {
-                graph
-                    .node_idx(idx)
-                    .is_some_and(|f| f.line_start >= class.line_start && f.line_end <= class.line_end)
+                graph.node_idx(idx).is_some_and(|f| {
+                    f.line_start >= class.line_start && f.line_end <= class.line_end
+                })
             })
             .collect();
 
@@ -342,8 +342,8 @@ fn extract_module(path: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::{CodeEdge, CodeNode};
     use crate::graph::builder::GraphBuilder;
+    use crate::graph::{CodeEdge, CodeNode};
 
     #[test]
     fn test_extract_module() {
@@ -384,12 +384,12 @@ mod tests {
     fn test_build_module_metrics_basic() {
         let mut graph = GraphBuilder::new();
 
-        let a = CodeNode::function("a", "src/mod_a/foo.py")
-            .with_qualified_name("src/mod_a/foo.py::a");
-        let b = CodeNode::function("b", "src/mod_a/foo.py")
-            .with_qualified_name("src/mod_a/foo.py::b");
-        let c = CodeNode::function("c", "src/mod_b/bar.py")
-            .with_qualified_name("src/mod_b/bar.py::c");
+        let a =
+            CodeNode::function("a", "src/mod_a/foo.py").with_qualified_name("src/mod_a/foo.py::a");
+        let b =
+            CodeNode::function("b", "src/mod_a/foo.py").with_qualified_name("src/mod_a/foo.py::b");
+        let c =
+            CodeNode::function("c", "src/mod_b/bar.py").with_qualified_name("src/mod_b/bar.py::c");
 
         graph.add_node(a);
         graph.add_node(b);

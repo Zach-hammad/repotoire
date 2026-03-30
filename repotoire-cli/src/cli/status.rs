@@ -59,8 +59,14 @@ pub fn run(path: &Path) -> Result<()> {
         if let Some(findings) = super::analyze::output::load_cached_findings_from(&findings_path) {
             use crate::models::Severity;
             let total = findings.len();
-            let critical = findings.iter().filter(|f| f.severity == Severity::Critical).count();
-            let high = findings.iter().filter(|f| f.severity == Severity::High).count();
+            let critical = findings
+                .iter()
+                .filter(|f| f.severity == Severity::Critical)
+                .count();
+            let high = findings
+                .iter()
+                .filter(|f| f.severity == Severity::High)
+                .count();
             println!(
                 "      {} findings ({} critical, {} high)",
                 style(total).cyan(),

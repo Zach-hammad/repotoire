@@ -264,7 +264,8 @@ pub fn create_default_detectors(init: &DetectorInit) -> Vec<Arc<dyn Detector>> {
 
 /// Create ALL detectors including deep-scan detectors (code smells, style, dead code).
 pub fn create_all_detectors(init: &DetectorInit) -> Vec<Arc<dyn Detector>> {
-    DEFAULT_DETECTOR_FACTORIES.iter()
+    DEFAULT_DETECTOR_FACTORIES
+        .iter()
         .chain(DEEP_ONLY_DETECTOR_FACTORIES.iter())
         .map(|f| f(init))
         .collect()
@@ -272,67 +273,67 @@ pub fn create_all_detectors(init: &DetectorInit) -> Vec<Arc<dyn Detector>> {
 
 // ── Category modules (detectors grouped by concern) ───────────────────────
 
-pub mod security;
-pub mod bugs;
+pub mod ai;
 pub mod architecture;
+pub mod bugs;
 pub mod performance;
 pub mod quality;
-pub mod ai;
+pub mod security;
 
 // ── Infra modules (shared machinery, not detectors) ───────────────────────
 
 pub mod analysis_context;
+pub mod api_surface;
+pub mod ast_fingerprint;
 pub mod base;
+pub mod class_context;
 pub mod confidence_enrichment;
 pub mod content_classifier;
+pub mod context_hmm;
 pub mod detector_context;
 mod engine;
 pub mod file_cache;
 pub mod file_index;
 pub mod file_provider;
-pub mod runner;
-pub mod user_input;
-pub mod context_hmm;
-pub mod function_context;
-pub mod class_context;
 pub mod framework_detection;
-pub mod api_surface;
+pub mod function_context;
 pub mod module_metrics;
 pub mod reachability;
-pub mod ast_fingerprint;
+pub mod runner;
+pub mod user_input;
 
 // ML/Data Science and Rust-specific detectors (existing subdirectories)
 mod ml_smells;
 mod rust_smells;
 
 // Cross-detector analysis
+mod core_utility;
 mod health_delta;
+mod hierarchical_surprisal;
 mod incremental_cache;
 mod risk_analyzer;
 mod root_cause_analyzer;
-mod voting_engine;
-mod core_utility;
 mod surprisal;
-mod hierarchical_surprisal;
+mod voting_engine;
 
 // ── Re-exports (backward-compatible public API) ───────────────────────────
 
 // Base types
+pub use analysis_context::AnalysisContext;
 pub use base::{
     DetectionSummary, Detector, DetectorConfig, DetectorResult, DetectorScope, ProgressCallback,
 };
 pub use detector_context::{ContentFlags, DetectorContext};
+pub use engine::{precompute_gd_startup, PrecomputedAnalysis};
 pub use file_cache::FileContentCache;
-pub use analysis_context::AnalysisContext;
 pub use file_index::{FileEntry, FileIndex};
 pub use file_provider::{FileProvider, SourceFiles};
-pub use engine::{PrecomputedAnalysis, precompute_gd_startup};
-pub use runner::{
-    apply_hmm_context_filter, filter_test_file_findings, inject_taint_precomputed,
-    run_detectors, sort_findings_deterministic,
-};
 pub use function_context::{
     FunctionContext, FunctionContextBuilder, FunctionContextMap, FunctionRole,
+};
+pub use runner::{
+    apply_hmm_context_filter, filter_test_file_findings, inject_taint_precomputed, run_detectors,
+    sort_findings_deterministic,
 };
 
 // Taint analysis — re-exported at top level for backward compat
@@ -347,26 +348,26 @@ pub use security::{
     InsecureCryptoDetector, InsecureDeserializeDetector, InsecureRandomDetector,
     InsecureTlsDetector, JwtWeakDetector, LogInjectionDetector, NosqlInjectionDetector,
     PathTraversalDetector, PickleDeserializationDetector, PrototypePollutionDetector,
-    ReactHooksDetector, RegexDosDetector, SQLInjectionDetector, SecretDetector,
-    SsrfDetector, UnsafeTemplateDetector, XssDetector, XxeDetector,
+    ReactHooksDetector, RegexDosDetector, SQLInjectionDetector, SecretDetector, SsrfDetector,
+    UnsafeTemplateDetector, XssDetector, XxeDetector,
 };
 
 // Bug detectors
 pub use bugs::{
     BroadExceptionDetector, CallbackHellDetector, EmptyCatchDetector, GeneratorMisuseDetector,
-    GlobalVariablesDetector, ImplicitCoercionDetector, InfiniteLoopDetector,
-    MissingAwaitDetector, MutableDefaultArgsDetector, StringConcatLoopDetector,
-    UnhandledPromiseDetector, UnreachableCodeDetector, WildcardImportsDetector,
+    GlobalVariablesDetector, ImplicitCoercionDetector, InfiniteLoopDetector, MissingAwaitDetector,
+    MutableDefaultArgsDetector, StringConcatLoopDetector, UnhandledPromiseDetector,
+    UnreachableCodeDetector, WildcardImportsDetector,
 };
 
 // Architecture detectors
 pub use architecture::{
     ArchitecturalBottleneckDetector, CircularDependencyDetector, CommunityMisplacementDetector,
-    DegreeCentralityDetector, HiddenCouplingDetector, ModuleCohesionDetector,
-    MutualRecursionDetector, PageRankDriftDetector, ShotgunSurgeryDetector,
-    SinglePointOfFailureDetector, StructuralBridgeRiskDetector, TemporalBottleneckDetector,
-    SingleOwnerModuleDetector, KnowledgeSiloDetector, OrphanedKnowledgeDetector,
-    CriticalPathSingleOwnerDetector,
+    CriticalPathSingleOwnerDetector, DegreeCentralityDetector, HiddenCouplingDetector,
+    KnowledgeSiloDetector, ModuleCohesionDetector, MutualRecursionDetector,
+    OrphanedKnowledgeDetector, PageRankDriftDetector, ShotgunSurgeryDetector,
+    SingleOwnerModuleDetector, SinglePointOfFailureDetector, StructuralBridgeRiskDetector,
+    TemporalBottleneckDetector,
 };
 
 // Performance detectors
@@ -418,8 +419,8 @@ pub use voting_engine::{
 };
 
 // Predictive detectors
-pub use surprisal::SurprisalDetector;
 pub use hierarchical_surprisal::HierarchicalSurprisalDetector;
+pub use surprisal::SurprisalDetector;
 
 use std::path::Path;
 use std::sync::Arc;
@@ -612,64 +613,90 @@ mod tests {
     #[test]
     fn test_targeted_suppression() {
         assert!(is_line_suppressed_for(
-            "x = 1  // repotoire:ignore[sql-injection]", None, "sql-injection"
+            "x = 1  // repotoire:ignore[sql-injection]",
+            None,
+            "sql-injection"
         ));
         assert!(!is_line_suppressed_for(
-            "x = 1  // repotoire:ignore[sql-injection]", None, "xss"
+            "x = 1  // repotoire:ignore[sql-injection]",
+            None,
+            "xss"
         ));
         assert!(is_line_suppressed_for(
-            "x = 1  // repotoire:ignore", None, "xss"
+            "x = 1  // repotoire:ignore",
+            None,
+            "xss"
         ));
         assert!(is_line_suppressed_for(
-            "x = 1", Some("// repotoire:ignore[xss]"), "xss"
+            "x = 1",
+            Some("// repotoire:ignore[xss]"),
+            "xss"
         ));
         assert!(!is_line_suppressed_for(
-            "x = 1", Some("// repotoire:ignore[xss]"), "sql-injection"
+            "x = 1",
+            Some("// repotoire:ignore[xss]"),
+            "sql-injection"
         ));
     }
 
     #[test]
     fn test_targeted_suppression_with_space() {
         assert!(is_line_suppressed_for(
-            "x = 1  // repotoire: ignore[sql-injection]", None, "sql-injection"
+            "x = 1  // repotoire: ignore[sql-injection]",
+            None,
+            "sql-injection"
         ));
         assert!(!is_line_suppressed_for(
-            "x = 1  // repotoire: ignore[sql-injection]", None, "xss"
+            "x = 1  // repotoire: ignore[sql-injection]",
+            None,
+            "xss"
         ));
     }
 
     #[test]
     fn test_targeted_suppression_case_insensitive() {
         assert!(is_line_suppressed_for(
-            "x = 1  // Repotoire:Ignore[SQL-Injection]", None, "sql-injection"
+            "x = 1  // Repotoire:Ignore[SQL-Injection]",
+            None,
+            "sql-injection"
         ));
     }
 
     #[test]
     fn test_targeted_suppression_bare_prev_line() {
         assert!(is_line_suppressed_for(
-            "x = 1", Some("// repotoire:ignore"), "any-detector"
+            "x = 1",
+            Some("// repotoire:ignore"),
+            "any-detector"
         ));
     }
 
     #[test]
     fn test_targeted_suppression_prev_line_non_comment() {
         assert!(!is_line_suppressed_for(
-            "x = 1", Some("x = 1 repotoire:ignore[xss]"), "xss"
+            "x = 1",
+            Some("x = 1 repotoire:ignore[xss]"),
+            "xss"
         ));
     }
 
     #[test]
     fn test_targeted_suppression_python_comment() {
         assert!(is_line_suppressed_for(
-            "x = 1  # repotoire:ignore[magic-numbers]", None, "magic-numbers"
+            "x = 1  # repotoire:ignore[magic-numbers]",
+            None,
+            "magic-numbers"
         ));
     }
 
     #[test]
     fn test_targeted_suppression_no_match_no_suppress() {
         assert!(!is_line_suppressed_for("x = 1", None, "sql-injection"));
-        assert!(!is_line_suppressed_for("x = 1", Some("// normal comment"), "sql-injection"));
+        assert!(!is_line_suppressed_for(
+            "x = 1",
+            Some("// normal comment"),
+            "sql-injection"
+        ));
     }
 
     #[test]
@@ -684,10 +711,24 @@ mod tests {
                 | DetectorScope::GraphWide => {}
             }
         }
-        let file_local = detectors.iter().filter(|d| d.detector_scope() == DetectorScope::FileLocal).count();
-        let graph_wide = detectors.iter().filter(|d| d.detector_scope() == DetectorScope::GraphWide).count();
-        assert!(file_local > 20, "Expected 20+ FileLocal detectors, got {}", file_local);
-        assert!(graph_wide >= 2, "Expected 2+ GraphWide detectors, got {}", graph_wide);
+        let file_local = detectors
+            .iter()
+            .filter(|d| d.detector_scope() == DetectorScope::FileLocal)
+            .count();
+        let graph_wide = detectors
+            .iter()
+            .filter(|d| d.detector_scope() == DetectorScope::GraphWide)
+            .count();
+        assert!(
+            file_local > 20,
+            "Expected 20+ FileLocal detectors, got {}",
+            file_local
+        );
+        assert!(
+            graph_wide >= 2,
+            "Expected 2+ GraphWide detectors, got {}",
+            graph_wide
+        );
     }
 
     #[test]
@@ -697,7 +738,9 @@ mod tests {
 
     #[test]
     fn test_file_suppressed_rust_comment_with_space() {
-        assert!(is_file_suppressed("// repotoire: ignore-file\nfn main() {}"));
+        assert!(is_file_suppressed(
+            "// repotoire: ignore-file\nfn main() {}"
+        ));
     }
 
     #[test]
@@ -707,7 +750,9 @@ mod tests {
 
     #[test]
     fn test_file_suppressed_c_style_comment() {
-        assert!(is_file_suppressed("/* repotoire:ignore-file */\nint main() {}"));
+        assert!(is_file_suppressed(
+            "/* repotoire:ignore-file */\nint main() {}"
+        ));
     }
 
     #[test]
@@ -717,13 +762,17 @@ mod tests {
 
     #[test]
     fn test_file_suppressed_block_comment_continuation() {
-        assert!(is_file_suppressed("/*\n * repotoire:ignore-file\n */\nfn main() {}"));
+        assert!(is_file_suppressed(
+            "/*\n * repotoire:ignore-file\n */\nfn main() {}"
+        ));
     }
 
     #[test]
     fn test_file_suppressed_only_first_10_lines() {
         let mut lines: Vec<&str> = Vec::new();
-        for _ in 0..10 { lines.push("// normal comment"); }
+        for _ in 0..10 {
+            lines.push("// normal comment");
+        }
         lines.push("// repotoire:ignore-file");
         assert!(!is_file_suppressed(&lines.join("\n")));
     }
@@ -731,19 +780,25 @@ mod tests {
     #[test]
     fn test_file_suppressed_within_10_lines() {
         let mut lines: Vec<&str> = Vec::new();
-        for _ in 0..9 { lines.push("// normal comment"); }
+        for _ in 0..9 {
+            lines.push("// normal comment");
+        }
         lines.push("// repotoire:ignore-file");
         assert!(is_file_suppressed(&lines.join("\n")));
     }
 
     #[test]
     fn test_file_not_suppressed_plain_code() {
-        assert!(!is_file_suppressed("fn main() {\n    println!(\"hello\");\n}"));
+        assert!(!is_file_suppressed(
+            "fn main() {\n    println!(\"hello\");\n}"
+        ));
     }
 
     #[test]
     fn test_file_not_suppressed_in_code_line() {
-        assert!(!is_file_suppressed("let x = \"repotoire:ignore-file\";\nfn main() {}"));
+        assert!(!is_file_suppressed(
+            "let x = \"repotoire:ignore-file\";\nfn main() {}"
+        ));
     }
 
     #[test]
@@ -753,22 +808,34 @@ mod tests {
 
     #[test]
     fn test_file_suppressed_for_targeted() {
-        assert!(is_file_suppressed_for("// repotoire:ignore-file[sql-injection]\nfn main() {}", Some("sql-injection")));
+        assert!(is_file_suppressed_for(
+            "// repotoire:ignore-file[sql-injection]\nfn main() {}",
+            Some("sql-injection")
+        ));
     }
 
     #[test]
     fn test_file_suppressed_for_targeted_no_match() {
-        assert!(!is_file_suppressed_for("// repotoire:ignore-file[sql-injection]\nfn main() {}", Some("xss")));
+        assert!(!is_file_suppressed_for(
+            "// repotoire:ignore-file[sql-injection]\nfn main() {}",
+            Some("xss")
+        ));
     }
 
     #[test]
     fn test_file_suppressed_for_blanket() {
-        assert!(is_file_suppressed_for("// repotoire:ignore-file\nfn main() {}", Some("any-detector")));
+        assert!(is_file_suppressed_for(
+            "// repotoire:ignore-file\nfn main() {}",
+            Some("any-detector")
+        ));
     }
 
     #[test]
     fn test_file_suppressed_for_targeted_does_not_match_blanket_check() {
-        assert!(!is_file_suppressed_for("// repotoire:ignore-file[sql-injection]\nfn main() {}", None));
+        assert!(!is_file_suppressed_for(
+            "// repotoire:ignore-file[sql-injection]\nfn main() {}",
+            None
+        ));
     }
 
     #[test]
@@ -777,7 +844,12 @@ mod tests {
         let default = create_default_detectors(&init);
         let all = create_all_detectors(&init);
         assert!(default.len() > 50, "default detectors: {}", default.len());
-        assert!(all.len() > default.len(), "all ({}) should exceed default ({})", all.len(), default.len());
+        assert!(
+            all.len() > default.len(),
+            "all ({}) should exceed default ({})",
+            all.len(),
+            default.len()
+        );
         assert_eq!(all.len(), 110);
     }
 

@@ -47,8 +47,7 @@ impl FileEntry {
                 if bytes[i].is_ascii_alphabetic() || bytes[i] == b'_' {
                     let start = i;
                     i += 1;
-                    while i < bytes.len()
-                        && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_')
+                    while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_')
                     {
                         i += 1;
                     }

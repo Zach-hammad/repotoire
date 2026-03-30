@@ -91,7 +91,16 @@ const FP_PATH_INDICATORS: &[&str] = &[
 
 /// Path segments that correlate with true positives.
 const TP_PATH_INDICATORS: &[&str] = &[
-    "src", "lib", "app", "api", "routes", "handlers", "controller", "service", "auth", "security",
+    "src",
+    "lib",
+    "app",
+    "api",
+    "routes",
+    "handlers",
+    "controller",
+    "service",
+    "auth",
+    "security",
 ];
 
 // ---------------------------------------------------------------------------
@@ -214,11 +223,7 @@ pub fn compute_cross_features(
 
     for (file_path, detector_counts) in &file_detector_counts {
         let total_in_file = file_total_counts.get(file_path).copied().unwrap_or(0);
-        let kloc = file_loc_map
-            .get(file_path)
-            .copied()
-            .unwrap_or(0.0)
-            / 1000.0;
+        let kloc = file_loc_map.get(file_path).copied().unwrap_or(0.0) / 1000.0;
         let kloc_safe = kloc.max(0.001);
 
         let file_map = result.entry(file_path.clone()).or_default();
@@ -293,15 +298,15 @@ impl FeatureExtractorV2 {
             // Look up the containing function (the function whose line range
             // covers the finding's line_start).
             let functions_in_file = g.get_functions_in_file(&file_path);
-            let containing_fn = functions_in_file.iter().find(|func| {
-                finding_line >= func.line_start && finding_line <= func.line_end
-            });
+            let containing_fn = functions_in_file
+                .iter()
+                .find(|func| finding_line >= func.line_start && finding_line <= func.line_end);
 
             // Look up the containing class.
             let classes_in_file = g.get_classes_in_file(&file_path);
-            let containing_class = classes_in_file.iter().find(|cls| {
-                finding_line >= cls.line_start && finding_line <= cls.line_end
-            });
+            let containing_class = classes_in_file
+                .iter()
+                .find(|cls| finding_line >= cls.line_start && finding_line <= cls.line_end);
 
             // 5: entity_type — 0=file, 1=function, 2=class
             f[5] = if containing_fn.is_some() {
@@ -347,7 +352,11 @@ impl FeatureExtractorV2 {
             f[8] = functions_in_file.len() as f64;
 
             // 14: scc_membership — is the file part of an import cycle?
-            f[14] = if g.is_in_import_cycle(&file_path) { 1.0 } else { 0.0 };
+            f[14] = if g.is_in_import_cycle(&file_path) {
+                1.0
+            } else {
+                0.0
+            };
         } else {
             // No graph — only compute normalised span with default.
             let span = finding_end.saturating_sub(finding_line).saturating_add(1) as f64;
@@ -441,10 +450,10 @@ fn category_ordinal(detector: &str) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::store_models::CodeNode;
-    use crate::graph::{CodeEdge};
     use crate::graph::builder::GraphBuilder;
+    use crate::graph::store_models::CodeNode;
     use crate::graph::traits::GraphQueryExt;
+    use crate::graph::CodeEdge;
     use std::collections::HashMap;
     use std::path::PathBuf;
 
@@ -482,19 +491,13 @@ mod tests {
         // 3 callers (fan_in=3)
         for i in 0..3 {
             let name = format!("caller_{i}");
-            builder.add_node(
-                CodeNode::function(&name, "src/other.py")
-                    .with_qualified_name(&name),
-            );
+            builder.add_node(CodeNode::function(&name, "src/other.py").with_qualified_name(&name));
             builder.add_edge_by_name(&name, "src.api.users.handle_query", CodeEdge::calls());
         }
         // 2 callees (fan_out=2)
         for i in 0..2 {
             let name = format!("callee_{i}");
-            builder.add_node(
-                CodeNode::function(&name, "src/other.py")
-                    .with_qualified_name(&name),
-            );
+            builder.add_node(CodeNode::function(&name, "src/other.py").with_qualified_name(&name));
             builder.add_edge_by_name("src.api.users.handle_query", &name, CodeEdge::calls());
         }
 
@@ -527,8 +530,7 @@ mod tests {
             historical_fp_rate: 0.15,
         };
 
-        let features =
-            extractor.extract(&finding, Some(&graph), Some(&git), Some(&cross));
+        let features = extractor.extract(&finding, Some(&graph), Some(&git), Some(&cross));
 
         // Must produce exactly 28 features.
         assert_eq!(features.values.len(), NUM_FEATURES);

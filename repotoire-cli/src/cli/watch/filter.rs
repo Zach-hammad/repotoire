@@ -14,7 +14,9 @@ pub struct WatchFilter {
 
 impl WatchFilter {
     pub fn new(repo_path: &Path) -> Self {
-        let repo_path = repo_path.canonicalize().unwrap_or_else(|_| repo_path.to_path_buf());
+        let repo_path = repo_path
+            .canonicalize()
+            .unwrap_or_else(|_| repo_path.to_path_buf());
         let mut builder = ignore::gitignore::GitignoreBuilder::new(&repo_path);
 
         // Add root .gitignore and .repotoireignore
@@ -53,10 +55,7 @@ impl WatchFilter {
                 .expect("empty gitignore builder should never fail")
         });
 
-        Self {
-            repo_path,
-            matcher,
-        }
+        Self { repo_path, matcher }
     }
 
     /// Check if a path should trigger re-analysis.
@@ -95,10 +94,10 @@ impl WatchFilter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
-    use std::time::Instant;
     use notify::EventKind;
     use notify_debouncer_full::DebouncedEvent;
+    use std::fs;
+    use std::time::Instant;
     use tempfile::TempDir;
 
     #[test]

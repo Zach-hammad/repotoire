@@ -434,10 +434,15 @@ impl Detector for AIChurnDetector {
     }
 
     fn file_extensions(&self) -> &'static [&'static str] {
-        &["py", "js", "ts", "jsx", "tsx", "java", "go", "rs", "c", "cpp", "cs"]
+        &[
+            "py", "js", "ts", "jsx", "tsx", "java", "go", "rs", "c", "cpp", "cs",
+        ]
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let files = &ctx.as_file_provider();
         let i = graph.interner();
@@ -460,7 +465,10 @@ impl Detector for AIChurnDetector {
         let churn_counts = match git_history.get_file_churn_counts(500) {
             Ok(data) => data,
             Err(e) => {
-                warn!("AIChurnDetector: Failed to get churn counts: {}. Falling back.", e);
+                warn!(
+                    "AIChurnDetector: Failed to get churn counts: {}. Falling back.",
+                    e
+                );
                 return self.detect_without_git_history(graph);
             }
         };
@@ -498,7 +506,10 @@ impl Detector for AIChurnDetector {
         ) {
             Ok(data) => data,
             Err(e) => {
-                warn!("AIChurnDetector: Failed to get hunk data: {}. Falling back.", e);
+                warn!(
+                    "AIChurnDetector: Failed to get hunk data: {}. Falling back.",
+                    e
+                );
                 return self.detect_without_git_history(graph);
             }
         };
@@ -542,7 +553,8 @@ impl Detector for AIChurnDetector {
                 }
 
                 // Filter commits by hunk overlap and compute function-level line counts.
-                let mut func_commits: Vec<(&crate::git::history::CommitInfo, usize, usize)> = Vec::new();
+                let mut func_commits: Vec<(&crate::git::history::CommitInfo, usize, usize)> =
+                    Vec::new();
                 for (info, hunks) in cached {
                     let mut func_ins = 0usize;
                     let mut func_del = 0usize;
@@ -583,7 +595,9 @@ impl Detector for AIChurnDetector {
                 // Build modifications from all commits except the creation commit,
                 // using function-level insertion/deletion counts
                 let mut modifications = Vec::new();
-                for &(commit, func_ins, func_del) in func_commits.iter().take(func_commits.len() - 1) {
+                for &(commit, func_ins, func_del) in
+                    func_commits.iter().take(func_commits.len() - 1)
+                {
                     let ts = chrono::DateTime::parse_from_rfc3339(&commit.timestamp)
                         .ok()
                         .map(|dt| dt.with_timezone(&Utc));
@@ -676,7 +690,10 @@ mod tests {
     fn test_detect_returns_empty_without_git() {
         let store = crate::graph::GraphBuilder::new().freeze();
         let detector = AIChurnDetector::new();
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![],
+        );
         let findings = detector.detect(&ctx).expect("should detect without git");
         assert!(findings.is_empty(), "Should return empty when no git repo");
     }

@@ -80,7 +80,9 @@ pub fn render_with_context(ctx: &ReportContext) -> Result<String> {
     // Architecture map (if graph data available)
     if let Some(ref gd) = ctx.graph_data {
         let arch_svg = super::svg::architecture::render_architecture_map(
-            &gd.modules, &gd.module_edges, &gd.communities,
+            &gd.modules,
+            &gd.module_edges,
+            &gd.communities,
         );
         html.push_str(&format!(
             "<div class=\"card\">\n<h2>Architecture Map</h2>\n<p style=\"color: #64748b; margin-bottom: 1rem;\">Module dependencies colored by health score. Red edges indicate circular dependencies.</p>\n{}\n</div>\n",
@@ -91,7 +93,9 @@ pub fn render_with_context(ctx: &ReportContext) -> Result<String> {
     // Hotspot treemap (if graph data available)
     if let Some(ref gd) = ctx.graph_data {
         if !gd.modules.is_empty() {
-            let treemap_items: Vec<super::svg::treemap::TreemapItem> = gd.modules.iter()
+            let treemap_items: Vec<super::svg::treemap::TreemapItem> = gd
+                .modules
+                .iter()
                 .filter(|m| m.loc > 0)
                 .map(|m| super::svg::treemap::TreemapItem {
                     label: m.path.clone(),
@@ -136,20 +140,38 @@ pub fn render_with_context(ctx: &ReportContext) -> Result<String> {
                     .to_string();
                 *dir_risk.entry(dir).or_default() += 1;
             }
-            let mut bar_items: Vec<super::svg::bar_chart::BarItem> = dir_risk.into_iter()
+            let mut bar_items: Vec<super::svg::bar_chart::BarItem> = dir_risk
+                .into_iter()
                 .map(|(dir, risky)| {
                     let value = (risky as f64 / ctx.health.total_files.max(1) as f64).min(1.0);
-                    let color = if value > 0.6 { "#ef4444".to_string() }
-                        else if value > 0.3 { "#f97316".to_string() }
-                        else { "#22c55e".to_string() };
-                    super::svg::bar_chart::BarItem { label: dir, value, color }
+                    let color = if value > 0.6 {
+                        "#ef4444".to_string()
+                    } else if value > 0.3 {
+                        "#f97316".to_string()
+                    } else {
+                        "#22c55e".to_string()
+                    };
+                    super::svg::bar_chart::BarItem {
+                        label: dir,
+                        value,
+                        color,
+                    }
                 })
                 .collect();
-            bar_items.sort_by(|a, b| b.value.partial_cmp(&a.value).unwrap_or(std::cmp::Ordering::Equal));
+            bar_items.sort_by(|a, b| {
+                b.value
+                    .partial_cmp(&a.value)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
             bar_items.truncate(10);
 
             if !bar_items.is_empty() {
-                let bar_svg = super::svg::bar_chart::render_bar_chart(&bar_items, "Bus Factor Risk by Directory", 700.0, 0.0);
+                let bar_svg = super::svg::bar_chart::render_bar_chart(
+                    &bar_items,
+                    "Bus Factor Risk by Directory",
+                    700.0,
+                    0.0,
+                );
                 html.push_str(&format!(
                     "<p style=\"color: #64748b; margin-bottom: 1rem;\">Directories with files that have only 1-2 contributors.</p>\n{}\n",
                     bar_svg
@@ -157,7 +179,9 @@ pub fn render_with_context(ctx: &ReportContext) -> Result<String> {
             }
 
             // Ownership heatmap treemap (colored by bus factor risk)
-            let treemap_items: Vec<super::svg::treemap::TreemapItem> = git.file_ownership.iter()
+            let treemap_items: Vec<super::svg::treemap::TreemapItem> = git
+                .file_ownership
+                .iter()
                 .filter(|fo| !fo.authors.is_empty())
                 .map(|fo| super::svg::treemap::TreemapItem {
                     label: fo.path.clone(),
@@ -183,7 +207,9 @@ pub fn render_with_context(ctx: &ReportContext) -> Result<String> {
                 html.push_str("<table style=\"width: 100%; border-collapse: collapse; margin-top: 0.5rem;\">\n");
                 html.push_str("<thead><tr style=\"border-bottom: 2px solid #e2e8f0;\">\n");
                 html.push_str("<th style=\"text-align: left; padding: 0.5rem;\">File</th>\n");
-                html.push_str("<th style=\"text-align: center; padding: 0.5rem;\">Bus Factor</th>\n");
+                html.push_str(
+                    "<th style=\"text-align: center; padding: 0.5rem;\">Bus Factor</th>\n",
+                );
                 html.push_str("<th style=\"text-align: left; padding: 0.5rem;\">Risk</th>\n");
                 html.push_str("</tr></thead>\n<tbody>\n");
                 for (path, bf) in &risky_files {
@@ -218,7 +244,8 @@ pub fn render_with_context(ctx: &ReportContext) -> Result<String> {
         .replace(' ', "%20");
     let badge_url = format!(
         "https://img.shields.io/badge/repotoire-{}%20({:.0}%2F100)-{}",
-        encoded_grade, report.overall_score,
+        encoded_grade,
+        report.overall_score,
         match report.grade {
             Grade::APlus | Grade::A | Grade::AMinus => "10b981",
             Grade::BPlus | Grade::B | Grade::BMinus => "22c55e",
@@ -271,7 +298,9 @@ fn render_header(_report: &HealthReport) -> String {
 
 fn render_grade_section(report: &HealthReport) -> String {
     let description = match report.grade {
-        Grade::APlus | Grade::A | Grade::AMinus => "Excellent - Code is well-structured and maintainable",
+        Grade::APlus | Grade::A | Grade::AMinus => {
+            "Excellent - Code is well-structured and maintainable"
+        }
         Grade::BPlus | Grade::B | Grade::BMinus => "Good - Minor improvements recommended",
         Grade::CPlus | Grade::C | Grade::CMinus => "Fair - Several issues should be addressed",
         Grade::DPlus | Grade::D | Grade::DMinus => "Poor - Significant refactoring needed",
@@ -285,7 +314,10 @@ fn render_grade_section(report: &HealthReport) -> String {
     <p class="grade-description">{}</p>
 </div>
 "#,
-        grade_letter(&report.grade), report.grade, report.overall_score, description
+        grade_letter(&report.grade),
+        report.grade,
+        report.overall_score,
+        description
     )
 }
 
@@ -916,9 +948,9 @@ body {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::reporters::tests::test_report;
-    use crate::reporters::report_context::*;
     use crate::models::*;
+    use crate::reporters::report_context::*;
+    use crate::reporters::tests::test_report;
 
     #[test]
     fn test_html_render_valid() {
@@ -1027,9 +1059,6 @@ mod tests {
             language: "rust".into(),
         }];
         let html = render_with_context(&ctx).unwrap();
-        assert!(
-            html.contains("fn main()"),
-            "should contain code snippet"
-        );
+        assert!(html.contains("fn main()"), "should contain code snippet");
     }
 }

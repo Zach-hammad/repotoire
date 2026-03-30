@@ -188,7 +188,12 @@ impl FpClassifier {
         (0..self.hidden_size)
             .map(|i| {
                 let sum: f32 = self.b1[i]
-                    + feat.values.iter().zip(self.w1[i].iter()).map(|(&x, &w)| w * x).sum::<f32>();
+                    + feat
+                        .values
+                        .iter()
+                        .zip(self.w1[i].iter())
+                        .map(|(&x, &w)| w * x)
+                        .sum::<f32>();
                 sum.max(0.0)
             })
             .collect()
@@ -198,7 +203,12 @@ impl FpClassifier {
     fn forward_logits(&self, hidden: &[f32]) -> [f32; 2] {
         let mut logits = [0.0f32; 2];
         for (i, logit) in logits.iter_mut().enumerate() {
-            *logit = self.b2[i] + hidden.iter().enumerate().map(|(j, &h)| self.w2[i][j] * h).sum::<f32>();
+            *logit = self.b2[i]
+                + hidden
+                    .iter()
+                    .enumerate()
+                    .map(|(j, &h)| self.w2[i][j] * h)
+                    .sum::<f32>();
         }
         logits
     }

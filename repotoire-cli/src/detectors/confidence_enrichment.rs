@@ -81,10 +81,7 @@ pub fn enrich_confidence(finding: &mut Finding) -> Vec<ConfidenceSignal> {
                 signals.push(ConfidenceSignal {
                     signal: "multi_detector_agreement".into(),
                     delta,
-                    reason: format!(
-                        "{} detectors agree ({}extra x +0.1)",
-                        count, extra
-                    ),
+                    reason: format!("{} detectors agree ({}extra x +0.1)", count, extra),
                 });
             }
         }
@@ -238,11 +235,9 @@ mod tests {
         f.threshold_metadata
             .insert("detector_count".into(), "2".into());
         let signals = enrich_confidence(&mut f);
-        assert!(
-            signals
-                .iter()
-                .any(|s| s.signal == "multi_detector_agreement")
-        );
+        assert!(signals
+            .iter()
+            .any(|s| s.signal == "multi_detector_agreement"));
         // +0.1 for one extra detector
         assert!((f.confidence.unwrap() - 0.80).abs() < f64::EPSILON);
     }
@@ -282,11 +277,9 @@ mod tests {
         f.threshold_metadata
             .insert("detector_count".into(), "1".into());
         let signals = enrich_confidence(&mut f);
-        assert!(
-            !signals
-                .iter()
-                .any(|s| s.signal == "multi_detector_agreement")
-        );
+        assert!(!signals
+            .iter()
+            .any(|s| s.signal == "multi_detector_agreement"));
     }
 
     // ── Test/fixture file signal ─────────────────────────────────────
@@ -394,9 +387,9 @@ mod tests {
     #[test]
     fn test_enrich_all_batch() {
         let mut findings = vec![
-            make_finding("src/main.rs", Some(0.70)),              // no signals
-            make_finding("project/dist/bundle.js", Some(0.80)),   // bundled
-            make_finding("tests/test_foo.py", Some(0.75)),        // test file + non-prod
+            make_finding("src/main.rs", Some(0.70)), // no signals
+            make_finding("project/dist/bundle.js", Some(0.80)), // bundled
+            make_finding("tests/test_foo.py", Some(0.75)), // test file + non-prod
         ];
         enrich_all(&mut findings);
 

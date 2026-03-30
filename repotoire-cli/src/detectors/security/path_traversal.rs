@@ -9,17 +9,21 @@ use regex::Regex;
 use std::path::PathBuf;
 use std::sync::{LazyLock, OnceLock};
 
-static FILE_OP: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(?:^|[^.\w])(open|unlink|unlinkSync|rmdir|mkdir|copyFile|rename)\s*\(|(?:os\.remove|os\.unlink|shutil\.copy|shutil\.move|readFile|writeFile|readFileSync|writeFileSync|appendFile|createReadStream|createWriteStream|statSync|accessSync)\s*\(").expect("valid regex"));
-static PATH_JOIN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"os\.path\.join|(?:^|[^.\w])path\.join|(?:^|[^.\w])path\.resolve|filepath\.Join|filepath\.Clean|(?:pathlib\.)?Path\s*\(").expect("valid regex"));
+static FILE_OP: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)(?:^|[^.\w])(open|unlink|unlinkSync|rmdir|mkdir|copyFile|rename)\s*\(|(?:os\.remove|os\.unlink|shutil\.copy|shutil\.move|readFile|writeFile|readFileSync|writeFileSync|appendFile|createReadStream|createWriteStream|statSync|accessSync)\s*\(").expect("valid regex")
+});
+static PATH_JOIN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"os\.path\.join|(?:^|[^.\w])path\.join|(?:^|[^.\w])path\.resolve|filepath\.Join|filepath\.Clean|(?:pathlib\.)?Path\s*\(").expect("valid regex")
+});
 static SEND_FILE: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"(?i)(sendFile|download|serveStatic|send_file|serve_file)\s*\(")
-            .expect("valid regex")
-    });
+    Regex::new(r"(?i)(sendFile|download|serveStatic|send_file|serve_file)\s*\(")
+        .expect("valid regex")
+});
 
 #[allow(dead_code)]
 static PATH_RESOLVE: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"(?i)(realpath|abspath|normpath|resolve|Clean)\s*\(").expect("valid regex")
-    });
+    Regex::new(r"(?i)(realpath|abspath|normpath|resolve|Clean)\s*\(").expect("valid regex")
+});
 
 pub struct PathTraversalDetector {
     repository_path: PathBuf,
@@ -60,14 +64,20 @@ impl Detector for PathTraversalDetector {
     }
 
     fn file_extensions(&self) -> &'static [&'static str] {
-        &["py", "js", "ts", "jsx", "tsx", "rb", "php", "java", "go", "rs"]
+        &[
+            "py", "js", "ts", "jsx", "tsx", "rb", "php", "java", "go", "rs",
+        ]
     }
 
     fn content_requirements(&self) -> crate::detectors::detector_context::ContentFlags {
-        crate::detectors::detector_context::ContentFlags::FILE_OPS.union(crate::detectors::detector_context::ContentFlags::PATH_OPS)
+        crate::detectors::detector_context::ContentFlags::FILE_OPS
+            .union(crate::detectors::detector_context::ContentFlags::PATH_OPS)
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let det_ctx = &ctx.detector_ctx;
         let files = &ctx.as_file_provider();
@@ -77,7 +87,8 @@ impl Detector for PathTraversalDetector {
         let mut taint_paths = if let Some(cross) = self.precomputed_cross.get() {
             cross.clone()
         } else {
-            self.taint_analyzer.trace_taint(graph, TaintCategory::PathTraversal)
+            self.taint_analyzer
+                .trace_taint(graph, TaintCategory::PathTraversal)
         };
         let intra_paths = if let Some(intra) = self.precomputed_intra.get() {
             intra.clone()
@@ -168,24 +179,39 @@ impl Detector for PathTraversalDetector {
 
                     // Skip comments and docstrings
                     let trimmed_line = line.trim();
-                    if trimmed_line.starts_with('#') || trimmed_line.starts_with("//") || trimmed_line.starts_with('*') || trimmed_line.starts_with("/*") {
+                    if trimmed_line.starts_with('#')
+                        || trimmed_line.starts_with("//")
+                        || trimmed_line.starts_with('*')
+                        || trimmed_line.starts_with("/*")
+                    {
                         continue;
                     }
 
                     // More specific user input patterns - avoid matching variable names like "input_stream"
-                    let has_user_input = line.contains("req.params") || line.contains("req.query") ||
-                        line.contains("req.body") || line.contains("req.file") ||
-                        line.contains("request.GET") || line.contains("request.POST") ||
-                        line.contains("request.FILES") || line.contains("request.args") ||
-                        line.contains("request.form") || line.contains("request.data") ||
-                        line.contains("request.values") ||
-                        line.contains("params[") ||
-                        line.contains("input(") ||
-                        line.contains("sys.argv") || line.contains("process.argv") ||
-                        line.contains("r.URL") || line.contains("c.Param") || line.contains("c.Query") ||
-                        line.contains("FormValue") || line.contains("r.Form") ||
-                        line.contains("query[") || line.contains("query.get") ||
-                        line.contains("body[") || line.contains("body.get");
+                    let has_user_input = line.contains("req.params")
+                        || line.contains("req.query")
+                        || line.contains("req.body")
+                        || line.contains("req.file")
+                        || line.contains("request.GET")
+                        || line.contains("request.POST")
+                        || line.contains("request.FILES")
+                        || line.contains("request.args")
+                        || line.contains("request.form")
+                        || line.contains("request.data")
+                        || line.contains("request.values")
+                        || line.contains("params[")
+                        || line.contains("input(")
+                        || line.contains("sys.argv")
+                        || line.contains("process.argv")
+                        || line.contains("r.URL")
+                        || line.contains("c.Param")
+                        || line.contains("c.Query")
+                        || line.contains("FormValue")
+                        || line.contains("r.Form")
+                        || line.contains("query[")
+                        || line.contains("query.get")
+                        || line.contains("body[")
+                        || line.contains("body.get");
 
                     let line_num = (i + 1) as u32;
 
@@ -354,7 +380,6 @@ impl Detector for PathTraversalDetector {
     }
 }
 
-
 impl crate::detectors::RegisteredDetector for PathTraversalDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
         std::sync::Arc::new(Self::new(init.repo_path))
@@ -385,7 +410,9 @@ mod tests {
             findings.iter().map(|f| &f.title).collect::<Vec<_>>()
         );
         assert!(
-            findings.iter().any(|f| f.cwe_id.as_deref() == Some("CWE-22")),
+            findings
+                .iter()
+                .any(|f| f.cwe_id.as_deref() == Some("CWE-22")),
             "Finding should have CWE-22"
         );
     }
@@ -413,8 +440,11 @@ mod tests {
             ("views.py", "from django.http import HttpResponseRedirect\n\ndef my_view(request):\n    return HttpResponseRedirect(request.get_full_path())\n"),
         ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
-        assert!(findings.is_empty(), "Should not flag request.get_full_path() as path traversal. Found: {:?}",
-            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+        assert!(
+            findings.is_empty(),
+            "Should not flag request.get_full_path() as path traversal. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -425,8 +455,11 @@ mod tests {
             ("library.py", "def process(request):\n    params = list(request.GET.keys())\n    params.remove('page')\n"),
         ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
-        assert!(findings.is_empty(), "Should not flag list.remove() as file operation. Found: {:?}",
-            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+        assert!(
+            findings.is_empty(),
+            "Should not flag list.remove() as file operation. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -437,7 +470,10 @@ mod tests {
             ("download.py", "import os\n\ndef download(request):\n    filepath = os.path.join('/uploads', request.GET.get('file'))\n    return open(filepath, 'r').read()\n"),
         ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
-        assert!(!findings.is_empty(), "Should still detect real path traversal with request.GET");
+        assert!(
+            !findings.is_empty(),
+            "Should still detect real path traversal with request.GET"
+        );
     }
 
     #[test]
@@ -453,7 +489,9 @@ mod tests {
             "Should detect path.join with req.params user input in JS"
         );
         assert!(
-            findings.iter().any(|f| f.cwe_id.as_deref() == Some("CWE-22")),
+            findings
+                .iter()
+                .any(|f| f.cwe_id.as_deref() == Some("CWE-22")),
             "Finding should have CWE-22"
         );
     }
@@ -500,7 +538,9 @@ mod tests {
             "Should detect sendFile with user-controlled req.query"
         );
         assert!(
-            findings.iter().any(|f| f.title.to_lowercase().contains("path traversal")),
+            findings
+                .iter()
+                .any(|f| f.title.to_lowercase().contains("path traversal")),
             "Finding should mention path traversal. Titles: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>()
         );

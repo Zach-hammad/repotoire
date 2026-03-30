@@ -301,7 +301,10 @@ mod tests {
         assert!(filtered.contains(&"--format".to_string()));
         // Only the flag name is kept — never the value
         assert!(filtered.contains(&"--output".to_string()));
-        assert!(!filtered.iter().any(|f| f.contains('=')), "flag values must be stripped");
+        assert!(
+            !filtered.iter().any(|f| f.contains('=')),
+            "flag values must be stripped"
+        );
         assert!(filtered.contains(&"--json".to_string()));
         assert!(!filtered.iter().any(|f| f.starts_with("--path")));
         assert!(!filtered.contains(&"--unknown".to_string()));

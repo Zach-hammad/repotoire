@@ -15,9 +15,11 @@ use std::path::PathBuf;
 use std::sync::LazyLock;
 use tracing::info;
 
-static LOG_PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(
+static LOG_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
         r"(?i)\b(console\.(log|warn|error|info|debug)|print[fl]?n?|logger\.(log|warn|error|info|debug|trace)|logging\.(log|warn|error|info|debug)|log\.(debug|info|warn|error|trace)|System\.out\.print|fmt\.Print|puts|p\s)\s*[\.(]\s*[^;\n]*\b(password|passwd|secret|api_key|apikey|auth_token|access_token|private_key|credentials?)\b"
-    ).expect("valid regex"));
+    ).expect("valid regex")
+});
 
 fn is_false_positive(line: &str) -> bool {
     let lower = line.to_lowercase();
@@ -46,8 +48,15 @@ fn is_false_positive(line: &str) -> bool {
 /// being interpolated or concatenated into the log.
 fn credential_only_in_string_literal(line: &str) -> bool {
     static CRED_KEYWORDS: &[&str] = &[
-        "password", "passwd", "secret", "api_key", "apikey",
-        "auth_token", "access_token", "private_key", "credential",
+        "password",
+        "passwd",
+        "secret",
+        "api_key",
+        "apikey",
+        "auth_token",
+        "access_token",
+        "private_key",
+        "credential",
     ];
 
     let lower = line.to_lowercase();
@@ -80,8 +89,7 @@ fn credential_only_in_string_literal(line: &str) -> bool {
             let is_fstring = {
                 let prev1 = if i >= 1 { bytes[i - 1] } else { 0 };
                 let prev2 = if i >= 2 { bytes[i - 2] } else { 0 };
-                prev1 == b'f' || prev1 == b'F'
-                    || prev2 == b'f' || prev2 == b'F'
+                prev1 == b'f' || prev1 == b'F' || prev2 == b'f' || prev2 == b'F'
             };
             let is_template_literal = ch == b'`'; // JS/TS template literals
             let quote = ch;
@@ -128,9 +136,9 @@ fn credential_only_in_string_literal(line: &str) -> bool {
     }
 
     // Check if ALL credential keyword occurrences are inside strings
-    cred_positions.iter().all(|&(start, end)| {
-        (start..end).all(|pos| pos < in_string.len() && in_string[pos])
-    })
+    cred_positions
+        .iter()
+        .all(|&(start, end)| (start..end).all(|pos| pos < in_string.len() && in_string[pos]))
 }
 
 /// Categorize the type of credential being logged
@@ -175,24 +183,22 @@ impl CleartextCredentialsDetector {
         line: u32,
     ) -> Option<(String, usize, bool)> {
         let i = graph.interner();
-        graph
-            .find_function_at(file_path, line)
-            .map(|f| {
-                let callers = graph.get_callers(f.qn(i));
-                let name_lower = f.node_name(i).to_lowercase();
+        graph.find_function_at(file_path, line).map(|f| {
+            let callers = graph.get_callers(f.qn(i));
+            let name_lower = f.node_name(i).to_lowercase();
 
-                // Check if this is an auth-related function
-                let is_auth_related = name_lower.contains("auth")
-                    || name_lower.contains("login")
-                    || name_lower.contains("signin")
-                    || name_lower.contains("register")
-                    || name_lower.contains("password")
-                    || name_lower.contains("credential")
-                    || name_lower.contains("token")
-                    || name_lower.contains("session");
+            // Check if this is an auth-related function
+            let is_auth_related = name_lower.contains("auth")
+                || name_lower.contains("login")
+                || name_lower.contains("signin")
+                || name_lower.contains("register")
+                || name_lower.contains("password")
+                || name_lower.contains("credential")
+                || name_lower.contains("token")
+                || name_lower.contains("session");
 
-                (f.node_name(i).to_string(), callers.len(), is_auth_related)
-            })
+            (f.node_name(i).to_string(), callers.len(), is_auth_related)
+        })
     }
 
     /// Check if this is in production logging (vs debug/development)
@@ -216,19 +222,26 @@ impl Detector for CleartextCredentialsDetector {
     }
 
     fn file_extensions(&self) -> &'static [&'static str] {
-        &["py", "js", "ts", "jsx", "tsx", "rb", "php", "java", "go", "rs"]
+        &[
+            "py", "js", "ts", "jsx", "tsx", "rb", "php", "java", "go", "rs",
+        ]
     }
 
     fn content_requirements(&self) -> crate::detectors::detector_context::ContentFlags {
         crate::detectors::detector_context::ContentFlags::HAS_SECRET_PATTERN
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let files = &ctx.as_file_provider();
         let mut findings = vec![];
 
-        for path in files.files_with_extensions(&["py", "js", "ts", "java", "go", "rb", "php", "cs"]) {
+        for path in
+            files.files_with_extensions(&["py", "js", "ts", "java", "go", "rb", "php", "cs"])
+        {
             if findings.len() >= self.max_findings {
                 break;
             }
@@ -358,7 +371,6 @@ impl Detector for CleartextCredentialsDetector {
     }
 }
 
-
 impl crate::detectors::RegisteredDetector for CleartextCredentialsDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
         std::sync::Arc::new(Self::new(init.repo_path))
@@ -378,7 +390,10 @@ mod tests {
             ("app.py", "def login(user, password):\n    logger.info(f\"Authenticating with password: {password}\")\n    return authenticate(user, password)\n"),
         ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
-        assert!(!findings.is_empty(), "Should detect password logged in cleartext");
+        assert!(
+            !findings.is_empty(),
+            "Should detect password logged in cleartext"
+        );
         assert!(
             findings.iter().any(|f| f.title.contains("Password")),
             "Finding should mention Password. Titles: {:?}",
@@ -394,7 +409,10 @@ mod tests {
             ("app.py", "def login(user, password):\n    result = authenticate(user, password)\n    logger.info(f\"User {user} logged in successfully\")\n    return result\n"),
         ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
-        assert!(findings.is_empty(), "Should not detect anything in safe code. Found: {:?}",
-            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+        assert!(
+            findings.is_empty(),
+            "Should not detect anything in safe code. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
     }
 }

@@ -219,7 +219,10 @@ impl Detector for InappropriateIntimacyDetector {
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
     }
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let mut findings = Vec::new();
         let i = graph.interner();
@@ -287,8 +290,7 @@ impl Detector for InappropriateIntimacyDetector {
                 let callee_file = callee_node.path(i);
                 if caller_file != callee_file {
                     // Skip expected layered architecture dependencies
-                    if is_expected_layer_dependency(caller_file, callee_file)
-                    {
+                    if is_expected_layer_dependency(caller_file, callee_file) {
                         continue;
                     }
 

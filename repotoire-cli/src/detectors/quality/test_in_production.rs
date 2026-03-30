@@ -16,17 +16,15 @@ use std::sync::LazyLock;
 use tracing::info;
 
 static TEST_IMPORT: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r#"(?i)(import.*pytest|import.*unittest|import.*mock|from.*mock|require\(['"]jest|require\(['"]sinon|import.*@testing-library)"#).expect("valid regex")
-    });
+    Regex::new(r#"(?i)(import.*pytest|import.*unittest|import.*mock|from.*mock|require\(['"]jest|require\(['"]sinon|import.*@testing-library)"#).expect("valid regex")
+});
 static TEST_USAGE: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"(?i)(mock\.|Mock\(|MagicMock|patch\(|stub\.|fake\.|spy\.|jest\.|sinon\.|@pytest|@test|unittest\.|\.toBe\(|\.toEqual\(|\.toHaveBeenCalled|\.toThrow\(|fixture|@Before|@After|@BeforeEach)").expect("valid regex")
-    });
+    Regex::new(r"(?i)(mock\.|Mock\(|MagicMock|patch\(|stub\.|fake\.|spy\.|jest\.|sinon\.|@pytest|@test|unittest\.|\.toBe\(|\.toEqual\(|\.toHaveBeenCalled|\.toThrow\(|fixture|@Before|@After|@BeforeEach)").expect("valid regex")
+});
 static DEBUG_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(
-            r"(?i)(DEBUG\s*=\s*True|if\s+__debug__|if\s+DEBUG|#\s*TODO.*test|#\s*FIXME.*test)",
-        )
+    Regex::new(r"(?i)(DEBUG\s*=\s*True|if\s+__debug__|if\s+DEBUG|#\s*TODO.*test|#\s*FIXME.*test)")
         .expect("valid regex")
-    });
+});
 
 pub struct TestInProductionDetector {
     #[allow(dead_code)] // Part of detector pattern, used for file scanning
@@ -77,7 +75,6 @@ impl TestInProductionDetector {
 
         false
     }
-
 }
 
 impl Detector for TestInProductionDetector {
@@ -92,13 +89,18 @@ impl Detector for TestInProductionDetector {
         &["py", "js", "ts", "jsx", "tsx", "java", "go", "rs"]
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let files = &ctx.as_file_provider();
         let mut findings = vec![];
         let mut issues_per_file: HashMap<PathBuf, Vec<(u32, String, String)>> = HashMap::new();
 
-        for path in files.files_with_extensions(&["py", "js", "ts", "jsx", "tsx", "java", "rb", "go"]) {
+        for path in
+            files.files_with_extensions(&["py", "js", "ts", "jsx", "tsx", "java", "rb", "go"])
+        {
             if findings.len() >= self.max_findings {
                 break;
             }
@@ -278,7 +280,6 @@ impl Detector for TestInProductionDetector {
     }
 }
 
-
 impl crate::detectors::RegisteredDetector for TestInProductionDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
         std::sync::Arc::new(Self::new(init.repo_path))
@@ -302,7 +303,9 @@ mod tests {
             !findings.is_empty(),
             "Should detect test code (Mock) in production file"
         );
-        assert!(findings.iter().any(|f| f.detector == "TestInProductionDetector"));
+        assert!(findings
+            .iter()
+            .any(|f| f.detector == "TestInProductionDetector"));
     }
 
     #[test]

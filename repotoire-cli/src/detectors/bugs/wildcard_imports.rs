@@ -16,13 +16,12 @@ use std::sync::LazyLock;
 use tracing::info;
 
 static WILDCARD_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"(?i)(from\s+\S+\s+import\s+\*|import\s+\*\s+from|import\s+\*\s*;|\.\*;)")
-            .expect("valid regex")
-    });
+    Regex::new(r"(?i)(from\s+\S+\s+import\s+\*|import\s+\*\s+from|import\s+\*\s*;|\.\*;)")
+        .expect("valid regex")
+});
 static MODULE_NAME: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r#"from\s+(\S+)\s+import|import\s+\*\s+from\s+['"]([^'"]+)"#)
-            .expect("valid regex")
-    });
+    Regex::new(r#"from\s+(\S+)\s+import|import\s+\*\s+from\s+['"]([^'"]+)"#).expect("valid regex")
+});
 
 pub struct WildcardImportsDetector {
     #[allow(dead_code)] // Part of detector pattern, used for file scanning
@@ -50,7 +49,12 @@ impl WildcardImportsDetector {
         // Filter to functions from this module
         let module_symbols: HashSet<&str> = all_functions
             .iter()
-            .filter(|f| f.path(crate::graph::interner::global_interner()).contains(module) || f.qn(crate::graph::interner::global_interner()).starts_with(module))
+            .filter(|f| {
+                f.path(crate::graph::interner::global_interner())
+                    .contains(module)
+                    || f.qn(crate::graph::interner::global_interner())
+                        .starts_with(module)
+            })
             .map(|f| f.node_name(crate::graph::interner::global_interner()))
             .collect();
 
@@ -84,7 +88,10 @@ impl Detector for WildcardImportsDetector {
         crate::detectors::detector_context::ContentFlags::HAS_IMPORT
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let files = &ctx.as_file_provider();
         let mut findings = vec![];
@@ -107,7 +114,8 @@ impl Detector for WildcardImportsDetector {
 
                     if WILDCARD_PATTERN.is_match(line) {
                         // Skip relative wildcard imports in __init__.py -- standard re-export pattern
-                        let is_init_py = path.file_name()
+                        let is_init_py = path
+                            .file_name()
                             .and_then(|n| n.to_str())
                             .map(|n| n == "__init__.py")
                             .unwrap_or(false);
@@ -205,7 +213,6 @@ impl Detector for WildcardImportsDetector {
     }
 }
 
-
 impl crate::detectors::RegisteredDetector for WildcardImportsDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
         std::sync::Arc::new(Self::new(init.repo_path))
@@ -221,9 +228,13 @@ mod tests {
     fn test_detects_wildcard_import() {
         let store = GraphBuilder::new().freeze();
         let detector = WildcardImportsDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("app.py", "from os.path import *\n\nresult = join(\"/tmp\", \"file.txt\")\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "app.py",
+                "from os.path import *\n\nresult = join(\"/tmp\", \"file.txt\")\n",
+            )],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
@@ -236,9 +247,13 @@ mod tests {
     fn test_no_finding_for_explicit_import() {
         let store = GraphBuilder::new().freeze();
         let detector = WildcardImportsDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("app.py", "from os.path import join, exists\n\nresult = join(\"/tmp\", \"file.txt\")\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "app.py",
+                "from os.path import join, exists\n\nresult = join(\"/tmp\", \"file.txt\")\n",
+            )],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
@@ -251,9 +266,13 @@ mod tests {
     fn test_no_finding_for_relative_import_in_init_py() {
         let store = GraphBuilder::new().freeze();
         let detector = WildcardImportsDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("__init__.py", "from .models import *\nfrom .views import *\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "__init__.py",
+                "from .models import *\nfrom .views import *\n",
+            )],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
@@ -266,9 +285,13 @@ mod tests {
     fn test_no_finding_for_absolute_import_in_init_py() {
         let store = GraphBuilder::new().freeze();
         let detector = WildcardImportsDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("__init__.py", "from django.db.models.fields import *\nfrom os.path import *\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "__init__.py",
+                "from django.db.models.fields import *\nfrom os.path import *\n",
+            )],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
@@ -281,10 +304,17 @@ mod tests {
     fn test_still_detects_wildcard_in_regular_file() {
         let store = GraphBuilder::new().freeze();
         let detector = WildcardImportsDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("app.py", "from os.path import *\nresult = join('/tmp', 'file')\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "app.py",
+                "from os.path import *\nresult = join('/tmp', 'file')\n",
+            )],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
-        assert!(!findings.is_empty(), "Should still detect wildcard in regular files");
+        assert!(
+            !findings.is_empty(),
+            "Should still detect wildcard in regular files"
+        );
     }
 }

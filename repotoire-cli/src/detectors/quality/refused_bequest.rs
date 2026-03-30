@@ -221,7 +221,9 @@ impl RefusedBequestDetector {
                     if callee.qn(i).starts_with(parent_qn) {
                         debug!(
                             "Polymorphic usage: {} calls both {} and parent {}",
-                            caller.node_name(i), method.node_name(i), parent_qn
+                            caller.node_name(i),
+                            method.node_name(i),
+                            parent_qn
                         );
                         return true;
                     }
@@ -327,7 +329,10 @@ impl Detector for RefusedBequestDetector {
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
     }
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let i = graph.interner();
         let mut findings = Vec::new();

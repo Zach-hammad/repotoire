@@ -28,7 +28,10 @@ mod tests {
         let json_str = render(&report).expect("render JSON");
         let parsed: serde_json::Value = serde_json::from_str(&json_str).expect("parse JSON");
         assert_eq!(parsed["grade"], "B");
-        assert!(!parsed["findings"].as_array().expect("findings array").is_empty());
+        assert!(!parsed["findings"]
+            .as_array()
+            .expect("findings array")
+            .is_empty());
     }
 
     #[test]
@@ -46,7 +49,10 @@ mod tests {
         report.findings_summary = Default::default();
         let json_str = render(&report).expect("render JSON");
         let parsed: serde_json::Value = serde_json::from_str(&json_str).expect("parse JSON");
-        assert_eq!(parsed["findings"].as_array().expect("findings array").len(), 0);
+        assert_eq!(
+            parsed["findings"].as_array().expect("findings array").len(),
+            0
+        );
     }
 
     #[test]
@@ -62,7 +68,10 @@ mod tests {
             confidence: Some(0.82),
             threshold_metadata: {
                 let mut m = std::collections::BTreeMap::new();
-                m.insert("confidence_signals".into(), "bundled_code,multi_detector_agreement".into());
+                m.insert(
+                    "confidence_signals".into(),
+                    "bundled_code,multi_detector_agreement".into(),
+                );
                 m
             },
             ..Default::default()

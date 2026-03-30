@@ -192,7 +192,10 @@ impl PickleDeserializationDetector {
     }
 
     /// Scan via the FileProvider (uses already-cached files, no filesystem re-walk).
-    fn scan_via_file_provider(&self, files: &dyn crate::detectors::file_provider::FileProvider) -> Vec<Finding> {
+    fn scan_via_file_provider(
+        &self,
+        files: &dyn crate::detectors::file_provider::FileProvider,
+    ) -> Vec<Finding> {
         let mut findings = Vec::new();
         let mut seen_locations: HashSet<(String, u32)> = HashSet::new();
         let repo_root = files.repo_path();
@@ -509,7 +512,10 @@ impl Detector for PickleDeserializationDetector {
         crate::detectors::detector_context::ContentFlags::HAS_SERIALIZE
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let files = &ctx.as_file_provider();
         debug!("Starting pickle deserialization detection");
 
@@ -610,25 +616,33 @@ mod tests {
     #[test]
     fn test_skips_cache_backend_paths() {
         // Cache backends only deserialize data they created themselves
-        assert!(PickleDeserializationDetector::is_trusted_serialization_context(
-            "cache/backends/redis.py"
-        ));
-        assert!(PickleDeserializationDetector::is_trusted_serialization_context(
-            "django/core/cache/backends/db.py"
-        ));
-        assert!(PickleDeserializationDetector::is_trusted_serialization_context(
-            "sessions/backends/db.py"
-        ));
-        assert!(PickleDeserializationDetector::is_trusted_serialization_context(
-            "django/contrib/sessions/backends/cached_db.py"
-        ));
+        assert!(
+            PickleDeserializationDetector::is_trusted_serialization_context(
+                "cache/backends/redis.py"
+            )
+        );
+        assert!(
+            PickleDeserializationDetector::is_trusted_serialization_context(
+                "django/core/cache/backends/db.py"
+            )
+        );
+        assert!(
+            PickleDeserializationDetector::is_trusted_serialization_context(
+                "sessions/backends/db.py"
+            )
+        );
+        assert!(
+            PickleDeserializationDetector::is_trusted_serialization_context(
+                "django/contrib/sessions/backends/cached_db.py"
+            )
+        );
 
         // Application code should NOT be excluded
-        assert!(!PickleDeserializationDetector::is_trusted_serialization_context(
-            "myapp/views.py"
-        ));
-        assert!(!PickleDeserializationDetector::is_trusted_serialization_context(
-            "myapp/serializers.py"
-        ));
+        assert!(!PickleDeserializationDetector::is_trusted_serialization_context("myapp/views.py"));
+        assert!(
+            !PickleDeserializationDetector::is_trusted_serialization_context(
+                "myapp/serializers.py"
+            )
+        );
     }
 }

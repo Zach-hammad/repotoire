@@ -493,7 +493,10 @@ impl Detector for ModuleCohesionDetector {
     fn config(&self) -> Option<&DetectorConfig> {
         Some(&self.config)
     }
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
         let gi = ctx.graph.interner();
 
@@ -512,7 +515,10 @@ impl Detector for ModuleCohesionDetector {
             for func in &functions {
                 for callee in ctx.graph.get_callees(gi.resolve(func.qualified_name)) {
                     // Is the callee in the same file?
-                    if functions.iter().any(|f| f.qualified_name == callee.qualified_name) {
+                    if functions
+                        .iter()
+                        .any(|f| f.qualified_name == callee.qualified_name)
+                    {
                         internal_calls += 1;
                     } else {
                         external_calls += 1;
@@ -530,14 +536,17 @@ impl Detector for ModuleCohesionDetector {
                 .parent()
                 .and_then(|p| p.to_str())
                 .unwrap_or("");
-            let module_file_count = ctx.graph.get_files()
+            let module_file_count = ctx
+                .graph
+                .get_files()
                 .iter()
                 .filter(|f| {
                     let f_path = gi.resolve(f.qualified_name);
                     std::path::Path::new(f_path)
                         .parent()
                         .and_then(|p| p.to_str())
-                        .unwrap_or("") == module_dir
+                        .unwrap_or("")
+                        == module_dir
                 })
                 .count();
             if module_file_count < 5 {
@@ -599,8 +608,8 @@ impl crate::detectors::RegisteredDetector for ModuleCohesionDetector {
 mod tests {
     use super::*;
     use crate::detectors::analysis_context::AnalysisContext;
-    use crate::graph::store_models::{CodeEdge, CodeNode};
     use crate::graph::builder::GraphBuilder;
+    use crate::graph::store_models::{CodeEdge, CodeNode};
 
     /// Build a GraphBuilder with `file_count` files in the same directory.
     ///
@@ -659,11 +668,28 @@ mod tests {
         let detector = ModuleCohesionDetector::new();
         let findings = detector.detect(&ctx).unwrap();
 
-        assert_eq!(findings.len(), 1, "Expected exactly 1 finding, got: {:?}", findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+        assert_eq!(
+            findings.len(),
+            1,
+            "Expected exactly 1 finding, got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
         assert_eq!(findings[0].severity, Severity::Medium);
-        assert!(findings[0].title.contains("Pass-Through Module"), "title: {}", findings[0].title);
-        assert!(findings[0].description.contains("0 internal calls"), "desc: {}", findings[0].description);
-        assert!(findings[0].description.contains("10 external calls"), "desc: {}", findings[0].description);
+        assert!(
+            findings[0].title.contains("Pass-Through Module"),
+            "title: {}",
+            findings[0].title
+        );
+        assert!(
+            findings[0].description.contains("0 internal calls"),
+            "desc: {}",
+            findings[0].description
+        );
+        assert!(
+            findings[0].description.contains("10 external calls"),
+            "desc: {}",
+            findings[0].description
+        );
     }
 
     #[test]

@@ -21,8 +21,8 @@ fn setup_js_workspace() -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
 
     // Copy fixture
-    let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/smells.js");
+    let fixture =
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/smells.js");
     std::fs::copy(&fixture, dir.path().join("smells.js")).unwrap();
 
     // Initialize git repo (some detectors need git context)
@@ -38,9 +38,13 @@ fn setup_js_workspace() -> tempfile::TempDir {
         .unwrap();
     Command::new("git")
         .args([
-            "-c", "user.name=test",
-            "-c", "user.email=test@test.com",
-            "commit", "-m", "init",
+            "-c",
+            "user.name=test",
+            "-c",
+            "user.email=test@test.com",
+            "commit",
+            "-m",
+            "init",
         ])
         .current_dir(dir.path())
         .output()

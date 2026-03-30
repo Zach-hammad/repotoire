@@ -7,14 +7,14 @@ use crate::reporters::report_context::{Community, ModuleEdge, ModuleNode};
 
 /// Community background color palette (soft colors at ~10% opacity).
 const COMMUNITY_COLORS: &[&str] = &[
-    "rgba(99,102,241,0.08)",  // indigo
-    "rgba(16,185,129,0.08)",  // emerald
-    "rgba(245,158,11,0.08)",  // amber
-    "rgba(239,68,68,0.08)",   // red
-    "rgba(168,85,247,0.08)",  // purple
-    "rgba(6,182,212,0.08)",   // cyan
-    "rgba(236,72,153,0.08)",  // pink
-    "rgba(132,204,22,0.08)",  // lime
+    "rgba(99,102,241,0.08)", // indigo
+    "rgba(16,185,129,0.08)", // emerald
+    "rgba(245,158,11,0.08)", // amber
+    "rgba(239,68,68,0.08)",  // red
+    "rgba(168,85,247,0.08)", // purple
+    "rgba(6,182,212,0.08)",  // cyan
+    "rgba(236,72,153,0.08)", // pink
+    "rgba(132,204,22,0.08)", // lime
 ];
 
 const NODE_SPACING_X: f64 = 120.0;
@@ -355,10 +355,7 @@ fn render_community_backgrounds(
 
 /// Extract a short label from a module path (last directory component, truncated).
 fn extract_label(path: &str) -> String {
-    let label = path
-        .rsplit('/')
-        .next()
-        .unwrap_or(path);
+    let label = path.rsplit('/').next().unwrap_or(path);
     if label.chars().count() > 12 {
         let truncated: String = label.chars().take(9).collect();
         format!("{}...", truncated)

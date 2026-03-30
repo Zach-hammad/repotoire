@@ -136,12 +136,7 @@ pub(super) fn compute_page_rank(
     // Pre-compute out-degrees for each function
     let out_degree: Vec<usize> = functions
         .iter()
-        .map(|ni| {
-            call_callees
-                .get(ni)
-                .map(|v| v.len())
-                .unwrap_or(0)
-        })
+        .map(|ni| call_callees.get(ni).map(|v| v.len()).unwrap_or(0))
         .collect();
 
     let teleport = (1.0 - damping) * inv_n;
@@ -591,9 +586,16 @@ pub(super) fn compute_articulation_points(
                         // Root is AP if it has >1 children in DFS tree
                         let child_count = adj
                             .get(&p_node)
-                            .map(|v| v.iter().filter(|&&nb| {
-                                node_to_idx.get(&nb).map(|&ni| parent[ni] == p_idx).unwrap_or(false)
-                            }).count())
+                            .map(|v| {
+                                v.iter()
+                                    .filter(|&&nb| {
+                                        node_to_idx
+                                            .get(&nb)
+                                            .map(|&ni| parent[ni] == p_idx)
+                                            .unwrap_or(false)
+                                    })
+                                    .count()
+                            })
                             .unwrap_or(0);
                         if child_count > 1 {
                             ap_set.insert(p_node);
@@ -607,9 +609,7 @@ pub(super) fn compute_articulation_points(
     }
 
     // Compute component sizes for each articulation point
-    let component_sizes = compute_ap_component_sizes(
-        &ap_set, &adj, &node_to_idx, &sorted_nodes,
-    );
+    let component_sizes = compute_ap_component_sizes(&ap_set, &adj, &node_to_idx, &sorted_nodes);
 
     // Sort articulation points by subtree size descending for determinism
     let mut ap_vec: Vec<NodeIndex> = ap_set.iter().copied().collect();
@@ -645,7 +645,11 @@ pub(super) fn compute_ap_component_sizes(
                         continue;
                     }
                     let comp_size = bfs_component_size(
-                        nb_idx, &mut visited_local, adj, node_to_idx, sorted_nodes,
+                        nb_idx,
+                        &mut visited_local,
+                        adj,
+                        node_to_idx,
+                        sorted_nodes,
                     );
                     sizes.push(comp_size);
                 }

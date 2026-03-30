@@ -291,8 +291,12 @@ impl NoiseDistribution {
         }
 
         while !small.is_empty() && !large.is_empty() {
-            let l = small.pop().expect("small guaranteed non-empty by while condition");
-            let g = large.pop().expect("large guaranteed non-empty by while condition");
+            let l = small
+                .pop()
+                .expect("small guaranteed non-empty by while condition");
+            let g = large
+                .pop()
+                .expect("large guaranteed non-empty by while condition");
 
             prob[l] = probs[l] as f32;
             alias[l] = g;

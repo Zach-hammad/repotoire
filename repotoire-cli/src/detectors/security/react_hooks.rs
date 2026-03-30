@@ -17,25 +17,27 @@ use std::sync::LazyLock;
 use tracing::info;
 
 static HOOK_CALL: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"\b(useState|useEffect|useContext|useReducer|useCallback|useMemo|useRef|useImperativeHandle|useLayoutEffect|useDebugValue|useTransition|useDeferredValue|useId|useSyncExternalStore|useInsertionEffect|use[A-Z]\w*)\s*\(").expect("valid regex")
-    });
+    Regex::new(r"\b(useState|useEffect|useContext|useReducer|useCallback|useMemo|useRef|useImperativeHandle|useLayoutEffect|useDebugValue|useTransition|useDeferredValue|useId|useSyncExternalStore|useInsertionEffect|use[A-Z]\w*)\s*\(").expect("valid regex")
+});
 static CONDITIONAL: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"^\s*(if\s*\(|else\s*\{|switch\s*\(|\?\s*$|&&\s*$|\|\|\s*$|.*\?\s*use[A-Z]|.*&&\s*use[A-Z]|.*\|\|\s*use[A-Z])")
+    Regex::new(r"^\s*(if\s*\(|else\s*\{|switch\s*\(|\?\s*$|&&\s*$|\|\|\s*$|.*\?\s*use[A-Z]|.*&&\s*use[A-Z]|.*\|\|\s*use[A-Z])")
             .expect("valid regex")
-    });
+});
 static LOOP: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"^\s*(for\s*\(|while\s*\(|\.forEach\(|\.map\(|\.filter\(|\.reduce\(|\.flatMap\()")
-            .expect("valid regex")
-    });
-static NESTED_FUNC: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*(function\s+\w+|const\s+\w+\s*=\s*(async\s+)?\(|const\s+\w+\s*=\s*(async\s+)?function)").expect("valid regex"));
+    Regex::new(r"^\s*(for\s*\(|while\s*\(|\.forEach\(|\.map\(|\.filter\(|\.reduce\(|\.flatMap\()")
+        .expect("valid regex")
+});
+static NESTED_FUNC: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^\s*(function\s+\w+|const\s+\w+\s*=\s*(async\s+)?\(|const\s+\w+\s*=\s*(async\s+)?function)").expect("valid regex")
+});
 static COMPONENT: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"(?:function|const)\s+([A-Z][a-zA-Z0-9]*)\s*[=(]|export\s+(?:default\s+)?(?:function|const)\s+([A-Z][a-zA-Z0-9]*)").expect("valid regex")
-    });
+    Regex::new(r"(?:function|const)\s+([A-Z][a-zA-Z0-9]*)\s*[=(]|export\s+(?:default\s+)?(?:function|const)\s+([A-Z][a-zA-Z0-9]*)").expect("valid regex")
+});
 #[allow(dead_code)] // Used by USE_EFFECT for future hook dependency analysis
 static USE_EFFECT: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"(useEffect|useMemo|useCallback)\s*\(\s*(?:\([^)]*\)|[^,]+)\s*,\s*\[([^\]]*)\]")
-            .expect("valid regex")
-    });
+    Regex::new(r"(useEffect|useMemo|useCallback)\s*\(\s*(?:\([^)]*\)|[^,]+)\s*,\s*\[([^\]]*)\]")
+        .expect("valid regex")
+});
 
 /// Extract hook name from line
 fn extract_hook_name(line: &str) -> Option<String> {
@@ -133,13 +135,24 @@ impl Detector for ReactHooksDetector {
         crate::detectors::detector_context::ContentFlags::HAS_REACT
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let files = &ctx.as_file_provider();
         // Codebase-level pre-filter: skip if no file uses React
-        let has_react = files.files_with_extensions(&["jsx", "tsx", "js", "ts"]).iter().any(|p| {
-            files.content(p).is_some_and(|c| c.contains("react") || c.contains("React") || c.contains("useState") || c.contains("useEffect"))
-        });
+        let has_react = files
+            .files_with_extensions(&["jsx", "tsx", "js", "ts"])
+            .iter()
+            .any(|p| {
+                files.content(p).is_some_and(|c| {
+                    c.contains("react")
+                        || c.contains("React")
+                        || c.contains("useState")
+                        || c.contains("useEffect")
+                })
+            });
         if !has_react {
             return Ok(vec![]);
         }
@@ -406,7 +419,6 @@ impl Detector for ReactHooksDetector {
     }
 }
 
-
 impl crate::detectors::RegisteredDetector for ReactHooksDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
         std::sync::Arc::new(Self::new(init.repo_path))
@@ -498,9 +510,7 @@ mod tests {
             "ConditionalEffect.tsx",
             "function Dashboard({ isAdmin }) {\n  if (isAdmin) {\n    useEffect(() => {\n      fetchAdminData();\n    }, []);\n  }\n  return <div />;\n}\n",
         )]);
-        let findings = detector
-            .detect(&ctx)
-            .expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect useEffect inside an if block"
@@ -523,9 +533,7 @@ mod tests {
             "useAuth.ts",
             "function useAuth() {\n  const [user, setUser] = useState(null);\n  useEffect(() => {\n    fetchUser().then(setUser);\n  }, []);\n  return { user };\n}\n",
         )]);
-        let findings = detector
-            .detect(&ctx)
-            .expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "Hooks at top level of custom hook should produce no findings, but got: {:?}",
@@ -542,9 +550,7 @@ mod tests {
             "ListItems.tsx",
             "function ItemList({ items }) {\n  items\n  .map((item) => {\n    const [expanded, setExpanded] = useState(false);\n    return <div key={item.id}>{expanded && item.detail}</div>;\n  });\n  return <div />;\n}\n",
         )]);
-        let findings = detector
-            .detect(&ctx)
-            .expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),
             "Should detect hook inside .map() callback"
@@ -564,9 +570,7 @@ mod tests {
             "UserProfile.tsx",
             "function UserProfile({ userId }) {\n  const [profile, setProfile] = useState(null);\n  const [loading, setLoading] = useState(true);\n  const memoized = useMemo(() => computeExpensive(profile), [profile]);\n  useEffect(() => {\n    fetchProfile(userId).then(data => {\n      setProfile(data);\n      setLoading(false);\n    });\n  }, [userId]);\n  if (loading) return <Spinner />;\n  return <div>{profile.name}</div>;\n}\n",
         )]);
-        let findings = detector
-            .detect(&ctx)
-            .expect("detection should succeed");
+        let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
             "PascalCase component with top-level hooks should produce no findings, but got: {:?}",

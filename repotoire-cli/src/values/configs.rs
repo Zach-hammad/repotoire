@@ -293,7 +293,10 @@ mod tests {
     #[test]
     fn test_python_config_basics() {
         let cfg = python_config();
-        assert!(LanguageValueConfig::matches(cfg.assignment_kinds, "assignment"));
+        assert!(LanguageValueConfig::matches(
+            cfg.assignment_kinds,
+            "assignment"
+        ));
         assert!(LanguageValueConfig::matches(
             cfg.assignment_kinds,
             "augmented_assignment"

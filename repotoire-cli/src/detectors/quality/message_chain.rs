@@ -18,10 +18,10 @@ use std::sync::LazyLock;
 use tracing::{debug, info};
 
 static CHAIN_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-        // Match method chains: .method().method().method()
-        // At least 4 chained calls
-        Regex::new(r"(\.[a-zA-Z_][a-zA-Z0-9_]*\s*\([^)]*\)){4,}").expect("valid regex")
-    });
+    // Match method chains: .method().method().method()
+    // At least 4 chained calls
+    Regex::new(r"(\.[a-zA-Z_][a-zA-Z0-9_]*\s*\([^)]*\)){4,}").expect("valid regex")
+});
 
 /// Thresholds for message chain detection
 #[derive(Debug, Clone)]
@@ -99,7 +99,10 @@ impl MessageChainDetector {
     }
 
     /// Scan source files for method chains
-    fn scan_source_files(&self, files: &dyn crate::detectors::file_provider::FileProvider) -> Vec<Finding> {
+    fn scan_source_files(
+        &self,
+        files: &dyn crate::detectors::file_provider::FileProvider,
+    ) -> Vec<Finding> {
         let mut findings = Vec::new();
         let mut seen: HashSet<(String, u32)> = HashSet::new();
 
@@ -241,8 +244,7 @@ impl MessageChainDetector {
             }
 
             // Trace the chain forward
-            let (chain_depth, chain_members) =
-                self.trace_chain_with_members(graph, func.qn(i), 0);
+            let (chain_depth, chain_members) = self.trace_chain_with_members(graph, func.qn(i), 0);
 
             if chain_depth < self.thresholds.min_chain_depth as i32 {
                 continue;
@@ -366,10 +368,7 @@ impl MessageChainDetector {
         let callee = &callees[0];
         let complexity = callee.complexity_opt().unwrap_or(1);
         if complexity > 3 {
-            return (
-                depth + 1,
-                vec![qn.to_string(), callee.qn(i).to_string()],
-            );
+            return (depth + 1, vec![qn.to_string(), callee.qn(i).to_string()]);
         }
 
         let (sub_depth, mut members) =
@@ -402,7 +401,10 @@ impl Detector for MessageChainDetector {
         Some(&self.config)
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let files = &ctx.as_file_provider();
         let mut findings = Vec::new();
@@ -417,7 +419,6 @@ impl Detector for MessageChainDetector {
         Ok(findings)
     }
 }
-
 
 impl crate::detectors::RegisteredDetector for MessageChainDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {

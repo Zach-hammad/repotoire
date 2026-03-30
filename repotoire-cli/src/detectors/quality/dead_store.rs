@@ -5,9 +5,9 @@
 //! the ValueStore for assignment data, eliminating the old regex approach.
 
 use crate::detectors::analysis_context::AnalysisContext;
-use crate::graph::GraphQueryExt;
 use crate::detectors::base::{Detector, DetectorConfig, DetectorScope};
 use crate::graph::store_models::NodeKind;
+use crate::graph::GraphQueryExt;
 use crate::models::{Finding, Severity};
 use crate::values::types::SymbolicValue;
 use anyhow::Result;
@@ -15,9 +15,7 @@ use std::path::{Path, PathBuf};
 use tracing::info;
 
 /// Variables that should never be flagged as dead stores.
-const SKIP_VARS: &[&str] = &[
-    "_", "self", "Self", "this", "cls", "super",
-];
+const SKIP_VARS: &[&str] = &["_", "self", "Self", "this", "cls", "super"];
 
 /// Config/settings file basenames exempt from module-level dead-store detection.
 const CONFIG_FILES: &[&str] = &[
@@ -50,8 +48,8 @@ impl DeadStoreDetector {
         while let Some(pos) = line[start..].find(var) {
             let abs = start + pos;
             let before_ok = abs == 0 || !is_ident_char(line_bytes[abs - 1]);
-            let after_ok = abs + var.len() >= line_bytes.len()
-                || !is_ident_char(line_bytes[abs + var.len()]);
+            let after_ok =
+                abs + var.len() >= line_bytes.len() || !is_ident_char(line_bytes[abs + var.len()]);
             if before_ok && after_ok {
                 return true;
             }
@@ -142,10 +140,7 @@ impl DeadStoreDetector {
 
     /// Check whether a file is a config/settings file.
     fn is_config_file(path: &Path) -> bool {
-        let name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("");
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
         CONFIG_FILES.contains(&name)
     }
 
@@ -237,10 +232,7 @@ impl DeadStoreDetector {
             };
 
             // ── Determine file extension for language-specific logic
-            let ext = file_path
-                .extension()
-                .and_then(|e| e.to_str())
-                .unwrap_or("");
+            let ext = file_path.extension().and_then(|e| e.to_str()).unwrap_or("");
             let is_python = ext == "py";
 
             // ── Iterate over assignments ───────────────────────────
@@ -299,8 +291,12 @@ impl DeadStoreDetector {
                     .unwrap_or(func_lines.len());
 
                 // ── Check if variable is read between assignment and next/end
-                if !Self::is_read_in_range(var, func_lines, func_relative_line, next_assignment_line)
-                {
+                if !Self::is_read_in_range(
+                    var,
+                    func_lines,
+                    func_relative_line,
+                    next_assignment_line,
+                ) {
                     // Extract the source line for the finding description
                     let source_line = if func_relative_line < func_lines.len() {
                         func_lines[func_relative_line].trim()
@@ -390,7 +386,6 @@ impl Detector for DeadStoreDetector {
     }
 }
 
-
 impl crate::detectors::RegisteredDetector for DeadStoreDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
         std::sync::Arc::new(Self::new(init.repo_path))
@@ -409,8 +404,14 @@ mod tests {
         assert!(DeadStoreDetector::word_appears_in_line("x", "y = x + 1"));
         assert!(!DeadStoreDetector::word_appears_in_line("x", "fox = 1"));
         assert!(!DeadStoreDetector::word_appears_in_line("x", "extra = 1"));
-        assert!(DeadStoreDetector::word_appears_in_line("result", "return result"));
-        assert!(!DeadStoreDetector::word_appears_in_line("result", "no_result_here = 1"));
+        assert!(DeadStoreDetector::word_appears_in_line(
+            "result",
+            "return result"
+        ));
+        assert!(!DeadStoreDetector::word_appears_in_line(
+            "result",
+            "no_result_here = 1"
+        ));
     }
 
     #[test]
@@ -424,16 +425,10 @@ mod tests {
         assert!(DeadStoreDetector::is_pure_reassignment("x", "x := 42"));
 
         // Not pure — var appears on RHS (it's a read)
-        assert!(!DeadStoreDetector::is_pure_reassignment(
-            "x",
-            "x = x + 1"
-        ));
+        assert!(!DeadStoreDetector::is_pure_reassignment("x", "x = x + 1"));
 
         // Not an assignment at all
-        assert!(!DeadStoreDetector::is_pure_reassignment(
-            "x",
-            "print(x)"
-        ));
+        assert!(!DeadStoreDetector::is_pure_reassignment("x", "print(x)"));
         assert!(!DeadStoreDetector::is_pure_reassignment("x", "x == 5"));
     }
 

@@ -151,10 +151,7 @@ fn benchmark_root() -> PathBuf {
 fn load_labels(project: &str) -> Option<BenchmarkLabels> {
     let path = benchmark_root().join(project).join("labels.json");
     if !path.exists() {
-        eprintln!(
-            "  [SKIP] Labels file not found: {}",
-            path.display()
-        );
+        eprintln!("  [SKIP] Labels file not found: {}", path.display());
         return None;
     }
 
@@ -172,10 +169,7 @@ fn load_labels(project: &str) -> Option<BenchmarkLabels> {
 fn load_results(project: &str) -> Option<Vec<ResultFinding>> {
     let path = benchmark_root().join(project).join("results.json");
     if !path.exists() {
-        eprintln!(
-            "  [SKIP] Results file not found: {}",
-            path.display()
-        );
+        eprintln!("  [SKIP] Results file not found: {}", path.display());
         return None;
     }
 
@@ -232,9 +226,7 @@ fn run_benchmark(project: &str) -> bool {
     let mut detector_stats: HashMap<String, PrecisionStats> = HashMap::new();
 
     for finding in &findings {
-        let stats = detector_stats
-            .entry(finding.detector.clone())
-            .or_default();
+        let stats = detector_stats.entry(finding.detector.clone()).or_default();
 
         match label_map.get(finding.id.as_str()) {
             Some(label) => match label.label.as_str() {

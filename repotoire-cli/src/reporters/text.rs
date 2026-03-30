@@ -12,7 +12,7 @@ fn grade_color(grade: &Grade) -> &'static str {
         Grade::BPlus | Grade::B | Grade::BMinus => "\x1b[92m", // Light green
         Grade::CPlus | Grade::C | Grade::CMinus => "\x1b[33m", // Yellow
         Grade::DPlus | Grade::D | Grade::DMinus => "\x1b[91m", // Light red
-        Grade::F => "\x1b[31m",                                 // Red
+        Grade::F => "\x1b[31m",                                // Red
     }
 }
 
@@ -136,10 +136,7 @@ pub fn render(report: &HealthReport) -> Result<String> {
                     .cloned()
                     .unwrap_or_default();
                 if signals.is_empty() {
-                    out.push_str(&format!(
-                        "       {DIM}[confidence: {}%]{RESET}\n",
-                        pct
-                    ));
+                    out.push_str(&format!("       {DIM}[confidence: {}%]{RESET}\n", pct));
                 } else {
                     out.push_str(&format!(
                         "       {DIM}[confidence: {}% \u{2014} {}]{RESET}\n",
@@ -208,14 +205,8 @@ pub fn render_with_context(ctx: &ReportContext) -> Result<String> {
 
     if let Some(prev) = &ctx.previous_health {
         let delta = report.overall_score - prev.overall_score;
-        let fixed = prev
-            .findings
-            .len()
-            .saturating_sub(report.findings.len());
-        let new_findings = report
-            .findings
-            .len()
-            .saturating_sub(prev.findings.len());
+        let fixed = prev.findings.len().saturating_sub(report.findings.len());
+        let new_findings = report.findings.len().saturating_sub(prev.findings.len());
         // Only show delta if it's meaningful (>= 0.05)
         if delta.abs() >= 0.05 {
             if delta >= 0.0 {
@@ -224,10 +215,7 @@ pub fn render_with_context(ctx: &ReportContext) -> Result<String> {
                 out.push_str(&format!(" {BOLD}({:.1}){RESET}", delta));
             }
         }
-        out.push_str(&format!(
-            "  Grade: {grade_c}{BOLD}{}{RESET}",
-            report.grade
-        ));
+        out.push_str(&format!("  Grade: {grade_c}{BOLD}{}{RESET}", report.grade));
         if fixed > 0 {
             out.push_str(&format!("  Fixed {} findings", fixed));
         }
@@ -235,10 +223,7 @@ pub fn render_with_context(ctx: &ReportContext) -> Result<String> {
             out.push_str(&format!("  {} new findings", new_findings));
         }
     } else {
-        out.push_str(&format!(
-            "  Grade: {grade_c}{BOLD}{}{RESET}",
-            report.grade
-        ));
+        out.push_str(&format!("  Grade: {grade_c}{BOLD}{}{RESET}", report.grade));
     }
 
     out.push_str(&format!(
@@ -265,10 +250,7 @@ pub fn render_with_context(ctx: &ReportContext) -> Result<String> {
 
     if !notable_buckets.is_empty() {
         out.push_str(&format!("\n{BOLD}What stands out{RESET}\n"));
-        let max_weight = notable_buckets
-            .first()
-            .map(|(_, w, _)| *w)
-            .unwrap_or(0.0);
+        let max_weight = notable_buckets.first().map(|(_, w, _)| *w).unwrap_or(0.0);
 
         for (category, weight, summary) in &notable_buckets {
             let arrow = if *weight == max_weight && max_weight > 0.0 {
@@ -277,10 +259,7 @@ pub fn render_with_context(ctx: &ReportContext) -> Result<String> {
                 String::new()
             };
             let display_cat = capitalize(category);
-            out.push_str(&format!(
-                "  {:<15}{}{}\n",
-                display_cat, summary, arrow
-            ));
+            out.push_str(&format!("  {:<15}{}{}\n", display_cat, summary, arrow));
         }
     }
 
@@ -292,7 +271,9 @@ pub fn render_with_context(ctx: &ReportContext) -> Result<String> {
     // ── Quick wins ──────────────────────────────────────────────────
     let quick_wins = top_quick_wins(&report.findings, 3);
     if !quick_wins.is_empty() {
-        out.push_str(&format!("\n{BOLD}Quick wins{RESET} (highest impact, lowest effort)\n"));
+        out.push_str(&format!(
+            "\n{BOLD}Quick wins{RESET} (highest impact, lowest effort)\n"
+        ));
 
         for (i, finding) in quick_wins.iter().enumerate() {
             let sev_c = severity_color(&finding.severity);
@@ -330,7 +311,9 @@ pub fn render_with_context(ctx: &ReportContext) -> Result<String> {
         out.push_str(&format!(
             "\n{DIM}──────────────────────────────────────{RESET}\n"
         ));
-        out.push_str(&format!("{BOLD}First analysis complete!{RESET} Next steps:\n"));
+        out.push_str(&format!(
+            "{BOLD}First analysis complete!{RESET} Next steps:\n"
+        ));
         out.push_str(&format!(
             "  {DIM}repotoire fix <id>            Fix the top finding{RESET}\n"
         ));
@@ -406,10 +389,7 @@ fn render_knowledge_risk(ctx: &ReportContext) -> Option<String> {
     if !risky_files.is_empty() {
         out.push_str(&format!("\n  {DIM}Top riskiest files:{RESET}\n"));
         for (path, bf) in &risky_files {
-            out.push_str(&format!(
-                "    {:<40} \u{2502} bus factor {bf}\n",
-                path
-            ));
+            out.push_str(&format!("    {:<40} \u{2502} bus factor {bf}\n", path));
         }
     }
 
@@ -452,16 +432,10 @@ impl CategoryBucket {
 }
 
 /// Group findings by category
-fn build_category_buckets(
-    findings: &[crate::models::Finding],
-) -> HashMap<String, CategoryBucket> {
+fn build_category_buckets(findings: &[crate::models::Finding]) -> HashMap<String, CategoryBucket> {
     let mut buckets: HashMap<String, CategoryBucket> = HashMap::new();
     for f in findings {
-        let cat = f
-            .category
-            .as_deref()
-            .unwrap_or("other")
-            .to_lowercase();
+        let cat = f.category.as_deref().unwrap_or("other").to_lowercase();
         let bucket = buckets.entry(cat).or_insert(CategoryBucket {
             critical: 0,
             high: 0,
@@ -495,19 +469,12 @@ fn top_notable_buckets(
 }
 
 /// Return top N findings ranked by impact score
-fn top_quick_wins(
-    findings: &[crate::models::Finding],
-    n: usize,
-) -> Vec<&crate::models::Finding> {
+fn top_quick_wins(findings: &[crate::models::Finding], n: usize) -> Vec<&crate::models::Finding> {
     let mut scored: Vec<(f64, &crate::models::Finding)> = findings
         .iter()
         .map(|f| {
             let base = severity_weight(&f.severity);
-            let boost = if f.suggested_fix.is_some() {
-                1.5
-            } else {
-                1.0
-            };
+            let boost = if f.suggested_fix.is_some() { 1.5 } else { 1.0 };
             (base * boost, f)
         })
         .collect();
@@ -570,8 +537,8 @@ fn format_score(score: f64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::reporters::report_context::ReportContext;
     use crate::models::{Finding, FindingsSummary, HealthReport, Severity};
+    use crate::reporters::report_context::ReportContext;
 
     fn test_context() -> ReportContext {
         let findings = vec![
@@ -652,7 +619,10 @@ mod tests {
     fn test_no_delta_on_first_run() {
         let ctx = test_context();
         let output = render_with_context(&ctx).unwrap();
-        assert!(!output.contains("Fixed"), "should not show delta on first run");
+        assert!(
+            !output.contains("Fixed"),
+            "should not show delta on first run"
+        );
         assert!(!output.contains("+"), "should not show + on first run");
     }
 

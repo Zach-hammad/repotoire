@@ -312,15 +312,30 @@ impl CodeGraph {
     }
 
     pub fn dominated_by(&self, idx: NodeIndex) -> &[NodeIndex] {
-        self.indexes.primitives.dominated.get(&idx).map(|v| v.as_slice()).unwrap_or(EMPTY_NODE_SLICE)
+        self.indexes
+            .primitives
+            .dominated
+            .get(&idx)
+            .map(|v| v.as_slice())
+            .unwrap_or(EMPTY_NODE_SLICE)
     }
 
     pub fn domination_frontier(&self, idx: NodeIndex) -> &[NodeIndex] {
-        self.indexes.primitives.frontier.get(&idx).map(|v| v.as_slice()).unwrap_or(EMPTY_NODE_SLICE)
+        self.indexes
+            .primitives
+            .frontier
+            .get(&idx)
+            .map(|v| v.as_slice())
+            .unwrap_or(EMPTY_NODE_SLICE)
     }
 
     pub fn dominator_depth(&self, idx: NodeIndex) -> usize {
-        self.indexes.primitives.dom_depth.get(&idx).copied().unwrap_or(0)
+        self.indexes
+            .primitives
+            .dom_depth
+            .get(&idx)
+            .copied()
+            .unwrap_or(0)
     }
 
     pub fn domination_count(&self, idx: NodeIndex) -> usize {
@@ -328,7 +343,10 @@ impl CodeGraph {
     }
 
     pub fn is_articulation_point(&self, idx: NodeIndex) -> bool {
-        self.indexes.primitives.articulation_point_set.contains(&idx)
+        self.indexes
+            .primitives
+            .articulation_point_set
+            .contains(&idx)
     }
 
     pub fn articulation_points(&self) -> &[NodeIndex] {
@@ -340,7 +358,11 @@ impl CodeGraph {
     }
 
     pub fn separation_sizes(&self, idx: NodeIndex) -> Option<&[usize]> {
-        self.indexes.primitives.component_sizes.get(&idx).map(|v| v.as_slice())
+        self.indexes
+            .primitives
+            .component_sizes
+            .get(&idx)
+            .map(|v| v.as_slice())
     }
 
     pub fn call_cycles(&self) -> &[Vec<NodeIndex>] {
@@ -348,23 +370,48 @@ impl CodeGraph {
     }
 
     pub fn page_rank(&self, idx: NodeIndex) -> f64 {
-        self.indexes.primitives.page_rank.get(&idx).copied().unwrap_or(0.0)
+        self.indexes
+            .primitives
+            .page_rank
+            .get(&idx)
+            .copied()
+            .unwrap_or(0.0)
     }
 
     pub fn betweenness(&self, idx: NodeIndex) -> f64 {
-        self.indexes.primitives.betweenness.get(&idx).copied().unwrap_or(0.0)
+        self.indexes
+            .primitives
+            .betweenness
+            .get(&idx)
+            .copied()
+            .unwrap_or(0.0)
     }
 
     pub fn call_depth(&self, idx: NodeIndex) -> usize {
-        self.indexes.primitives.call_depth.get(&idx).copied().unwrap_or(0)
+        self.indexes
+            .primitives
+            .call_depth
+            .get(&idx)
+            .copied()
+            .unwrap_or(0)
     }
 
     pub fn weighted_page_rank(&self, idx: NodeIndex) -> f64 {
-        self.indexes.primitives.weighted_page_rank.get(&idx).copied().unwrap_or(0.0)
+        self.indexes
+            .primitives
+            .weighted_page_rank
+            .get(&idx)
+            .copied()
+            .unwrap_or(0.0)
     }
 
     pub fn weighted_betweenness(&self, idx: NodeIndex) -> f64 {
-        self.indexes.primitives.weighted_betweenness.get(&idx).copied().unwrap_or(0.0)
+        self.indexes
+            .primitives
+            .weighted_betweenness
+            .get(&idx)
+            .copied()
+            .unwrap_or(0.0)
     }
 
     pub fn community(&self, idx: NodeIndex) -> Option<usize> {
@@ -551,12 +598,8 @@ mod tests {
     #[test]
     fn test_file_scoped_queries() {
         let mut builder = GraphBuilder::new();
-        builder.add_node(
-            CodeNode::function("foo", "a.py").with_lines(1, 10),
-        );
-        builder.add_node(
-            CodeNode::function("bar", "a.py").with_lines(12, 20),
-        );
+        builder.add_node(CodeNode::function("foo", "a.py").with_lines(1, 10));
+        builder.add_node(CodeNode::function("bar", "a.py").with_lines(12, 20));
         builder.add_node(CodeNode::class("MyClass", "a.py"));
         builder.add_node(CodeNode::function("baz", "b.py"));
 
@@ -573,12 +616,8 @@ mod tests {
     #[test]
     fn test_function_at() {
         let mut builder = GraphBuilder::new();
-        let f1 = builder.add_node(
-            CodeNode::function("foo", "a.py").with_lines(1, 10),
-        );
-        let f2 = builder.add_node(
-            CodeNode::function("bar", "a.py").with_lines(12, 20),
-        );
+        let f1 = builder.add_node(CodeNode::function("foo", "a.py").with_lines(1, 10));
+        let f2 = builder.add_node(CodeNode::function("bar", "a.py").with_lines(12, 20));
 
         let graph = builder.freeze();
 

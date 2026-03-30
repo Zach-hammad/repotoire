@@ -92,7 +92,8 @@ pub fn run_centralized_taint(
             ALL_CATEGORIES
                 .par_iter()
                 .map(|&category| {
-                    let paths = analyzer.trace_taint_with_functions(graph, category, Some(&functions));
+                    let paths =
+                        analyzer.trace_taint_with_functions(graph, category, Some(&functions));
                     (category, paths)
                 })
                 .collect()
@@ -156,84 +157,82 @@ fn run_intra_all_categories(
         Mutex::new(m)
     };
 
-    file_groups.par_iter().for_each(|(file_path, func_indices)| {
-        let full_path = repository_path.join(file_path);
+    file_groups
+        .par_iter()
+        .for_each(|(file_path, func_indices)| {
+            let full_path = repository_path.join(file_path);
 
-        // Language detection ONCE per file
-        let ext = full_path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("");
-        let language = Language::from_extension(ext);
+            // Language detection ONCE per file
+            let ext = full_path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            let language = Language::from_extension(ext);
 
-        // Read file content ONCE per file
-        let content: Arc<String> = match shared_cache.get_or_read(&full_path) {
-            Some(c) => c,
-            None => return,
-        };
+            // Read file content ONCE per file
+            let content: Arc<String> = match shared_cache.get_or_read(&full_path) {
+                Some(c) => c,
+                None => return,
+            };
 
-        // Pre-filter categories for this file ONCE
-        // Check both content relevance AND file extension — sinks like
-        // cursor.execute are Python/JS/Go/Java patterns, not Rust/C/C++.
-        let relevant_categories: Vec<TaintCategory> = ALL_CATEGORIES
-            .iter()
-            .copied()
-            .filter(|cat| {
-                cat.relevant_extensions().contains(&ext)
-                    && cat.file_might_be_relevant(&content)
-            })
-            .collect();
+            // Pre-filter categories for this file ONCE
+            // Check both content relevance AND file extension — sinks like
+            // cursor.execute are Python/JS/Go/Java patterns, not Rust/C/C++.
+            let relevant_categories: Vec<TaintCategory> = ALL_CATEGORIES
+                .iter()
+                .copied()
+                .filter(|cat| {
+                    cat.relevant_extensions().contains(&ext) && cat.file_might_be_relevant(&content)
+                })
+                .collect();
 
-        if relevant_categories.is_empty() {
-            return;
-        }
-
-        // Collect lines ONCE per file (was done per-function before)
-        let lines: Vec<&str> = content.lines().collect();
-
-        // Process all functions in this file
-        let mut file_results: Vec<(TaintCategory, Vec<TaintPath>)> = Vec::new();
-        for &func_idx in func_indices {
-            let func = &functions[func_idx];
-            let line_start = func.line_start as usize;
-            let line_end = func.get_i64("lineEnd").unwrap_or(0) as usize;
-
-            if line_start == 0 || line_end == 0 || line_end < line_start {
-                continue;
-            }
-            if line_end > lines.len() {
-                continue;
+            if relevant_categories.is_empty() {
+                return;
             }
 
-            let func_body = lines[line_start.saturating_sub(1)..line_end].join("\n");
+            // Collect lines ONCE per file (was done per-function before)
+            let lines: Vec<&str> = content.lines().collect();
 
-            for &category in &relevant_categories {
-                let paths = analyzer.analyze_intra_function(
-                    &func_body,
-                    func.node_name(i),
-                    func.path(i),
-                    line_start,
-                    language,
-                    category,
-                );
-                if !paths.is_empty() {
-                    file_results.push((category, paths));
+            // Process all functions in this file
+            let mut file_results: Vec<(TaintCategory, Vec<TaintPath>)> = Vec::new();
+            for &func_idx in func_indices {
+                let func = &functions[func_idx];
+                let line_start = func.line_start as usize;
+                let line_end = func.get_i64("lineEnd").unwrap_or(0) as usize;
+
+                if line_start == 0 || line_end == 0 || line_end < line_start {
+                    continue;
+                }
+                if line_end > lines.len() {
+                    continue;
+                }
+
+                let func_body = lines[line_start.saturating_sub(1)..line_end].join("\n");
+
+                for &category in &relevant_categories {
+                    let paths = analyzer.analyze_intra_function(
+                        &func_body,
+                        func.node_name(i),
+                        func.path(i),
+                        line_start,
+                        language,
+                        category,
+                    );
+                    if !paths.is_empty() {
+                        file_results.push((category, paths));
+                    }
                 }
             }
-        }
 
-        // Merge into shared results (one lock per file, not per function)
-        if !file_results.is_empty() {
-            let mut results = results
-                .lock()
-                .expect("taint results mutex poisoned — a thread panicked");
-            for (category, paths) in file_results {
-                if let Some(cat_results) = results.get_mut(&category) {
-                    cat_results.extend(paths);
+            // Merge into shared results (one lock per file, not per function)
+            if !file_results.is_empty() {
+                let mut results = results
+                    .lock()
+                    .expect("taint results mutex poisoned — a thread panicked");
+                for (category, paths) in file_results {
+                    if let Some(cat_results) = results.get_mut(&category) {
+                        cat_results.extend(paths);
+                    }
                 }
             }
-        }
-    });
+        });
 
     // Sort paths within each category for deterministic order
     let mut final_results = results

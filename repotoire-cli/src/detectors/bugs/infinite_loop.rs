@@ -17,12 +17,12 @@ use std::sync::LazyLock;
 use tracing::info;
 
 static INFINITE_WHILE: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"(?i)(while\s*\(\s*true\s*\)|while\s+True\s*:|while\s*\(\s*1\s*\)|for\s*\(\s*;\s*;\s*\)|\bloop\s*\{)").expect("valid regex")
-    });
+    Regex::new(r"(?i)(while\s*\(\s*true\s*\)|while\s+True\s*:|while\s*\(\s*1\s*\)|for\s*\(\s*;\s*;\s*\)|\bloop\s*\{)").expect("valid regex")
+});
 static BREAK_RETURN: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"\b(break|return|raise|throw|exit|panic!|std::process::exit)\b")
-            .expect("valid regex")
-    });
+    Regex::new(r"\b(break|return|raise|throw|exit|panic!|std::process::exit)\b")
+        .expect("valid regex")
+});
 
 /// Detects potential infinite loops
 pub struct InfiniteLoopDetector {
@@ -192,7 +192,10 @@ impl InfiniteLoopDetector {
     }
 
     /// Check if any called function contains break/return/raise
-    fn calls_exit_function(calls: &[String], func_by_name: &std::collections::HashMap<String, &crate::graph::CodeNode>) -> Vec<String> {
+    fn calls_exit_function(
+        calls: &[String],
+        func_by_name: &std::collections::HashMap<String, &crate::graph::CodeNode>,
+    ) -> Vec<String> {
         let i = crate::graph::interner::global_interner();
         let mut exit_funcs = Vec::new();
 
@@ -245,19 +248,27 @@ impl Detector for InfiniteLoopDetector {
     }
 
     fn file_extensions(&self) -> &'static [&'static str] {
-        &["py", "js", "ts", "jsx", "tsx", "java", "go", "rs", "c", "cpp", "cs"]
+        &[
+            "py", "js", "ts", "jsx", "tsx", "java", "go", "rs", "c", "cpp", "cs",
+        ]
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let files = &ctx.as_file_provider();
         let mut findings = vec![];
 
         // Lazily build name→function lookup (only if needed for exit-function analysis)
         let all_functions = graph.get_functions_shared();
-        let mut func_by_name: Option<std::collections::HashMap<String, &crate::graph::CodeNode>> = None;
+        let mut func_by_name: Option<std::collections::HashMap<String, &crate::graph::CodeNode>> =
+            None;
 
-        for path in files.files_with_extensions(&["py", "js", "ts", "java", "go", "rs", "rb", "c", "cpp"]) {
+        for path in
+            files.files_with_extensions(&["py", "js", "ts", "java", "go", "rs", "rb", "c", "cpp"])
+        {
             if findings.len() >= self.max_findings {
                 break;
             }
@@ -342,7 +353,10 @@ impl Detector for InfiniteLoopDetector {
                         let calls = Self::find_called_functions(&lines, i, indent);
                         let map = func_by_name.get_or_insert_with(|| {
                             let gi = crate::graph::interner::global_interner();
-                            all_functions.iter().map(|f| (f.node_name(gi).to_string(), f)).collect()
+                            all_functions
+                                .iter()
+                                .map(|f| (f.node_name(gi).to_string(), f))
+                                .collect()
                         });
                         let exit_funcs = Self::calls_exit_function(&calls, map);
 
@@ -484,9 +498,13 @@ mod tests {
     fn test_detects_while_true_without_break() {
         let store = GraphBuilder::new().freeze();
         let detector = InfiniteLoopDetector::with_path("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("processor.py", "\ndef process():\n    while True:\n        do_something()\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "processor.py",
+                "\ndef process():\n    while True:\n        do_something()\n",
+            )],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             !findings.is_empty(),

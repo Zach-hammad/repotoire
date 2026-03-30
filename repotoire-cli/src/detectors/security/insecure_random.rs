@@ -16,8 +16,8 @@ use std::sync::LazyLock;
 use tracing::info;
 
 static INSECURE_RANDOM: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"(?i)(Math\.random\(\)|random\.random\(\)|random\.randint|rand\(\)|srand\(|mt_rand|lcg_value|uniqid)").expect("valid regex")
-    });
+    Regex::new(r"(?i)(Math\.random\(\)|random\.random\(\)|random\.randint|rand\(\)|srand\(|mt_rand|lcg_value|uniqid)").expect("valid regex")
+});
 
 /// Get secure alternative for each language
 fn get_secure_alternative(ext: &str) -> &'static str {
@@ -204,7 +204,6 @@ impl InsecureRandomDetector {
 
         security_callers
     }
-
 }
 
 #[derive(PartialEq)]
@@ -234,7 +233,10 @@ impl Detector for InsecureRandomDetector {
         &["py", "js", "ts", "jsx", "tsx", "rb", "java", "go"]
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let files = &ctx.as_file_provider();
         let _i = graph.interner();
@@ -242,9 +244,13 @@ impl Detector for InsecureRandomDetector {
 
         // Lazily build name→CodeNode map for O(1) lookup in find_security_callers.
         // Only populated on first use (most runs on large codebases find 0 matches).
-        let mut func_map: Option<std::collections::HashMap<String, crate::graph::store_models::CodeNode>> = None;
+        let mut func_map: Option<
+            std::collections::HashMap<String, crate::graph::store_models::CodeNode>,
+        > = None;
 
-        for path in files.files_with_extensions(&["py", "js", "ts", "java", "go", "rb", "php", "c", "cpp"]) {
+        for path in
+            files.files_with_extensions(&["py", "js", "ts", "java", "go", "rb", "php", "c", "cpp"])
+        {
             if findings.len() >= self.max_findings {
                 break;
             }
@@ -263,9 +269,12 @@ impl Detector for InsecureRandomDetector {
                 Some(c) => c,
                 None => continue,
             };
-            if !raw.contains("random") && !raw.contains("rand(")
-                && !raw.contains("srand(") && !raw.contains("mt_rand")
-                && !raw.contains("lcg_value") && !raw.contains("uniqid")
+            if !raw.contains("random")
+                && !raw.contains("rand(")
+                && !raw.contains("srand(")
+                && !raw.contains("mt_rand")
+                && !raw.contains("lcg_value")
+                && !raw.contains("uniqid")
             {
                 continue;
             }
@@ -286,12 +295,25 @@ impl Detector for InsecureRandomDetector {
 
                         let (context, usage) = Self::analyze_usage(line, &surrounding);
                         let containing_func =
-                            graph.find_function_at(&path_str, (i + 1) as u32).map(|f| f.node_name(crate::graph::interner::global_interner()).to_string());
+                            graph.find_function_at(&path_str, (i + 1) as u32).map(|f| {
+                                f.node_name(crate::graph::interner::global_interner())
+                                    .to_string()
+                            });
 
                         // Check if function is called by security code
                         let security_callers = if let Some(ref func) = containing_func {
                             let map = func_map.get_or_insert_with(|| {
-                                graph.get_functions().into_iter().map(|f| (f.node_name(crate::graph::interner::global_interner()).to_string(), f)).collect()
+                                graph
+                                    .get_functions()
+                                    .into_iter()
+                                    .map(|f| {
+                                        (
+                                            f.node_name(crate::graph::interner::global_interner())
+                                                .to_string(),
+                                            f,
+                                        )
+                                    })
+                                    .collect()
                             });
                             Self::find_security_callers(graph, func, map)
                         } else {
@@ -410,7 +432,6 @@ impl Detector for InsecureRandomDetector {
     }
 }
 
-
 impl crate::detectors::RegisteredDetector for InsecureRandomDetector {
     fn create(init: &crate::detectors::DetectorInit) -> std::sync::Arc<dyn Detector> {
         std::sync::Arc::new(Self::new(init.repo_path))
@@ -445,9 +466,13 @@ mod tests {
     fn test_no_finding_for_non_security_random() {
         let store = GraphBuilder::new().freeze();
         let detector = InsecureRandomDetector::new("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("simulation.py", "import random\n\ndef roll_dice():\n    return random.randint(1, 6)\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "simulation.py",
+                "import random\n\ndef roll_dice():\n    return random.randint(1, 6)\n",
+            )],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),

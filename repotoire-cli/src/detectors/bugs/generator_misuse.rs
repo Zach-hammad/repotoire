@@ -15,10 +15,14 @@ use std::path::PathBuf;
 use std::sync::LazyLock;
 use tracing::info;
 
-static GENERATOR_DEF: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"def\s+(\w+)\s*\(").expect("valid regex"));
-static YIELD_STMT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\byield\b").expect("valid regex"));
-static YIELD_FROM: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\byield\s+from\b").expect("valid regex"));
-static LIST_CALL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"list\s*\(\s*(\w+)\s*\(").expect("valid regex"));
+static GENERATOR_DEF: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"def\s+(\w+)\s*\(").expect("valid regex"));
+static YIELD_STMT: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\byield\b").expect("valid regex"));
+static YIELD_FROM: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\byield\s+from\b").expect("valid regex"));
+static LIST_CALL: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"list\s*\(\s*(\w+)\s*\(").expect("valid regex"));
 
 /// Detects generator functions with only one yield statement
 pub struct GeneratorMisuseDetector {
@@ -129,11 +133,15 @@ impl GeneratorMisuseDetector {
     fn has_contextmanager_decorator(lines: &[&str], func_start: usize) -> bool {
         for i in (0..func_start).rev() {
             let trimmed = lines[i].trim();
-            if trimmed.is_empty() { continue; }
+            if trimmed.is_empty() {
+                continue;
+            }
             if trimmed.starts_with('@') {
                 return trimmed.contains("contextmanager");
             }
-            if !trimmed.starts_with('@') { break; }
+            if !trimmed.starts_with('@') {
+                break;
+            }
         }
         false
     }
@@ -153,10 +161,32 @@ impl GeneratorMisuseDetector {
                         let name = func_name.as_str();
                         // Exclude Python builtins — list(x.list(...)) is not wrapping a generator
                         const BUILTINS: &[&str] = &[
-                            "list", "dict", "set", "tuple", "str", "int", "float",
-                            "bool", "map", "filter", "range", "zip", "sorted", "reversed",
-                            "enumerate", "iter", "next", "type", "super", "print", "len",
-                            "max", "min", "sum", "any", "all",
+                            "list",
+                            "dict",
+                            "set",
+                            "tuple",
+                            "str",
+                            "int",
+                            "float",
+                            "bool",
+                            "map",
+                            "filter",
+                            "range",
+                            "zip",
+                            "sorted",
+                            "reversed",
+                            "enumerate",
+                            "iter",
+                            "next",
+                            "type",
+                            "super",
+                            "print",
+                            "len",
+                            "max",
+                            "min",
+                            "sum",
+                            "any",
+                            "all",
                         ];
                         if !BUILTINS.contains(&name) {
                             wrapped.insert(name.to_string());
@@ -243,7 +273,10 @@ impl Detector for GeneratorMisuseDetector {
         &["py"]
     }
 
-    fn detect(&self, ctx: &crate::detectors::analysis_context::AnalysisContext) -> Result<Vec<Finding>> {
+    fn detect(
+        &self,
+        ctx: &crate::detectors::analysis_context::AnalysisContext,
+    ) -> Result<Vec<Finding>> {
         let graph = ctx.graph;
         let files = &ctx.as_file_provider();
         let mut findings = vec![];
@@ -252,7 +285,9 @@ impl Detector for GeneratorMisuseDetector {
         let list_wrapped = self.find_list_wrapped_generators(graph, files);
 
         // Lazy func_map: only built if we need to check lazy consumption
-        let mut func_map: Option<std::collections::HashMap<String, crate::graph::store_models::CodeNode>> = None;
+        let mut func_map: Option<
+            std::collections::HashMap<String, crate::graph::store_models::CodeNode>,
+        > = None;
 
         for path in files.files_with_extension("py") {
             if findings.len() >= self.max_findings {
@@ -315,8 +350,13 @@ impl Detector for GeneratorMisuseDetector {
                             // Skip known polymorphic interface methods — these implement a
                             // protocol where other implementations yield many items
                             let polymorphic_methods = [
-                                "get_template_sources", "subwidgets", "chunks",
-                                "__iter__", "__aiter__", "__next__", "__anext__",
+                                "get_template_sources",
+                                "subwidgets",
+                                "chunks",
+                                "__iter__",
+                                "__aiter__",
+                                "__next__",
+                                "__anext__",
                             ];
                             if polymorphic_methods.contains(&func_name)
                                 || func_name.starts_with("iter_")
@@ -370,7 +410,11 @@ impl Detector for GeneratorMisuseDetector {
                                 graph,
                                 func_map.get_or_insert_with(|| {
                                     let gi = graph.interner();
-                                    graph.get_functions().into_iter().map(|f| (f.node_name(gi).to_string(), f)).collect()
+                                    graph
+                                        .get_functions()
+                                        .into_iter()
+                                        .map(|f| (f.node_name(gi).to_string(), f))
+                                        .collect()
                                 }),
                             )
                             && !Self::is_consumed_lazily_in_files(func_name, files)
@@ -442,24 +486,28 @@ mod tests {
     fn test_detects_single_yield_generator() {
         let store = GraphBuilder::new().freeze();
         let detector = GeneratorMisuseDetector::with_path("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("utils.py", "\ndef single_value():\n    yield 42\n"),
-        ]);
-        let findings = detector.detect(&ctx).expect("detection should succeed");
-        assert!(
-            !findings.is_empty(),
-            "Should detect single-yield generator"
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![("utils.py", "\ndef single_value():\n    yield 42\n")],
         );
-        assert!(findings.iter().any(|f| f.title.contains("Single-yield generator")));
+        let findings = detector.detect(&ctx).expect("detection should succeed");
+        assert!(!findings.is_empty(), "Should detect single-yield generator");
+        assert!(findings
+            .iter()
+            .any(|f| f.title.contains("Single-yield generator")));
     }
 
     #[test]
     fn test_no_finding_for_generator_with_loop() {
         let store = GraphBuilder::new().freeze();
         let detector = GeneratorMisuseDetector::with_path("/mock/repo");
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("utils.py", "\ndef multi_yield(items):\n    for item in items:\n        yield item * 2\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "utils.py",
+                "\ndef multi_yield(items):\n    for item in items:\n        yield item * 2\n",
+            )],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
         assert!(
             findings.is_empty(),
@@ -502,12 +550,19 @@ mod tests {
     fn test_no_finding_for_yield_from() {
         let store = GraphBuilder::new().freeze();
         let detector = GeneratorMisuseDetector::new();
-        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(&store, vec![
-            ("iterators.py", "def __iter__(self):\n    yield from self.items\n"),
-        ]);
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "iterators.py",
+                "def __iter__(self):\n    yield from self.items\n",
+            )],
+        );
         let findings = detector.detect(&ctx).expect("detection should succeed");
-        assert!(findings.is_empty(), "Should not flag yield from as single-yield. Found: {:?}",
-            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+        assert!(
+            findings.is_empty(),
+            "Should not flag yield from as single-yield. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -518,8 +573,11 @@ mod tests {
             ("paginator.py", "def _check(self):\n    warnings.warn(\"Pagination may yield inconsistent results\")\n"),
         ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
-        assert!(findings.is_empty(), "Should not flag 'yield' inside string literal. Found: {:?}",
-            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+        assert!(
+            findings.is_empty(),
+            "Should not flag 'yield' inside string literal. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -530,8 +588,11 @@ mod tests {
             ("errors.py", "from contextlib import contextmanager\n\n@contextmanager\ndef wrap_errors():\n    try:\n        yield\n    except DatabaseError:\n        raise\n"),
         ]);
         let findings = detector.detect(&ctx).expect("detection should succeed");
-        assert!(findings.is_empty(), "Should not flag @contextmanager even without finally. Found: {:?}",
-            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+        assert!(
+            findings.is_empty(),
+            "Should not flag @contextmanager even without finally. Found: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
     }
 
     #[test]

@@ -81,9 +81,9 @@ pub struct FunctionFeatures {
 
     // Code features
     #[allow(dead_code)] // Used by HMM feature vector
-    pub complexity_ratio: f64,  // complexity / avg_complexity
+    pub complexity_ratio: f64, // complexity / avg_complexity
     #[allow(dead_code)] // Used by HMM feature vector
-    pub loc_ratio: f64,         // loc / avg_loc
+    pub loc_ratio: f64, // loc / avg_loc
     #[allow(dead_code)] // Used by HMM feature vector
     pub param_count_ratio: f64, // params / avg_params
 
@@ -974,10 +974,7 @@ impl ContextClassifier {
         for s in 0..5 {
             crf_scores[s] = self.crf.score(features, FunctionContext::from_index(s));
         }
-        let crf_max = crf_scores
-            .iter()
-            .cloned()
-            .fold(f64::NEG_INFINITY, f64::max);
+        let crf_max = crf_scores.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
         let crf_sum: f64 = crf_scores.iter().map(|&sc| (sc - crf_max).exp()).sum();
 
         // Combine with weighted average
@@ -1066,4 +1063,3 @@ impl Default for ContextClassifier {
         Self::new()
     }
 }
-

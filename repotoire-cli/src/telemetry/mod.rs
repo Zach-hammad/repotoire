@@ -1,7 +1,7 @@
 pub mod benchmarks;
-pub mod display;
 pub mod cache;
 pub mod config;
+pub mod display;
 pub mod events;
 pub mod posthog;
 pub mod repo_shape;
@@ -27,8 +27,8 @@ pub fn init() -> Result<Telemetry> {
     let file_enabled = user_config.telemetry.enabled;
 
     // Check for env var overrides
-    let has_env_override = std::env::var("DO_NOT_TRACK").is_ok()
-        || std::env::var("REPOTOIRE_TELEMETRY").is_ok();
+    let has_env_override =
+        std::env::var("DO_NOT_TRACK").is_ok() || std::env::var("REPOTOIRE_TELEMETRY").is_ok();
 
     // First-run prompt if undecided
     let effective_enabled = if config::should_prompt(file_enabled, has_env_override) {
