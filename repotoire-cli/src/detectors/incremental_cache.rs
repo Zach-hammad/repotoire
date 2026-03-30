@@ -23,15 +23,15 @@ use anyhow::{Context, Result};
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::fs::{self, File};
-use std::io::{BufReader, BufWriter, Read};
+use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, info, warn};
 
 /// Cache format version - bump when schema changes
-const CACHE_VERSION: u32 = 3;
+const CACHE_VERSION: u32 = 4;
 
 /// Buffer size for hashing large files (64KB chunks)
 const HASH_BUFFER_SIZE: usize = 65536;
@@ -124,7 +124,7 @@ pub struct CacheStats {
 /// File fingerprinting and findings cache for incremental analysis
 ///
 /// Stores file hashes and associated findings to avoid re-running detectors
-/// on unchanged files. Cache is persisted to disk as JSON.
+/// on unchanged files. Cache is persisted to disk as bincode.
 pub struct IncrementalCache {
     #[allow(dead_code)] // Part of cache structure
     cache_dir: PathBuf,
@@ -139,7 +139,7 @@ impl IncrementalCache {
     /// Create a new cache
     pub fn new(cache_dir: &Path) -> Self {
         let cache_dir = cache_dir.to_path_buf();
-        let cache_file = cache_dir.join("findings_cache.json");
+        let cache_file = cache_dir.join("findings_cache.bin");
 
         // Ensure cache directory exists
         if let Err(e) = fs::create_dir_all(&cache_dir) {
@@ -225,9 +225,8 @@ impl IncrementalCache {
             return Ok(());
         }
 
-        let file = File::open(&self.cache_file).context("Failed to open cache file")?;
-        let reader = BufReader::new(file);
-        let data: CacheData = serde_json::from_reader(reader).context("Failed to parse cache")?;
+        let bytes = fs::read(&self.cache_file).context("Failed to read cache file")?;
+        let data: CacheData = bincode::deserialize(&bytes).context("Failed to parse cache")?;
 
         // Version check - rebuild if schema changed
         if data.version != CACHE_VERSION {
@@ -265,9 +264,8 @@ impl IncrementalCache {
         // Write to temp file first, then rename (atomic on POSIX)
         let tmp_file = self.cache_file.with_extension("tmp");
 
-        let file = File::create(&tmp_file).context("Failed to create temp cache file")?;
-        let writer = BufWriter::new(file);
-        serde_json::to_writer(writer, &self.cache).context("Failed to write cache")?;
+        let bytes = bincode::serialize(&self.cache).context("Failed to serialize cache")?;
+        fs::write(&tmp_file, &bytes).context("Failed to write temp cache file")?;
 
         // Atomic rename
         fs::rename(&tmp_file, &self.cache_file).context("Failed to rename temp cache")?;
@@ -875,9 +873,9 @@ mod tests {
             ..Default::default()
         };
 
-        // Round-trip through serde (simulates cache write/read)
-        let json = serde_json::to_string(&finding).expect("serialize");
-        let restored: Finding = serde_json::from_str(&json).expect("deserialize");
+        // Round-trip through bincode (simulates cache write/read)
+        let bytes = bincode::serialize(&finding).expect("serialize");
+        let restored: Finding = bincode::deserialize(&bytes).expect("deserialize");
         assert_eq!(restored.id, "rt-1");
         assert_eq!(restored.confidence, Some(0.85));
         assert_eq!(
