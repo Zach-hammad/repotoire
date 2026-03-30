@@ -1,6 +1,7 @@
 //! Log Injection Detector
 
 use crate::detectors::base::{Detector, DetectorConfig};
+use crate::detectors::fast_search::{find_in, *};
 use crate::detectors::taint::{TaintAnalyzer, TaintCategory};
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
@@ -78,13 +79,13 @@ impl Detector for LogInjectionDetector {
                     }
 
                     if LOG_PATTERN.is_match(line) {
-                        let has_user_input = line.contains("req.")
-                            || line.contains("request")
-                            || line.contains("input")
-                            || line.contains("user")
-                            || line.contains("params");
+                        let has_user_input = find_in(&FIND_REQ_DOT, line)
+                            || find_in(&FIND_REQUEST, line)
+                            || find_in(&FIND_INPUT, line)
+                            || find_in(&FIND_USER, line)
+                            || find_in(&FIND_PARAMS, line);
                         if has_user_input
-                            && (line.contains("f\"") || line.contains("${") || line.contains("+ "))
+                            && (find_in(&FIND_F_QUOTE, line) || find_in(&FIND_DOLLAR_BRACE, line) || find_in(&FIND_PLUS_SPACE, line))
                         {
                             findings.push(Finding {
                                 id: String::new(),

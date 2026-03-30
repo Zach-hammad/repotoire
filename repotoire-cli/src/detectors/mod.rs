@@ -306,6 +306,9 @@ pub mod user_input;
 mod ml_smells;
 mod rust_smells;
 
+// SIMD-accelerated string searching for hot detector loops
+pub(crate) mod fast_search;
+
 // Cross-detector analysis
 mod core_utility;
 mod health_delta;

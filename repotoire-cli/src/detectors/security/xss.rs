@@ -1,6 +1,7 @@
 //! XSS Detection
 
 use crate::detectors::base::{is_test_file, Detector, DetectorConfig};
+use crate::detectors::fast_search::{find_in, *};
 use crate::detectors::taint::{TaintAnalysisResult, TaintAnalyzer, TaintCategory};
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
@@ -119,13 +120,14 @@ impl Detector for XssDetector {
             // If the file contains no form inputs, fetch calls, or URL params, it's static
             if ext == "html" {
                 if let Some(content) = files.content(path) {
-                    let has_dynamic_input = content.contains("fetch(")
-                        || content.contains("XMLHttpRequest")
-                        || content.contains("location.search")
-                        || content.contains("location.hash")
-                        || content.contains("document.cookie")
-                        || content.contains("window.name")
-                        || content.contains("postMessage");
+                    let content_str: &str = &content;
+                    let has_dynamic_input = find_in(&FIND_FETCH_PAREN, content_str)
+                        || find_in(&FIND_XMLHTTPREQUEST, content_str)
+                        || find_in(&FIND_LOCATION_SEARCH, content_str)
+                        || find_in(&FIND_LOCATION_HASH, content_str)
+                        || find_in(&FIND_DOCUMENT_COOKIE, content_str)
+                        || find_in(&FIND_WINDOW_NAME, content_str)
+                        || find_in(&FIND_POSTMESSAGE, content_str);
                     if !has_dynamic_input {
                         continue; // Pure static HTML with hardcoded data
                     }
@@ -156,18 +158,18 @@ impl Detector for XssDetector {
                     if XSS_PATTERN.is_match(line) {
                         // Word-boundary checks to avoid FPs like inputStream, maxInput (#24)
                         let line_lower = line.to_lowercase();
-                        let has_user_input = line_lower.contains("req.")
-                            || line_lower.contains("props.")
-                            || line_lower.contains("req.params")
-                            || line_lower.contains("req.query")
+                        let has_user_input = find_in(&FIND_REQ_DOT, &line_lower)
+                            || find_in(&FIND_PROPS_DOT, &line_lower)
+                            || find_in(&FIND_REQ_PARAMS, &line_lower)
+                            || find_in(&FIND_REQ_QUERY, &line_lower)
                             || line_lower.contains(".params[")
                             || line_lower.contains(".query[")
-                            || line_lower.contains("user_input")
+                            || find_in(&FIND_USER_INPUT, &line_lower)
                             || line_lower.contains("userinput")
                             || line_lower.contains("form_data")
                             || line_lower.contains("formdata")
-                            || line_lower.contains("request.body")
-                            || line_lower.contains("request.query");
+                            || find_in(&FIND_REQUEST_BODY, &line_lower)
+                            || find_in(&FIND_REQUEST_QUERY, &line_lower);
 
                         let line_num = (i + 1) as u32;
 

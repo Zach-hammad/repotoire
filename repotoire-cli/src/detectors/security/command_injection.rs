@@ -8,6 +8,7 @@ use regex::Regex;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
+use crate::detectors::fast_search::{find_in, *};
 use crate::detectors::user_input::has_nearby_user_input;
 
 // Be specific about shell execution patterns - avoid matching RegExp.exec(), String.prototype.exec(), etc.
@@ -123,20 +124,21 @@ impl Detector for CommandInjectionDetector {
                 Some(c) => c,
                 None => continue,
             };
-            if !raw.contains("os.system")
-                && !raw.contains("os.popen")
-                && !raw.contains("subprocess")
-                && !raw.contains("child_process")
-                && !raw.contains("execSync")
-                && !raw.contains("execAsync")
-                && !raw.contains("spawnSync")
-                && !raw.contains("shell_exec")
-                && !raw.contains("proc_open")
-                && !raw.contains("exec.Command")
-                && !raw.contains("Runtime.getRuntime")
-                && !raw.contains("ProcessBuilder")
-                && !raw.contains("shell=True")
-                && !raw.contains("shell: true")
+            let raw_str: &str = &raw;
+            if !find_in(&FIND_OS_SYSTEM, raw_str)
+                && !find_in(&FIND_OS_POPEN, raw_str)
+                && !find_in(&FIND_SUBPROCESS, raw_str)
+                && !find_in(&FIND_CHILD_PROCESS, raw_str)
+                && !find_in(&FIND_EXEC_SYNC, raw_str)
+                && !find_in(&FIND_EXEC_ASYNC, raw_str)
+                && !find_in(&FIND_SPAWN_SYNC, raw_str)
+                && !find_in(&FIND_SHELL_EXEC, raw_str)
+                && !find_in(&FIND_PROC_OPEN, raw_str)
+                && !find_in(&FIND_EXEC_COMMAND, raw_str)
+                && !find_in(&FIND_RUNTIME_GETRUNTIME, raw_str)
+                && !find_in(&FIND_PROCESS_BUILDER, raw_str)
+                && !find_in(&FIND_SHELL_TRUE, raw_str)
+                && !find_in(&FIND_SHELL_TRUE_JS, raw_str)
             {
                 continue;
             }
@@ -149,16 +151,16 @@ impl Detector for CommandInjectionDetector {
                 let file_str = path.to_string_lossy();
 
                 // Check if this is a build/script file (developer-controlled, not user-facing)
-                let is_build_script = file_str.contains("/scripts/")
-                    || file_str.contains("/build/")
-                    || file_str.contains("/tools/")
-                    || file_str.contains("/ci/")
-                    || file_str.contains("/.github/")
-                    || file_str.contains("/gulp")
-                    || file_str.contains("/grunt")
-                    || file_str.contains("webpack")
-                    || file_str.contains("rollup")
-                    || file_str.contains("vite.config")
+                let is_build_script = find_in(&FIND_SCRIPTS, &file_str)
+                    || find_in(&FIND_BUILD, &file_str)
+                    || find_in(&FIND_TOOLS, &file_str)
+                    || find_in(&FIND_CI, &file_str)
+                    || find_in(&FIND_GITHUB, &file_str)
+                    || find_in(&FIND_GULP, &file_str)
+                    || find_in(&FIND_GRUNT, &file_str)
+                    || find_in(&FIND_WEBPACK, &file_str)
+                    || find_in(&FIND_ROLLUP, &file_str)
+                    || find_in(&FIND_VITE_CONFIG, &file_str)
                     || file_str.ends_with(".config.js")
                     || file_str.ends_with(".config.ts");
 
@@ -243,15 +245,15 @@ impl Detector for CommandInjectionDetector {
                     // Check for direct shell execution with template literal
                     if SHELL_EXEC.is_match(line) {
                         // Check for user input sources (direct references on this line)
-                        let has_user_input = line.contains("req.")
-                            || line.contains("request.")
+                        let has_user_input = find_in(&FIND_REQ_DOT, line)
+                            || find_in(&FIND_REQUEST_DOT, line)
                             || line.contains("params.")
-                            || line.contains("params[")
+                            || find_in(&FIND_PARAMS_BRACKET, line)
                             || line.contains("query.")
                             || line.contains("body.")
-                            || line.contains("input")
-                            || line.contains("argv")
-                            || line.contains("args")
+                            || find_in(&FIND_INPUT, line)
+                            || find_in(&FIND_ARGV, line)
+                            || find_in(&FIND_ARGS, line)
                             // Also check for interpolated variable names that imply user input
                             // e.g., ${userId}, ${userInput}, ${id}, ${cmd}, ${command}
                             // Use raw_line here because masking replaces template strings with spaces
@@ -276,34 +278,34 @@ impl Detector for CommandInjectionDetector {
 
                         // Check for string interpolation ON THIS LINE
                         // Use raw_line for ${} checks since masking replaces template strings
-                        let has_interpolation = line.contains("f\"")
-                            || raw_line.contains("${")
-                            || line.contains("+ ")
-                            || line.contains(".format(");
+                        let has_interpolation = find_in(&FIND_F_QUOTE, line)
+                            || find_in(&FIND_DOLLAR_BRACE, raw_line)
+                            || find_in(&FIND_PLUS_SPACE, line)
+                            || find_in(&FIND_DOT_FORMAT, line);
 
                         // Check for template literal with interpolation ON THIS LINE
                         // Use raw_line because masking replaces template_string nodes with spaces
                         let has_template_interpolation =
-                            raw_line.contains("`") && raw_line.contains("${");
+                            find_in(&FIND_BACKTICK, raw_line) && find_in(&FIND_DOLLAR_BRACE, raw_line);
 
                         // Check if exec is using a dangerous variable we identified earlier
                         let uses_dangerous_var = dangerous_vars.iter().any(|v| line.contains(v));
 
                         // Python subprocess shell=True is always dangerous
                         let has_shell_true =
-                            line.contains("shell=True") || line.contains("shell: true");
+                            find_in(&FIND_SHELL_TRUE, line) || find_in(&FIND_SHELL_TRUE_JS, line);
 
                         // Check for SAFE patterns that reduce risk:
                         // 1. process.env.* - environment variables are developer-controlled
                         // 2. __dirname, __filename - Node.js path constants
                         // 3. path.join, path.resolve - safe path construction
                         // 4. UPPER_CASE variables - likely constants
-                        let has_safe_source = line.contains("process.env")
-                            || line.contains("__dirname")
-                            || line.contains("__filename")
-                            || line.contains("path.join")
-                            || line.contains("path.resolve")
-                            || line.contains("cwd()")
+                        let has_safe_source = find_in(&FIND_PROCESS_ENV, line)
+                            || find_in(&FIND_DIRNAME, line)
+                            || find_in(&FIND_FILENAME, line)
+                            || find_in(&FIND_PATH_JOIN, line)
+                            || find_in(&FIND_PATH_RESOLVE, line)
+                            || find_in(&FIND_CWD, line)
                             || raw_line.contains("${ROOT")
                             || raw_line.contains("${DIR")
                             || raw_line.contains("${PATH");
@@ -366,11 +368,11 @@ impl Detector for CommandInjectionDetector {
                     }
                     // Fallback: Also flag template literals with ${} passed directly to exec-like functions
                     // but ONLY if SHELL_EXEC didn't already match (avoid duplicates)
-                    else if line.contains("exec(")
-                        || line.contains("execSync(")
-                        || line.contains("execAsync(")
+                    else if find_in(&FIND_EXEC_PAREN, line)
+                        || find_in(&FIND_EXEC_SYNC_PAREN, line)
+                        || find_in(&FIND_EXEC_ASYNC_PAREN, line)
                     {
-                        if raw_line.contains("`") && raw_line.contains("${") {
+                        if find_in(&FIND_BACKTICK, raw_line) && find_in(&FIND_DOLLAR_BRACE, raw_line) {
                             let (severity, description) = check_taint(
                                 "Template literal with variable interpolation passed to exec(). This is a classic command injection pattern."
                             );
@@ -422,12 +424,12 @@ impl Detector for CommandInjectionDetector {
                     // Check for direct exec(req.body.command) pattern in JavaScript
                     // This catches exec(userInput) without template literals
                     if JS_EXEC_DIRECT.is_match(line) {
-                        let has_direct_user_input = line.contains("req.body")
-                            || line.contains("req.query")
-                            || line.contains("req.params")
-                            || line.contains("request.body")
-                            || line.contains("request.query")
-                            || line.contains("request.params");
+                        let has_direct_user_input = find_in(&FIND_REQ_BODY, line)
+                            || find_in(&FIND_REQ_QUERY, line)
+                            || find_in(&FIND_REQ_PARAMS, line)
+                            || find_in(&FIND_REQUEST_BODY, line)
+                            || find_in(&FIND_REQUEST_QUERY, line)
+                            || find_in(&FIND_REQUEST_PARAMS, line);
 
                         if has_direct_user_input {
                             let (severity, description) = check_taint(

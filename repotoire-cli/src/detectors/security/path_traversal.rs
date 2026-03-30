@@ -2,6 +2,7 @@
 
 use crate::detectors::base::{Detector, DetectorConfig};
 use crate::detectors::detector_context::ContentFlags;
+use crate::detectors::fast_search::{find_in, *};
 use crate::detectors::taint::{TaintAnalysisResult, TaintAnalyzer, TaintCategory};
 use crate::models::{Finding, Severity};
 use anyhow::Result;
@@ -126,29 +127,30 @@ impl Detector for PathTraversalDetector {
             // Inline fallback pre-filter when content flags are empty (tests).
             // Must cover the same keywords as ContentFlags FILE_OPS + PATH_OPS.
             if det_ctx.content_flags.is_empty() {
-                let has_relevant = raw.contains("open(")
-                    || raw.contains("readFile")
-                    || raw.contains("writeFile")
-                    || raw.contains("path.join")
-                    || raw.contains("path.resolve")
-                    || raw.contains("os.path")
-                    || raw.contains("sendFile")
-                    || raw.contains("send_file")
-                    || raw.contains("serve_file")
-                    || raw.contains("unlink")
-                    || raw.contains("rmdir")
-                    || raw.contains("mkdir")
-                    || raw.contains("copyFile")
-                    || raw.contains("rename(")
-                    || raw.contains("os.remove")
-                    || raw.contains("shutil")
-                    || raw.contains("filepath")
-                    || raw.contains("pathlib")
-                    || raw.contains("createReadStream")
-                    || raw.contains("createWriteStream")
-                    || raw.contains("appendFile")
-                    || raw.contains("statSync")
-                    || raw.contains("accessSync");
+                let raw_str: &str = &raw;
+                let has_relevant = find_in(&FIND_OPEN_PAREN, raw_str)
+                    || find_in(&FIND_READ_FILE, raw_str)
+                    || find_in(&FIND_WRITE_FILE, raw_str)
+                    || find_in(&FIND_PATH_JOIN, raw_str)
+                    || find_in(&FIND_PATH_RESOLVE, raw_str)
+                    || find_in(&FIND_OS_PATH, raw_str)
+                    || find_in(&FIND_SEND_FILE, raw_str)
+                    || find_in(&FIND_SEND_FILE_SNAKE, raw_str)
+                    || find_in(&FIND_SERVE_FILE, raw_str)
+                    || find_in(&FIND_UNLINK, raw_str)
+                    || find_in(&FIND_RMDIR, raw_str)
+                    || find_in(&FIND_MKDIR, raw_str)
+                    || find_in(&FIND_COPY_FILE, raw_str)
+                    || find_in(&FIND_RENAME_PAREN, raw_str)
+                    || find_in(&FIND_OS_REMOVE, raw_str)
+                    || find_in(&FIND_SHUTIL, raw_str)
+                    || find_in(&FIND_FILEPATH, raw_str)
+                    || find_in(&FIND_PATHLIB, raw_str)
+                    || find_in(&FIND_CREATE_READ_STREAM, raw_str)
+                    || find_in(&FIND_CREATE_WRITE_STREAM, raw_str)
+                    || find_in(&FIND_APPEND_FILE, raw_str)
+                    || find_in(&FIND_STAT_SYNC, raw_str)
+                    || find_in(&FIND_ACCESS_SYNC, raw_str);
                 if !has_relevant {
                     continue;
                 }
@@ -188,30 +190,30 @@ impl Detector for PathTraversalDetector {
                     }
 
                     // More specific user input patterns - avoid matching variable names like "input_stream"
-                    let has_user_input = line.contains("req.params")
-                        || line.contains("req.query")
-                        || line.contains("req.body")
-                        || line.contains("req.file")
-                        || line.contains("request.GET")
-                        || line.contains("request.POST")
-                        || line.contains("request.FILES")
-                        || line.contains("request.args")
-                        || line.contains("request.form")
-                        || line.contains("request.data")
-                        || line.contains("request.values")
-                        || line.contains("params[")
-                        || line.contains("input(")
-                        || line.contains("sys.argv")
-                        || line.contains("process.argv")
-                        || line.contains("r.URL")
-                        || line.contains("c.Param")
-                        || line.contains("c.Query")
-                        || line.contains("FormValue")
-                        || line.contains("r.Form")
-                        || line.contains("query[")
-                        || line.contains("query.get")
-                        || line.contains("body[")
-                        || line.contains("body.get");
+                    let has_user_input = find_in(&FIND_REQ_PARAMS, line)
+                        || find_in(&FIND_REQ_QUERY, line)
+                        || find_in(&FIND_REQ_BODY, line)
+                        || find_in(&FIND_REQ_FILE, line)
+                        || find_in(&FIND_REQUEST_GET, line)
+                        || find_in(&FIND_REQUEST_POST, line)
+                        || find_in(&FIND_REQUEST_FILES, line)
+                        || find_in(&FIND_REQUEST_ARGS, line)
+                        || find_in(&FIND_REQUEST_FORM, line)
+                        || find_in(&FIND_REQUEST_DATA, line)
+                        || find_in(&FIND_REQUEST_VALUES, line)
+                        || find_in(&FIND_PARAMS_BRACKET, line)
+                        || find_in(&FIND_INPUT_PAREN, line)
+                        || find_in(&FIND_SYS_ARGV, line)
+                        || find_in(&FIND_PROCESS_ARGV, line)
+                        || find_in(&FIND_R_URL, line)
+                        || find_in(&FIND_C_PARAM, line)
+                        || find_in(&FIND_C_QUERY, line)
+                        || find_in(&FIND_FORM_VALUE, line)
+                        || find_in(&FIND_R_FORM, line)
+                        || find_in(&FIND_QUERY_BRACKET, line)
+                        || find_in(&FIND_QUERY_GET, line)
+                        || find_in(&FIND_BODY_BRACKET, line)
+                        || find_in(&FIND_BODY_GET, line);
 
                     let line_num = (i + 1) as u32;
 

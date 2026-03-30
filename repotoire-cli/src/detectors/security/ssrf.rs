@@ -1,6 +1,7 @@
 //! SSRF Detector
 
 use crate::detectors::base::{Detector, DetectorConfig};
+use crate::detectors::fast_search::{find_in, *};
 use crate::detectors::taint::{TaintAnalysisResult, TaintAnalyzer, TaintCategory};
 use crate::models::{deterministic_finding_id, Finding, Severity};
 use anyhow::Result;
@@ -105,27 +106,27 @@ impl Detector for SsrfDetector {
                     if HTTP_CLIENT.is_match(line) {
                         // Skip relative URLs - they always hit same-origin server
                         // Pattern: fetch('/api/...) or fetch(`/api/...)
-                        if line.contains("fetch('/")
-                            || line.contains("fetch(`/")
-                            || line.contains("fetch(\"/")
+                        if find_in(&FIND_FETCH_SLASH_SINGLE, line)
+                            || find_in(&FIND_FETCH_BACKTICK_SLASH, line)
+                            || find_in(&FIND_FETCH_DQUOTE_SLASH, line)
                         {
                             continue;
                         }
 
                         // Skip config constant URLs (API_URL, BASE_URL, etc.)
                         // These are from env/config, not user input
-                        if line.contains("API_URL")
-                            || line.contains("BASE_URL")
-                            || line.contains("SERVER_URL")
-                            || line.contains("BACKEND_URL")
-                            || line.contains("apiUrl")
-                            || line.contains("baseUrl")
+                        if find_in(&FIND_API_URL, line)
+                            || find_in(&FIND_BASE_URL, line)
+                            || find_in(&FIND_SERVER_URL, line)
+                            || find_in(&FIND_BACKEND_URL, line)
+                            || find_in(&FIND_API_URL_CAMEL, line)
+                            || find_in(&FIND_BASE_URL_CAMEL, line)
                         {
                             // Additional check: must have interpolation to be potential SSRF
                             // If it's just API_URL + "/path", that's safe
-                            let has_dynamic_path = line.contains("params")
-                                || line.contains("query")
-                                || (line.contains("${")
+                            let has_dynamic_path = find_in(&FIND_PARAMS, line)
+                                || find_in(&FIND_DOT_QUERY, line)
+                                || (find_in(&FIND_DOLLAR_BRACE, line)
                                     && !line.contains("${API_URL")
                                     && !line.contains("${BASE_URL")
                                     && !line.contains("${SERVER_URL"));
@@ -143,7 +144,7 @@ impl Detector for SsrfDetector {
                             let context_str = context.join("\n").to_lowercase();
 
                             // URL variable comes from environment
-                            context_str.contains("process.env")
+                            find_in(&FIND_PROCESS_ENV, &context_str)
                                 || context_str.contains("env.get(")
                                 || context_str.contains("os.environ")
                                 || context_str.contains("std::env")
@@ -159,12 +160,12 @@ impl Detector for SsrfDetector {
                             continue;
                         }
 
-                        let has_user_input = line.contains("req.")
-                            || line.contains("request.body")
-                            || line.contains("request.query")
-                            || line.contains("request.params")
-                            || line.contains("ctx.params")
-                            || line.contains("ctx.query");
+                        let has_user_input = find_in(&FIND_REQ_DOT, line)
+                            || find_in(&FIND_REQUEST_BODY, line)
+                            || find_in(&FIND_REQUEST_QUERY, line)
+                            || find_in(&FIND_REQUEST_PARAMS, line)
+                            || find_in(&FIND_CTX_PARAMS, line)
+                            || find_in(&FIND_CTX_QUERY, line);
                         if has_user_input {
                             let line_num = (i + 1) as u32;
 

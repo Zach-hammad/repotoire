@@ -1,4 +1,6 @@
-/// Check if any line within ±window of `line_num` contains user-input indicators.
+use crate::detectors::fast_search::{find_in, *};
+
+/// Check if any line within +/-window of `line_num` contains user-input indicators.
 ///
 /// Uses specific patterns to avoid false positives from generic words like "data":
 /// - HTTP request accessors: `req.`, `request.`, `.body`, `.query`, `.params`
@@ -9,17 +11,17 @@ pub fn has_nearby_user_input(lines: &[&str], line_num: usize, window: usize) -> 
     let end = (line_num + window + 1).min(lines.len());
     lines[start..end].iter().any(|l| {
         // HTTP request object accessors
-        l.contains("req.") || l.contains("request.") || l.contains("r.URL")
+        find_in(&FIND_REQ_DOT, l) || find_in(&FIND_REQUEST_DOT, l) || find_in(&FIND_R_URL, l)
         // Body/query/params accessors
-        || l.contains(".body") || l.contains(".query") || l.contains(".params")
+        || find_in(&FIND_DOT_BODY, l) || find_in(&FIND_DOT_QUERY, l) || find_in(&FIND_DOT_PARAMS, l)
         // Framework-specific input methods
-        || l.contains("getParameter") || l.contains("FormValue")
-        || l.contains("getInputStream") || l.contains("PostForm")
-        || l.contains("getHeader") || l.contains("r.Form")
+        || find_in(&FIND_GET_PARAMETER, l) || find_in(&FIND_FORM_VALUE, l)
+        || find_in(&FIND_GET_INPUT_STREAM, l) || find_in(&FIND_POST_FORM, l)
+        || find_in(&FIND_GET_HEADER, l) || find_in(&FIND_R_FORM, l)
         // Common user-input variable names
-        || l.contains("user_input") || l.contains("userInput")
-        || l.contains("user_data") || l.contains("userData")
-        || l.contains("payload")
+        || find_in(&FIND_USER_INPUT, l) || find_in(&FIND_USER_INPUT_CAMEL, l)
+        || find_in(&FIND_USER_DATA, l) || find_in(&FIND_USER_DATA_CAMEL, l)
+        || find_in(&FIND_PAYLOAD, l)
     })
 }
 

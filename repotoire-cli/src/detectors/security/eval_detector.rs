@@ -12,6 +12,7 @@
 //! CWE-78: OS Command Injection
 
 use crate::detectors::base::{Detector, DetectorConfig};
+use crate::detectors::fast_search::{find_in, *};
 use crate::detectors::taint::{TaintAnalyzer, TaintCategory};
 use crate::models::{Finding, Severity};
 use anyhow::Result;
@@ -371,14 +372,15 @@ impl EvalDetector {
                 Some(c) => c,
                 None => continue,
             };
-            if !raw.contains("eval(")
-                && !raw.contains("exec(")
-                && !raw.contains("__import__")
-                && !raw.contains("import_module")
-                && !raw.contains("os.system")
-                && !raw.contains("os.popen")
-                && !raw.contains("subprocess")
-                && !raw.contains("shell=True")
+            let raw_str: &str = &raw;
+            if !find_in(&FIND_EVAL_PAREN, raw_str)
+                && !find_in(&FIND_EXEC_PAREN, raw_str)
+                && !find_in(&FIND_DUNDER_IMPORT, raw_str)
+                && !find_in(&FIND_IMPORT_MODULE, raw_str)
+                && !find_in(&FIND_OS_SYSTEM, raw_str)
+                && !find_in(&FIND_OS_POPEN, raw_str)
+                && !find_in(&FIND_SUBPROCESS, raw_str)
+                && !find_in(&FIND_SHELL_TRUE, raw_str)
             {
                 continue;
             }
