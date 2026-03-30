@@ -356,6 +356,21 @@ impl AnalysisEngine {
             )
         });
 
+        // Stage 4.5: Ownership enrich — DOA-based file ownership from git history
+        let ownership_model = if !config.no_git && self.project_config.ownership.enabled {
+            let ownership_out = timed(&mut timings, "ownership_enrich", || {
+                ownership_enrich::ownership_enrich_stage(
+                    &ownership_enrich::OwnershipEnrichInput {
+                        repo_path: &self.repo_path,
+                        ownership_config: self.project_config.ownership.to_runtime(),
+                    },
+                )
+            })?;
+            Some(Arc::new(ownership_out.model))
+        } else {
+            None
+        };
+
         // Stage 5: Calibrate — learn adaptive thresholds from the codebase
         let calibrate_out = timed(&mut timings, "calibrate", || {
             calibrate::calibrate_stage(&calibrate::CalibrateInput {
@@ -381,6 +396,7 @@ impl AnalysisEngine {
                 file_churn: Arc::clone(&file_churn),
                 co_change_matrix: co_change_arc.as_ref().map(Arc::clone),
                 all_detectors: config.all_detectors,
+                ownership: ownership_model.clone(),
                 // Cold path — no incremental hints
                 changed_files: None,
                 topology_changed: true,
@@ -572,6 +588,21 @@ impl AnalysisEngine {
             (frozen, file_churn, co_change)
         };
 
+        // Stage 4.5: Ownership enrich — DOA-based file ownership from git history
+        let ownership_model = if !config.no_git && self.project_config.ownership.enabled {
+            let ownership_out = timed(&mut timings, "ownership_enrich", || {
+                ownership_enrich::ownership_enrich_stage(
+                    &ownership_enrich::OwnershipEnrichInput {
+                        repo_path: &self.repo_path,
+                        ownership_config: self.project_config.ownership.to_runtime(),
+                    },
+                )
+            })?;
+            Some(Arc::new(ownership_out.model))
+        } else {
+            None
+        };
+
         // Stage 5: Calibrate — reuse cached style_profile, rebuild ngram if None
         let style_profile = prev_state.style_profile;
         let ngram_model = if prev_state.ngram_model.is_some() {
@@ -611,6 +642,7 @@ impl AnalysisEngine {
                 file_churn: Arc::clone(&file_churn),
                 co_change_matrix: co_change.as_ref().map(Arc::clone),
                 all_detectors: config.all_detectors,
+                ownership: ownership_model.clone(),
                 // Incremental hints
                 changed_files: Some(&delta_files),
                 topology_changed,

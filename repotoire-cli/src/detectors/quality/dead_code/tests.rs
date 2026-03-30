@@ -544,5 +544,6 @@ fn make_test_analysis_ctx_full(
         git_churn: Arc::new(HashMap::new()),
         co_change_summary: Arc::new(HashMap::new()),
         co_change_matrix: None,
+        ownership: None,
     }
 }

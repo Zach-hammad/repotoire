@@ -74,6 +74,10 @@ pub struct AnalysisContext<'g> {
     /// Full co-change matrix for pairwise file coupling queries.
     /// `None` when git history is unavailable or co-change was not computed.
     pub co_change_matrix: Option<Arc<crate::git::co_change::CoChangeMatrix>>,
+
+    /// DOA-based file ownership model for bus factor analysis.
+    /// `None` when ownership analysis is disabled or git history is unavailable.
+    pub ownership: Option<Arc<crate::git::ownership::OwnershipModel>>,
 }
 
 impl<'g> AnalysisContext<'g> {
@@ -227,6 +231,7 @@ impl<'g> AnalysisContext<'g> {
             git_churn: Arc::new(HashMap::new()),
             co_change_summary: Arc::new(HashMap::new()),
             co_change_matrix: None,
+            ownership: None,
         }
     }
 
@@ -311,6 +316,7 @@ impl<'g> AnalysisContext<'g> {
             git_churn: Arc::new(HashMap::new()),
             co_change_summary: Arc::new(HashMap::new()),
             co_change_matrix: None,
+            ownership: None,
         }
     }
 }
