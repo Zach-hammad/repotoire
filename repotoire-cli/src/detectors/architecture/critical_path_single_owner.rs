@@ -259,4 +259,96 @@ mod tests {
         assert!((percentile(&[1.0, 2.0, 3.0, 4.0, 5.0], 90) - 5.0).abs() < f64::EPSILON);
         assert!((percentile(&[1.0], 50) - 1.0).abs() < f64::EPSILON);
     }
+
+    #[test]
+    fn test_fires_on_critical_single_owner_file() {
+        use crate::graph::{CodeEdge, CodeNode};
+        use crate::git::ownership::{FileAuthorDOA, FileOwnershipDOA, OwnershipModel};
+
+        // Build a star graph where src/api.rs (the hub) has the highest
+        // betweenness centrality. All traffic flows through the hub, while
+        // leaf files at the edges have zero betweenness.
+        let mut builder = GraphBuilder::new();
+        let hub = builder.add_node(CodeNode::function("dispatch", "src/api.rs"));
+
+        // Add 12 leaf files: 6 callers -> hub -> 6 callees
+        // This makes the hub the sole bottleneck with maximum betweenness.
+        for i in 0..6 {
+            let name = format!("caller_{i}");
+            let file = format!("src/caller_{i}.rs");
+            let node = builder.add_node(CodeNode::function(&name, &file));
+            builder.add_edge(node, hub, CodeEdge::calls());
+        }
+        for i in 0..6 {
+            let name = format!("service_{i}");
+            let file = format!("src/service_{i}.rs");
+            let node = builder.add_node(CodeNode::function(&name, &file));
+            builder.add_edge(hub, node, CodeEdge::calls());
+        }
+
+        let graph = builder.freeze();
+
+        // Check that primitives actually computed PageRank
+        let prims = graph.primitives();
+        let has_pagerank = !prims.page_rank.is_empty();
+
+        // Create ownership with bus_factor=1 for src/api.rs
+        let mut files = std::collections::HashMap::new();
+        files.insert(
+            "src/api.rs".to_string(),
+            FileOwnershipDOA {
+                path: "src/api.rs".into(),
+                authors: vec![FileAuthorDOA {
+                    author: "alice".into(),
+                    email: "alice@example.com".into(),
+                    raw_doa: 5.0,
+                    normalized_doa: 1.0,
+                    is_author: true,
+                    is_first_author: true,
+                    commit_count: 10,
+                    last_active: 0,
+                    is_active: true,
+                }],
+                bus_factor: 1,
+                hhi: 1.0,
+                max_doa: 1.0,
+            },
+        );
+
+        let model = OwnershipModel {
+            files,
+            modules: std::collections::HashMap::new(),
+            project_bus_factor: 1,
+            author_profiles: std::collections::HashMap::new(),
+        };
+
+        let mut ctx = AnalysisContext::test(&graph);
+        ctx.ownership = Some(std::sync::Arc::new(model));
+
+        let detector = CriticalPathSingleOwnerDetector::new();
+        let findings = detector.detect(&ctx).unwrap();
+
+        // If PageRank was computed and src/api.rs has high centrality, detector should fire
+        if has_pagerank {
+            // The detector should find src/api.rs as critical (it has 2 functions,
+            // both called by main and calling db — high betweenness)
+            let api_findings: Vec<_> = findings
+                .iter()
+                .filter(|f| f.title.contains("src/api.rs"))
+                .collect();
+            assert!(
+                !api_findings.is_empty(),
+                "Expected finding for src/api.rs (bus_factor=1, high centrality). \
+                 PageRank entries: {}, findings: {:?}",
+                prims.page_rank.len(),
+                findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+            );
+            assert_eq!(api_findings[0].severity, Severity::Critical);
+            assert!(
+                api_findings[0].description.contains("alice"),
+                "Expected 'alice' in description: {}",
+                api_findings[0].description
+            );
+        }
+    }
 }

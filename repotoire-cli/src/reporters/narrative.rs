@@ -101,6 +101,57 @@ pub fn generate_narrative(ctx: &ReportContext) -> String {
                     if orphaned == 1 { "s" } else { "ve" },
                 ));
             }
+
+            // Project bus factor interpretation
+            if let Some(pbf) = git.project_bus_factor {
+                let interp = match pbf {
+                    0..=1 => "critically low",
+                    2..=3 => "moderate",
+                    _ => "healthy",
+                };
+                sentences.push(format!(
+                    "The project bus factor is {} ({interp}).",
+                    pbf
+                ));
+            }
+
+            // Name top at-risk modules
+            let mut dir_risk: std::collections::HashMap<String, usize> =
+                std::collections::HashMap::new();
+            for fo in &git.file_ownership {
+                if fo.bus_factor <= 1 {
+                    let dir = std::path::Path::new(&fo.path)
+                        .parent()
+                        .and_then(|p| p.to_str())
+                        .unwrap_or(".")
+                        .to_string();
+                    *dir_risk.entry(dir).or_default() += 1;
+                }
+            }
+            let mut risky_dirs: Vec<_> = dir_risk.into_iter().collect();
+            risky_dirs.sort_by(|a, b| b.1.cmp(&a.1));
+            if !risky_dirs.is_empty() {
+                let names: Vec<_> =
+                    risky_dirs.iter().take(3).map(|(d, _)| d.as_str()).collect();
+                sentences.push(format!(
+                    "The most knowledge-concentrated modules are: {}.",
+                    names.join(", ")
+                ));
+            }
+
+            // Call out critical-path single owner findings
+            let critical_path_count = h
+                .findings
+                .iter()
+                .filter(|f| f.detector == "critical-path-single-owner")
+                .count();
+            if critical_path_count > 0 {
+                sentences.push(format!(
+                    "{critical_path_count} file{} {} both architecturally critical and owned by a single developer.",
+                    if critical_path_count == 1 { "" } else { "s" },
+                    if critical_path_count == 1 { "is" } else { "are" },
+                ));
+            }
         }
     }
 
