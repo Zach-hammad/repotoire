@@ -107,10 +107,26 @@ pub fn render_with_context(ctx: &ReportContext) -> Result<String> {
         }
     }
 
-    // Bus factor (if git data available)
+    // Bus factor / Knowledge Risk (if git data available)
     if let Some(ref git) = ctx.git_data {
-        if !git.bus_factor_files.is_empty() {
-            // Aggregate bus factor by directory
+        if !git.bus_factor_files.is_empty() || !git.file_ownership.is_empty() {
+            html.push_str("<div class=\"card\">\n<h2>Knowledge Risk</h2>\n");
+
+            // Project bus factor headline
+            if let Some(pbf) = git.project_bus_factor {
+                let (label, color) = match pbf {
+                    0 => ("Critical", "#ef4444"),
+                    1 => ("High Risk", "#f97316"),
+                    2..=3 => ("Moderate", "#eab308"),
+                    _ => ("Healthy", "#22c55e"),
+                };
+                html.push_str(&format!(
+                    "<p style=\"font-size: 1.2rem; margin-bottom: 1rem;\">Project Bus Factor: <strong style=\"color: {}\">{}</strong> <span style=\"color: #64748b;\">({})</span></p>\n",
+                    color, pbf, label
+                ));
+            }
+
+            // Bus factor bar chart by directory
             let mut dir_risk: HashMap<String, usize> = HashMap::new();
             for (path, _bf) in &git.bus_factor_files {
                 let dir = std::path::Path::new(path)
@@ -135,10 +151,56 @@ pub fn render_with_context(ctx: &ReportContext) -> Result<String> {
             if !bar_items.is_empty() {
                 let bar_svg = super::svg::bar_chart::render_bar_chart(&bar_items, "Bus Factor Risk by Directory", 700.0, 0.0);
                 html.push_str(&format!(
-                    "<div class=\"card\">\n<h2>Bus Factor</h2>\n<p style=\"color: #64748b; margin-bottom: 1rem;\">Directories with files that have only 1-2 contributors.</p>\n{}\n</div>\n",
+                    "<p style=\"color: #64748b; margin-bottom: 1rem;\">Directories with files that have only 1-2 contributors.</p>\n{}\n",
                     bar_svg
                 ));
             }
+
+            // Ownership heatmap treemap (colored by bus factor risk)
+            let treemap_items: Vec<super::svg::treemap::TreemapItem> = git.file_ownership.iter()
+                .filter(|fo| !fo.authors.is_empty())
+                .map(|fo| super::svg::treemap::TreemapItem {
+                    label: fo.path.clone(),
+                    size: 1.0,
+                    color_value: 1.0 - (fo.bus_factor as f64 / 5.0).min(1.0),
+                })
+                .collect();
+            if !treemap_items.is_empty() {
+                let treemap_svg = super::svg::treemap::render_treemap(&treemap_items, 800.0, 400.0);
+                html.push_str(&format!(
+                    "<h3 style=\"margin-top: 1.5rem;\">Ownership Heatmap</h3>\n<p style=\"color: #64748b; margin-bottom: 1rem;\">Each file colored by bus factor risk (red = single owner, green = well-distributed).</p>\n{}\n",
+                    treemap_svg
+                ));
+            }
+
+            // Top riskiest files table
+            let mut risky_files: Vec<_> = git.bus_factor_files.iter().collect();
+            risky_files.sort_by_key(|(_, bf)| *bf);
+            risky_files.truncate(15);
+
+            if !risky_files.is_empty() {
+                html.push_str("<h3 style=\"margin-top: 1.5rem;\">Top Riskiest Files</h3>\n");
+                html.push_str("<table style=\"width: 100%; border-collapse: collapse; margin-top: 0.5rem;\">\n");
+                html.push_str("<thead><tr style=\"border-bottom: 2px solid #e2e8f0;\">\n");
+                html.push_str("<th style=\"text-align: left; padding: 0.5rem;\">File</th>\n");
+                html.push_str("<th style=\"text-align: center; padding: 0.5rem;\">Bus Factor</th>\n");
+                html.push_str("<th style=\"text-align: left; padding: 0.5rem;\">Risk</th>\n");
+                html.push_str("</tr></thead>\n<tbody>\n");
+                for (path, bf) in &risky_files {
+                    let (risk_label, risk_color) = match bf {
+                        0 => ("Orphaned", "#ef4444"),
+                        1 => ("Critical", "#f97316"),
+                        _ => ("At Risk", "#eab308"),
+                    };
+                    html.push_str(&format!(
+                        "<tr style=\"border-bottom: 1px solid #f1f5f9;\"><td style=\"padding: 0.4rem 0.5rem; font-family: monospace; font-size: 0.85rem;\">{}</td><td style=\"text-align: center; padding: 0.4rem;\">{}</td><td style=\"padding: 0.4rem;\"><span style=\"color: {}; font-weight: 600;\">{}</span></td></tr>\n",
+                        html_escape(path), bf, risk_color, risk_label
+                    ));
+                }
+                html.push_str("</tbody></table>\n");
+            }
+
+            html.push_str("</div>\n");
         }
     }
 

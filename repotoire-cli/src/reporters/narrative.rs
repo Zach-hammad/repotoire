@@ -66,15 +66,31 @@ pub fn generate_narrative(ctx: &ReportContext) -> String {
         }
     }
 
-    // 4. If git_data exists and bus_factor_files > 30% of total_files.
+    // 4. Knowledge risk — expanded bus factor analysis
     if let Some(git) = ctx.git_data.as_ref() {
         let bus_count = git.bus_factor_files.len();
-        if h.total_files > 0 {
+        if h.total_files > 0 && bus_count > 0 {
             let pct = bus_count * 100 / h.total_files;
+            let orphaned = git.bus_factor_files.iter().filter(|(_, bf)| *bf == 0).count();
+
             if pct > 30 {
                 sentences.push(format!(
-                    "Knowledge risk: {}% of files have only 1-2 contributors.",
+                    "Knowledge risk is elevated: {}% of files have only 1-2 contributors.",
                     pct
+                ));
+            } else if pct > 10 {
+                sentences.push(format!(
+                    "Some knowledge concentration detected: {}% of files have limited contributor diversity.",
+                    pct
+                ));
+            }
+
+            if orphaned > 0 {
+                sentences.push(format!(
+                    "{} file{} ha{} no active maintainer \u{2014} all contributing authors are inactive.",
+                    orphaned,
+                    if orphaned == 1 { "" } else { "s" },
+                    if orphaned == 1 { "s" } else { "ve" },
                 ));
             }
         }

@@ -778,7 +778,7 @@ mod tests {
         let all = create_all_detectors(&init);
         assert!(default.len() > 50, "default detectors: {}", default.len());
         assert!(all.len() > default.len(), "all ({}) should exceed default ({})", all.len(), default.len());
-        assert_eq!(all.len(), 106);
+        assert_eq!(all.len(), 110);
     }
 
     #[test]

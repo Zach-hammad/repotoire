@@ -167,6 +167,7 @@ pub struct AnalysisEngine {
     project_config: ProjectConfig,
     state: Option<state::EngineState>,
     progress: Option<ProgressFn>,
+    ownership_model: Option<Arc<crate::git::ownership::OwnershipModel>>,
 }
 
 impl AnalysisEngine {
@@ -181,6 +182,7 @@ impl AnalysisEngine {
             project_config,
             state: None,
             progress: None,
+            ownership_model: None,
         })
     }
 
@@ -370,6 +372,7 @@ impl AnalysisEngine {
         } else {
             None
         };
+        self.ownership_model = ownership_model.clone();
 
         // Stage 5: Calibrate — learn adaptive thresholds from the codebase
         let calibrate_out = timed(&mut timings, "calibrate", || {
@@ -602,6 +605,7 @@ impl AnalysisEngine {
         } else {
             None
         };
+        self.ownership_model = ownership_model.clone();
 
         // Stage 5: Calibrate — reuse cached style_profile, rebuild ngram if None
         let style_profile = prev_state.style_profile;
@@ -852,6 +856,7 @@ impl AnalysisEngine {
             project_config,
             state: Some(state),
             progress: None,
+            ownership_model: None,
         })
     }
 

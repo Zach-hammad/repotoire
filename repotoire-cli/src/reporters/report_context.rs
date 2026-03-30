@@ -39,6 +39,7 @@ pub struct GitData {
     pub top_co_change: Vec<(String, String, f32)>,
     pub file_ownership: Vec<FileOwnership>,
     pub bus_factor_files: Vec<(String, usize)>,
+    pub project_bus_factor: Option<usize>,
 }
 
 #[derive(Clone)]

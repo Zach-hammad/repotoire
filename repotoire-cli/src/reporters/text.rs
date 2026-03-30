@@ -284,6 +284,11 @@ pub fn render_with_context(ctx: &ReportContext) -> Result<String> {
         }
     }
 
+    // ── Knowledge Risk ──────────────────────────────────────────────
+    if let Some(knowledge_risk) = render_knowledge_risk(ctx) {
+        out.push_str(&knowledge_risk);
+    }
+
     // ── Quick wins ──────────────────────────────────────────────────
     let quick_wins = top_quick_wins(&report.findings, 3);
     if !quick_wins.is_empty() {
@@ -341,6 +346,74 @@ pub fn render_with_context(ctx: &ReportContext) -> Result<String> {
     }
 
     Ok(out)
+}
+
+/// Render knowledge risk section for the text report.
+fn render_knowledge_risk(ctx: &ReportContext) -> Option<String> {
+    let git = ctx.git_data.as_ref()?;
+    if git.bus_factor_files.is_empty() && git.file_ownership.is_empty() {
+        return None;
+    }
+
+    let mut out = String::new();
+    out.push_str(&format!("\n{BOLD}Knowledge Risk{RESET}\n"));
+
+    // Project bus factor
+    if let Some(pbf) = git.project_bus_factor {
+        let interp = match pbf {
+            0 => " (critical)",
+            1 => " (high risk)",
+            2..=3 => " (moderate)",
+            _ => " (healthy)",
+        };
+        out.push_str(&format!("  Project bus factor: {pbf}{interp}\n"));
+    }
+
+    // At-risk modules
+    let mut dir_risk: HashMap<String, (usize, usize)> = HashMap::new();
+    for fo in &git.file_ownership {
+        let dir = std::path::Path::new(&fo.path)
+            .parent()
+            .and_then(|p| p.to_str())
+            .unwrap_or(".")
+            .to_string();
+        let entry = dir_risk.entry(dir).or_insert((0, 0));
+        if fo.bus_factor <= 1 {
+            entry.0 += 1;
+        }
+        entry.1 += 1;
+    }
+    let mut risky_dirs: Vec<_> = dir_risk.into_iter().filter(|(_, (r, _))| *r > 0).collect();
+    risky_dirs.sort_by(|a, b| b.1 .0.cmp(&a.1 .0));
+
+    if !risky_dirs.is_empty() {
+        out.push_str(&format!(
+            "\n  {DIM}At-risk modules (bus factor \u{2264} 1):{RESET}\n"
+        ));
+        for (dir, (risky, total)) in risky_dirs.iter().take(5) {
+            out.push_str(&format!(
+                "    {:<30} \u{2502} {risky}/{total} files at risk\n",
+                dir
+            ));
+        }
+    }
+
+    // Top riskiest files
+    let mut risky_files: Vec<_> = git.bus_factor_files.iter().collect();
+    risky_files.sort_by_key(|(_, bf)| *bf);
+    risky_files.truncate(10);
+
+    if !risky_files.is_empty() {
+        out.push_str(&format!("\n  {DIM}Top riskiest files:{RESET}\n"));
+        for (path, bf) in &risky_files {
+            out.push_str(&format!(
+                "    {:<40} \u{2502} bus factor {bf}\n",
+                path
+            ));
+        }
+    }
+
+    Some(out)
 }
 
 /// A category bucket: counts by severity

@@ -202,10 +202,24 @@ impl super::AnalysisEngine {
             top_co_change = pairs;
         }
 
-        // File ownership from ExtraProps
-        let file_ownership = self.compute_file_ownership(graph);
+        // File ownership from OwnershipModel (replaces old ExtraProps-based compute_file_ownership)
+        let file_ownership = if let Some(ref ownership) = self.ownership_model {
+            ownership.files.values().map(|fo| {
+                crate::reporters::report_context::FileOwnership {
+                    path: fo.path.clone(),
+                    authors: fo.authors.iter()
+                        .map(|a| (a.author.clone(), a.normalized_doa))
+                        .collect(),
+                    bus_factor: fo.bus_factor,
+                }
+            }).collect()
+        } else {
+            self.compute_file_ownership(graph)
+        };
 
-        // Bus factor: files with only 1 author
+        let project_bus_factor = self.ownership_model.as_ref().map(|o| o.project_bus_factor);
+
+        // Bus factor: files with only 1-2 contributors
         let bus_factor_files: Vec<(String, usize)> = file_ownership
             .iter()
             .filter(|fo| fo.bus_factor <= 2)
@@ -225,6 +239,7 @@ impl super::AnalysisEngine {
             top_co_change,
             file_ownership,
             bus_factor_files,
+            project_bus_factor,
         })
     }
 
