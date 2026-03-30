@@ -33,6 +33,7 @@ pub struct TurboQuantCodebook {
     centroids: Vec<f64>,
     boundaries: Vec<f64>,
     dim: usize,
+    #[allow(dead_code)]
     bits: usize,
     num_levels: usize,
 }
@@ -69,6 +70,7 @@ fn lloyd_max_codebook_4bit(dim: usize) -> (Vec<f64>, Vec<f64>) {
 }
 
 /// Naive uniform scalar quantizer for baseline comparison.
+#[cfg(test)]
 pub(crate) fn uniform_codebook_4bit(dim: usize) -> (Vec<f64>, Vec<f64>) {
     let range = 3.0 / (dim as f64).sqrt();
     let num_levels = 16usize;
