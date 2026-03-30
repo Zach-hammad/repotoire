@@ -1,7 +1,7 @@
 //! Pure Rust code analysis detectors — zero external dependencies.
 #![allow(unused_imports)]
 //!
-//! All 106 detectors are built-in Rust. No shelling out to Python, Node, or any external tool.
+//! All 110 detectors are built-in Rust. No shelling out to Python, Node, or any external tool.
 //!
 //! # Architecture
 //!
@@ -12,7 +12,7 @@
 //! Detectors are organized by category:
 //! - `security/` — vulnerabilities, injection, auth, crypto (28 detectors)
 //! - `bugs/` — runtime errors, logic errors, missing async (13 detectors)
-//! - `architecture/` — coupling, dependencies, graph topology (12 detectors)
+//! - `architecture/` — coupling, dependencies, graph topology, bus factor (16 detectors)
 //! - `performance/` — N+1 queries, sync-in-async, hot loops (3 detectors)
 //! - `quality/` — code smells, complexity, naming, style (27 detectors)
 //! - `ai/` — AI-generated code patterns (6 detectors)
