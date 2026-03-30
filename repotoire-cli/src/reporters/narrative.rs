@@ -109,10 +109,7 @@ pub fn generate_narrative(ctx: &ReportContext) -> String {
                     2..=3 => "moderate",
                     _ => "healthy",
                 };
-                sentences.push(format!(
-                    "The project bus factor is {} ({interp}).",
-                    pbf
-                ));
+                sentences.push(format!("The project bus factor is {} ({interp}).", pbf));
             }
 
             // Name top at-risk modules
@@ -131,8 +128,7 @@ pub fn generate_narrative(ctx: &ReportContext) -> String {
             let mut risky_dirs: Vec<_> = dir_risk.into_iter().collect();
             risky_dirs.sort_by(|a, b| b.1.cmp(&a.1));
             if !risky_dirs.is_empty() {
-                let names: Vec<_> =
-                    risky_dirs.iter().take(3).map(|(d, _)| d.as_str()).collect();
+                let names: Vec<_> = risky_dirs.iter().take(3).map(|(d, _)| d.as_str()).collect();
                 sentences.push(format!(
                     "The most knowledge-concentrated modules are: {}.",
                     names.join(", ")

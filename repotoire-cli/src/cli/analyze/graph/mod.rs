@@ -12,7 +12,6 @@ mod edge_builder;
 mod module_lookup;
 mod node_factory;
 
-pub(crate) use edge_builder::AMBIGUOUS_METHOD_NAMES;
 use edge_builder::{build_call_edges_fast, build_import_edges_fast};
 use module_lookup::ModuleLookup;
 use node_factory::{build_class_node, build_func_node, emit_decorator_call_edge};
@@ -23,7 +22,6 @@ use crate::graph::store_models::{
     ExtraProps, FLAG_ADDRESS_TAKEN, FLAG_HAS_DECORATORS, FLAG_IS_ASYNC, FLAG_IS_EXPORTED,
 };
 use crate::graph::{CodeEdge, CodeNode, NodeKind};
-use crate::models::{Class, Function};
 use crate::parsers::streaming::{
     FunctionIndex, ModuleIndex, ParsedFileInfo, StreamingGraphBuilder,
 };
@@ -32,7 +30,7 @@ use anyhow::Result;
 use console::style;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use rayon::prelude::*;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -372,6 +370,7 @@ pub fn build_graph(
 /// Returns a [`ValueStore`] containing all resolved symbolic values extracted
 /// during parsing, with cross-function propagation already applied.
 
+#[allow(dead_code)]
 pub(super) fn build_graph_chunked(
     graph: &mut GraphBuilder,
     repo_path: &Path,

@@ -262,8 +262,8 @@ mod tests {
 
     #[test]
     fn test_fires_on_critical_single_owner_file() {
-        use crate::graph::{CodeEdge, CodeNode};
         use crate::git::ownership::{FileAuthorDOA, FileOwnershipDOA, OwnershipModel};
+        use crate::graph::{CodeEdge, CodeNode};
 
         // Build a star graph where src/api.rs (the hub) has the highest
         // betweenness centrality. All traffic flows through the hub, while
