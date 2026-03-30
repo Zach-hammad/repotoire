@@ -118,7 +118,7 @@ dhat = { version = "0.3", optional = true }
 tikv-jemallocator = { version = "0.6", optional = true }
 
 [features]
-default = []
+default = ["jemalloc"]
 dhat = ["dep:dhat"]
 jemalloc = ["dep:tikv-jemallocator"]
 
