@@ -22,7 +22,11 @@ pub struct TurboQuantConfig {
 
 impl Default for TurboQuantConfig {
     fn default() -> Self {
-        Self { dim: 128, bits: 4, seed: 42 }
+        Self {
+            dim: 128,
+            bits: 4,
+            seed: 42,
+        }
     }
 }
 
@@ -58,10 +62,8 @@ pub struct DistanceTable {
 /// Lloyd-Max optimal centroids for N(0, 1/d) at 4-bit (16 levels).
 fn lloyd_max_codebook_4bit(dim: usize) -> (Vec<f64>, Vec<f64>) {
     let std_centroids = [
-        -2.7326, -2.0690, -1.6180, -1.2562,
-        -0.9424, -0.6568, -0.3882, -0.1284,
-         0.1284,  0.3882,  0.6568,  0.9424,
-         1.2562,  1.6180,  2.0690,  2.7326,
+        -2.7326, -2.0690, -1.6180, -1.2562, -0.9424, -0.6568, -0.3882, -0.1284, 0.1284, 0.3882,
+        0.6568, 0.9424, 1.2562, 1.6180, 2.0690, 2.7326,
     ];
     let scale = 1.0 / (dim as f64).sqrt();
     let centroids: Vec<f64> = std_centroids.iter().map(|&c| c * scale).collect();
@@ -84,7 +86,9 @@ pub(crate) fn uniform_codebook_4bit(dim: usize) -> (Vec<f64>, Vec<f64>) {
 
 /// Find the nearest centroid index for a scalar value.
 pub(crate) fn quantize_scalar(value: f64, boundaries: &[f64]) -> u8 {
-    match boundaries.binary_search_by(|b| b.partial_cmp(&value).unwrap()) {
+    match boundaries
+        .binary_search_by(|b| b.partial_cmp(&value).unwrap_or(std::cmp::Ordering::Equal))
+    {
         Ok(i) => i as u8 + 1,
         Err(i) => i as u8,
     }
@@ -96,8 +100,14 @@ pub(crate) fn quantize_scalar(value: f64, boundaries: &[f64]) -> u8 {
 
 /// Pack 4-bit indices (0-15) into bytes, two per byte, lower nibble first.
 pub fn pack_4bit(indices: &[u8]) -> Vec<u8> {
-    assert!(indices.len() % 2 == 0, "indices length must be even");
-    indices.chunks_exact(2).map(|pair| (pair[0] & 0x0F) | (pair[1] << 4)).collect()
+    assert!(
+        indices.len().is_multiple_of(2),
+        "indices length must be even"
+    );
+    indices
+        .chunks_exact(2)
+        .map(|pair| (pair[0] & 0x0F) | (pair[1] << 4))
+        .collect()
 }
 
 /// Unpack bytes into 4-bit indices.
@@ -123,11 +133,13 @@ impl TurboQuantCodebook {
         let num_levels = 1 << b;
 
         let mut rng = ChaCha8Rng::seed_from_u64(config.seed);
-        let data: Vec<f64> = (0..d * d).map(|_| {
-            let u1: f64 = rng.random();
-            let u2: f64 = rng.random();
-            (-2.0 * (1.0 - u1).ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
-        }).collect();
+        let data: Vec<f64> = (0..d * d)
+            .map(|_| {
+                let u1: f64 = rng.random();
+                let u2: f64 = rng.random();
+                (-2.0 * (1.0 - u1).ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
+            })
+            .collect();
         let g = DMatrix::from_vec(d, d, data);
 
         let qr = g.qr();
@@ -136,7 +148,15 @@ impl TurboQuantCodebook {
 
         let (centroids, boundaries) = lloyd_max_codebook_4bit(d);
 
-        Self { rotation, rotation_t, centroids, boundaries, dim: d, bits: b, num_levels }
+        Self {
+            rotation,
+            rotation_t,
+            centroids,
+            boundaries,
+            dim: d,
+            bits: b,
+            num_levels,
+        }
     }
 
     /// Quantize a raw vector. Normalizes, rotates, scalar-quantizes, packs.
@@ -146,14 +166,22 @@ impl TurboQuantCodebook {
         let inv_norm = if norm > 0.0 { 1.0 / norm } else { 1.0 };
         let x_vec = nalgebra::DVector::from_iterator(self.dim, x.iter().map(|v| v * inv_norm));
         let y = &self.rotation * &x_vec;
-        let indices: Vec<u8> = (0..self.dim).map(|j| quantize_scalar(y[j], &self.boundaries)).collect();
-        QuantizedVector { indices: pack_4bit(&indices), norm }
+        let indices: Vec<u8> = (0..self.dim)
+            .map(|j| quantize_scalar(y[j], &self.boundaries))
+            .collect();
+        QuantizedVector {
+            indices: pack_4bit(&indices),
+            norm,
+        }
     }
 
     /// Reconstruct a quantized vector (lossy).
     pub fn reconstruct(&self, qv: &QuantizedVector) -> Vec<f64> {
         let indices = unpack_4bit(&qv.indices, self.dim);
-        let y_hat: Vec<f64> = indices.iter().map(|&idx| self.centroids[idx as usize]).collect();
+        let y_hat: Vec<f64> = indices
+            .iter()
+            .map(|&idx| self.centroids[idx as usize])
+            .collect();
         let y_vec = nalgebra::DVector::from_vec(y_hat);
         let x_hat = &self.rotation_t * &y_vec;
         x_hat.iter().map(|v| v * qv.norm).collect()
@@ -173,7 +201,10 @@ impl TurboQuantCodebook {
                 table.push(diff * diff);
             }
         }
-        DistanceTable { table, num_levels: self.num_levels }
+        DistanceTable {
+            table,
+            num_levels: self.num_levels,
+        }
     }
 
     /// Approximate squared L2 distance between normalized query and quantized vector.
@@ -302,8 +333,12 @@ mod tests {
     #[test]
     fn test_codebook_sorted() {
         let (centroids, boundaries) = lloyd_max_codebook_4bit(128);
-        for w in centroids.windows(2) { assert!(w[0] < w[1]); }
-        for w in boundaries.windows(2) { assert!(w[0] < w[1]); }
+        for w in centroids.windows(2) {
+            assert!(w[0] < w[1]);
+        }
+        for w in boundaries.windows(2) {
+            assert!(w[0] < w[1]);
+        }
     }
 
     #[test]
@@ -329,11 +364,13 @@ mod tests {
     }
 
     fn random_vec(rng: &mut ChaCha8Rng, dim: usize) -> Vec<f64> {
-        (0..dim).map(|_| {
-            let u1: f64 = rng.random();
-            let u2: f64 = rng.random();
-            (-2.0 * (1.0 - u1).ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
-        }).collect()
+        (0..dim)
+            .map(|_| {
+                let u1: f64 = rng.random();
+                let u2: f64 = rng.random();
+                (-2.0 * (1.0 - u1).ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
+            })
+            .collect()
     }
 
     #[test]
@@ -347,7 +384,10 @@ mod tests {
         let norm_x = x.iter().map(|v| v * v).sum::<f64>().sqrt();
         let norm_xh = x_hat.iter().map(|v| v * v).sum::<f64>().sqrt();
         let cos_sim = dot / (norm_x * norm_xh);
-        assert!(cos_sim > 0.99, "4-bit cosine should be > 0.99, got {cos_sim}");
+        assert!(
+            cos_sim > 0.99,
+            "4-bit cosine should be > 0.99, got {cos_sim}"
+        );
     }
 
     #[test]
@@ -376,16 +416,24 @@ mod tests {
         let xh_norm: f64 = x_hat.iter().map(|v| v * v).sum::<f64>().sqrt();
         let q_hat: Vec<f64> = query.iter().map(|v| v / q_norm).collect();
         let xh_hat: Vec<f64> = x_hat.iter().map(|v| v / xh_norm).collect();
-        let direct_dist: f64 = q_hat.iter().zip(&xh_hat).map(|(a, b)| (a - b).powi(2)).sum();
-        assert!((adc_dist - direct_dist).abs() < 0.01,
-            "ADC={adc_dist}, direct={direct_dist}");
+        let direct_dist: f64 = q_hat
+            .iter()
+            .zip(&xh_hat)
+            .map(|(a, b)| (a - b).powi(2))
+            .sum();
+        assert!(
+            (adc_dist - direct_dist).abs() < 0.01,
+            "ADC={adc_dist}, direct={direct_dist}"
+        );
     }
 
     #[test]
     fn test_knn_returns_k_results() {
         let cb = TurboQuantCodebook::new(TurboQuantConfig::default());
         let mut rng = ChaCha8Rng::seed_from_u64(789);
-        let database: Vec<QuantizedVector> = (0..100).map(|_| cb.quantize(&random_vec(&mut rng, 128))).collect();
+        let database: Vec<QuantizedVector> = (0..100)
+            .map(|_| cb.quantize(&random_vec(&mut rng, 128)))
+            .collect();
         let query = random_vec(&mut rng, 128);
         let results = cb.knn_search(&query, &database, 10);
         assert_eq!(results.len(), 10);

@@ -235,7 +235,10 @@ impl PredictiveCodingEngine {
 
         // === L3: Relational graph features ===
         let relational_scorer = if let Some(cached) = cached_embeddings {
-            tracing::debug!("[predictive] L3 using quantized node2vec embeddings ({} vectors)", cached.entries.len());
+            tracing::debug!(
+                "[predictive] L3 using quantized node2vec embeddings ({} vectors)",
+                cached.entries.len()
+            );
             relational::RelationalScorer::Embedding(
                 embedding_scorer::EmbeddingRelationalScorer::from_cache(cached, 10),
             )

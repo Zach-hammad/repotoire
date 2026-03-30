@@ -61,7 +61,10 @@ fn quantize_naive(x: &[f64], dim: usize) -> (Vec<u8>, f64) {
     let norm: f64 = x.iter().map(|v| v * v).sum::<f64>().sqrt();
     let inv = if norm > 0.0 { 1.0 / norm } else { 1.0 };
     let (centroids, boundaries) = uniform_codebook_4bit(dim);
-    let indices: Vec<u8> = x.iter().map(|v| quantize_scalar(v * inv, &boundaries)).collect();
+    let indices: Vec<u8> = x
+        .iter()
+        .map(|v| quantize_scalar(v * inv, &boundaries))
+        .collect();
     let recon: Vec<f64> = indices
         .iter()
         .map(|&idx| centroids[idx as usize] * norm)
@@ -153,7 +156,10 @@ fn turbo_quant_benchmark() {
     let mut ids: Vec<u32> = embeddings_f64.keys().copied().collect();
     ids.sort();
 
-    let quantized: Vec<QuantizedVector> = ids.iter().map(|id| cb.quantize(&embeddings_f64[id])).collect();
+    let quantized: Vec<QuantizedVector> = ids
+        .iter()
+        .map(|id| cb.quantize(&embeddings_f64[id]))
+        .collect();
     let quant_ms = t_quant.elapsed().as_millis();
 
     // ── 4. Measure compression ratio ─────────────────────────────────────
@@ -227,8 +233,7 @@ fn turbo_quant_benchmark() {
         for &k in &ks {
             let effective_k = k.min(ids.len());
             let exact_topk = exact_knn(query_f64, db_f64_refs, effective_k);
-            let rerank_results =
-                cb.knn_search_rerank(query_f64, &quantized, effective_k, 20);
+            let rerank_results = cb.knn_search_rerank(query_f64, &quantized, effective_k, 20);
             let rerank_topk: Vec<usize> = rerank_results.iter().map(|(i, _)| *i).collect();
             *rerank_recall_sums.get_mut(&k).unwrap() += recall_at_k(&exact_topk, &rerank_topk);
         }

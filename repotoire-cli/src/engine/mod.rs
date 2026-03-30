@@ -388,7 +388,7 @@ impl AnalysisEngine {
                 &cache_dir,
                 frozen.edge_fingerprint,
             )
-            .map(|c| Arc::new(c))
+            .map(Arc::new)
         };
 
         // Stage 6: Detect — run all detectors in parallel
@@ -483,7 +483,6 @@ impl AnalysisEngine {
             last_score: score_out.clone(),
             last_stats: stats.clone(),
         });
-
 
         Ok(AnalysisResult {
             findings: final_findings,
@@ -639,7 +638,7 @@ impl AnalysisEngine {
                 &cache_dir,
                 frozen.edge_fingerprint,
             )
-            .map(|c| Arc::new(c))
+            .map(Arc::new)
         };
 
         // Reuse precomputed data when topology is stable
@@ -758,9 +757,7 @@ impl AnalysisEngine {
             last_stats: stats.clone(),
         });
 
-        // Spawn background L3 embedding computation if topology changed and not cached
-        if topology_changed && cached_embeddings.is_none() {
-        }
+        // Background L3 embedding computation placeholder removed (was empty block)
 
         Ok(AnalysisResult {
             findings: final_findings,

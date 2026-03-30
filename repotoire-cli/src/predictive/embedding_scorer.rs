@@ -4,7 +4,7 @@
 //! caches in session directory. On subsequent runs, loads cached embeddings and scores
 //! each function by ADC distance to its k-th nearest neighbor.
 
-use crate::quantize::turbo_quant::{TurboQuantCodebook, TurboQuantConfig, QuantizedVector};
+use crate::quantize::turbo_quant::{QuantizedVector, TurboQuantCodebook, TurboQuantConfig};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
@@ -63,7 +63,12 @@ impl EmbeddingRelationalScorer {
             qn_to_idx.insert(entry.qualified_name.clone(), i);
         }
 
-        Self { codebook, all_quantized, qn_to_idx, k }
+        Self {
+            codebook,
+            all_quantized,
+            qn_to_idx,
+            k,
+        }
     }
 
     /// kNN anomaly distance for a function. Returns the distance to the k-th
@@ -82,7 +87,8 @@ impl EmbeddingRelationalScorer {
         let table = self.codebook.build_distance_table(&reconstructed);
 
         // Compute distances to all other embeddings
-        let mut distances: Vec<f64> = self.all_quantized
+        let mut distances: Vec<f64> = self
+            .all_quantized
             .iter()
             .enumerate()
             .filter(|(i, _)| *i != idx) // exclude self
@@ -125,7 +131,11 @@ pub fn save_embeddings(session_path: &Path, cached: &CachedEmbeddings) -> anyhow
     let data = bincode::serialize(cached)?;
     std::fs::write(&tmp_path, &data)?;
     std::fs::rename(&tmp_path, &path)?;
-    tracing::debug!("Saved {} embeddings to cache ({} bytes)", cached.entries.len(), data.len());
+    tracing::debug!(
+        "Saved {} embeddings to cache ({} bytes)",
+        cached.entries.len(),
+        data.len()
+    );
     Ok(())
 }
 
@@ -160,10 +170,12 @@ pub fn compute_and_cache_embeddings(
 
     // Node2vec with tuned production params
     let walks = crate::predictive::embeddings::node2vec_random_walks(
-        &edges, num_nodes,
-        10,     // walk_length (tuned down from 20)
-        3,      // walks_per_node (tuned down from 10)
-        1.0, 1.0, // p, q (balanced)
+        &edges,
+        num_nodes,
+        10, // walk_length (tuned down from 20)
+        3,  // walks_per_node (tuned down from 10)
+        1.0,
+        1.0, // p, q (balanced)
         Some(42),
     );
 
@@ -189,7 +201,11 @@ pub fn compute_and_cache_embeddings(
     }
 
     // Quantize
-    let config = TurboQuantConfig { dim: 64, bits: 4, seed: 42 };
+    let config = TurboQuantConfig {
+        dim: 64,
+        bits: 4,
+        seed: 42,
+    };
     let codebook = TurboQuantCodebook::new(config);
 
     // Build node_id → qualified_name mapping
@@ -237,13 +253,11 @@ mod tests {
             dim: 64,
             bits: 4,
             seed: 42,
-            entries: vec![
-                CachedEntry {
-                    qualified_name: "foo.bar".into(),
-                    indices: vec![0u8; 32],
-                    norm: 1.5,
-                },
-            ],
+            entries: vec![CachedEntry {
+                qualified_name: "foo.bar".into(),
+                indices: vec![0u8; 32],
+                norm: 1.5,
+            }],
         };
 
         let dir = tempfile::tempdir().unwrap();
