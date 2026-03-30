@@ -106,6 +106,7 @@ uuid = { version = "1", features = ["v4"] }
 sha2 = "0.10"
 lasso = { version = "0.7.3", features = ["multi-threaded", "serialize"] }
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
+nalgebra = "0.33"
 
 # LSP server
 tokio = { version = "1", features = ["rt-multi-thread", "io-std", "io-util", "macros", "time", "sync"] }
