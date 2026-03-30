@@ -321,9 +321,9 @@ The `TurboQuantCodebook::new()` in Task 3 will accept a flag or the benchmark wi
 - [ ] **Step 1: Implement `TurboQuantCodebook::new()`**
 
 ```rust
+use rand::Rng;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
-use rand::distributions::{Distribution, Standard};
 
 impl TurboQuantCodebook {
     /// Create a new quantizer. Precomputes rotation matrix via QR and codebook.
