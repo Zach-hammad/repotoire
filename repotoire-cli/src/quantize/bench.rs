@@ -217,6 +217,28 @@ fn turbo_quant_benchmark() {
         .map(|(&k, &sum)| (format!("recall@{}", k), sum / num_queries as f64))
         .collect();
 
+    // ── 7b. Recall@k with re-ranking (ADC shortlist → exact rerank) ─────
+    let mut rerank_recall_sums: BTreeMap<usize, f64> = ks.iter().map(|&k| (k, 0.0)).collect();
+
+    for &qi in &query_indices {
+        let query = &db_vecs[qi];
+        let query_f64: &[f64] = query.as_slice();
+
+        for &k in &ks {
+            let effective_k = k.min(ids.len());
+            let exact_topk = exact_knn(query_f64, db_f64_refs, effective_k);
+            let rerank_results =
+                cb.knn_search_rerank(query_f64, &quantized, effective_k, 20);
+            let rerank_topk: Vec<usize> = rerank_results.iter().map(|(i, _)| *i).collect();
+            *rerank_recall_sums.get_mut(&k).unwrap() += recall_at_k(&exact_topk, &rerank_topk);
+        }
+    }
+
+    let rerank_recall: BTreeMap<String, f64> = rerank_recall_sums
+        .iter()
+        .map(|(&k, &sum)| (format!("recall@{}", k), sum / num_queries as f64))
+        .collect();
+
     // ── 8. JSON report ───────────────────────────────────────────────────
     let total_ms = t_total.elapsed().as_millis();
 
@@ -234,7 +256,8 @@ fn turbo_quant_benchmark() {
         "naive_baseline": {
             "cosine_mean": format!("{:.6}", naive_avg_cosine),
         },
-        "recall": recall,
+        "recall_adc": recall,
+        "recall_rerank": rerank_recall,
         "timing_ms": {
             "embeddings": embed_ms,
             "quantization": quant_ms,

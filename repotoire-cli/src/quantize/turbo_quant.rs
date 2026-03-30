@@ -206,6 +206,54 @@ impl TurboQuantCodebook {
         results.truncate(k);
         results
     }
+
+    /// kNN search with re-ranking: ADC shortlists top candidates, then re-ranks
+    /// using exact cosine similarity on reconstructed vectors.
+    ///
+    /// `shortlist_factor`: how many candidates to shortlist (multiplied by k).
+    /// E.g., shortlist_factor=10 with k=10 → shortlist 100, re-rank to top 10.
+    pub fn knn_search_rerank(
+        &self,
+        query: &[f64],
+        database: &[QuantizedVector],
+        k: usize,
+        shortlist_factor: usize,
+    ) -> Vec<(usize, f64)> {
+        let shortlist_k = (k * shortlist_factor).min(database.len());
+
+        // Phase 1: ADC shortlist
+        let table = self.build_distance_table(query);
+        let mut candidates: Vec<(usize, f64)> = database
+            .iter()
+            .enumerate()
+            .map(|(i, qv)| {
+                let dist_sq = self.adc_distance(&table, qv);
+                (i, dist_sq)
+            })
+            .collect();
+        candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+        candidates.truncate(shortlist_k);
+
+        // Phase 2: Re-rank using exact cosine on reconstructed vectors
+        let q_norm: f64 = query.iter().map(|v| v * v).sum::<f64>().sqrt();
+        let mut reranked: Vec<(usize, f64)> = candidates
+            .iter()
+            .map(|&(i, _)| {
+                let recon = self.reconstruct(&database[i]);
+                let r_norm: f64 = recon.iter().map(|v| v * v).sum::<f64>().sqrt();
+                let dot: f64 = query.iter().zip(&recon).map(|(a, b)| a * b).sum();
+                let cos = if q_norm > 0.0 && r_norm > 0.0 {
+                    dot / (q_norm * r_norm)
+                } else {
+                    0.0
+                };
+                (i, cos)
+            })
+            .collect();
+        reranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        reranked.truncate(k);
+        reranked
+    }
 }
 
 // ============================================================================
