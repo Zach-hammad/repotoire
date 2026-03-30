@@ -38,7 +38,7 @@ pub struct TurboQuantCodebook {
 }
 
 /// A quantized vector: packed codebook indices + original norm.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct QuantizedVector {
     pub indices: Vec<u8>,
     pub norm: f64,

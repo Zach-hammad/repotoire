@@ -51,6 +51,26 @@ impl GraphRelationalScorer {
     }
 }
 
+use super::embedding_scorer::EmbeddingRelationalScorer;
+// Note: FunctionContextMap is already imported at the top of this file
+
+/// L3 relational scorer — either quantized embeddings (preferred) or Mahalanobis fallback.
+pub enum RelationalScorer {
+    Embedding(EmbeddingRelationalScorer),
+    Mahalanobis(GraphRelationalScorer),
+}
+
+impl RelationalScorer {
+    /// Compute anomaly distance for a function.
+    /// Embedding variant ignores `contexts` (uses its own embeddings).
+    pub fn distance(&self, qn: &str, contexts: &FunctionContextMap) -> f64 {
+        match self {
+            RelationalScorer::Embedding(scorer) => scorer.distance(qn),
+            RelationalScorer::Mahalanobis(scorer) => scorer.distance(qn, contexts),
+        }
+    }
+}
+
 // ============================================================================
 // UNIT TESTS
 // ============================================================================

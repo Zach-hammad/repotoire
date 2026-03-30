@@ -7,6 +7,7 @@
 pub mod architectural;
 pub mod compound;
 pub mod dependency_chain;
+pub mod embedding_scorer;
 pub mod embeddings;
 pub mod relational;
 pub mod structural;
@@ -84,7 +85,7 @@ struct TrainedModels {
     structural_scorer: structural::StructuralScorer,
     func_features: Vec<(String, Vec<f64>)>,
     chain_scorer: dependency_chain::DependencyChainScorer,
-    relational_scorer: relational::GraphRelationalScorer,
+    relational_scorer: relational::RelationalScorer,
     arch_scorer: architectural::ArchitecturalScorer,
 }
 
@@ -109,13 +110,14 @@ impl PredictiveCodingEngine {
         graph: &dyn crate::graph::GraphQuery,
         files: &dyn crate::detectors::file_provider::FileProvider,
         contexts: &FunctionContextMap,
+        cached_embeddings: Option<&embedding_scorer::CachedEmbeddings>,
     ) {
         let all_functions = graph.get_functions_shared();
         if all_functions.len() < 20 {
             return; // Not enough data for meaningful statistics
         }
 
-        let trained = self.train_models(graph, files, contexts, &all_functions);
+        let trained = self.train_models(graph, files, contexts, &all_functions, cached_embeddings);
         self.score_functions(graph, files, &all_functions, contexts, &trained);
     }
 
@@ -126,6 +128,7 @@ impl PredictiveCodingEngine {
         files: &dyn crate::detectors::file_provider::FileProvider,
         contexts: &FunctionContextMap,
         functions: &[crate::graph::CodeNode],
+        cached_embeddings: Option<&embedding_scorer::CachedEmbeddings>,
     ) -> TrainedModels {
         let i = graph.interner();
         let repo_path = files.repo_path();
@@ -230,8 +233,18 @@ impl PredictiveCodingEngine {
             calls.len()
         );
 
-        // === L3: Relational graph features (Mahalanobis distance) ===
-        let relational_scorer = relational::GraphRelationalScorer::from_contexts(contexts);
+        // === L3: Relational graph features ===
+        let relational_scorer = if let Some(cached) = cached_embeddings {
+            tracing::debug!("[predictive] L3 using quantized node2vec embeddings ({} vectors)", cached.entries.len());
+            relational::RelationalScorer::Embedding(
+                embedding_scorer::EmbeddingRelationalScorer::from_cache(cached, 10),
+            )
+        } else {
+            tracing::debug!("[predictive] L3 falling back to Mahalanobis (no cached embeddings)");
+            relational::RelationalScorer::Mahalanobis(
+                relational::GraphRelationalScorer::from_contexts(contexts),
+            )
+        };
 
         // === L4: Architectural module profiles ===
         let mut arch_scorer = architectural::ArchitecturalScorer::new();
@@ -536,7 +549,7 @@ mod tests {
         let empty_files = crate::detectors::file_provider::MockFileProvider::new(vec![]);
         let contexts = std::collections::HashMap::new();
         let mut engine = PredictiveCodingEngine::new();
-        engine.train_and_score(&graph, &empty_files, &contexts);
+        engine.train_and_score(&graph, &empty_files, &contexts, None);
         assert!(engine.get_surprising_entities(1).is_empty());
     }
 
