@@ -217,13 +217,20 @@ code graph (~15-20s startup).
 **Building the code graph:**
 
 The benchmark needs real node2vec embeddings. To obtain them:
-1. Use `AnalysisEngine::new(repo_path)` pointed at `env!("CARGO_MANIFEST_DIR")` (repotoire's own source)
-2. Run the pipeline through the graph stage only: `engine.collect() → engine.parse() → engine.graph()`
-3. Extract edges from the frozen `CodeGraph` as `Vec<(u32, u32)>` via `graph.edges_idx()`
-4. Run `node2vec_random_walks()` + `train_skipgram()` from `predictive::embeddings`
-5. Collect embeddings as `FxHashMap<u32, Vec<f32>>`, cast to `Vec<f64>` for quantization
+1. Call stage functions directly (NOT `AnalysisEngine` — it runs all 8 stages):
+   ```rust
+   use crate::engine::stages::{collect, parse, graph};
+   let collect_out = collect::collect_stage(&CollectInput { repo_path, ... })?;
+   let parse_out = parse::parse_stage(&ParseInput { files: &collect_out.files, ... })?;
+   let graph_out = graph::graph_stage(&GraphInput { parse_results: &parse_out.results, ... })?;
+   let frozen = graph::freeze_graph(graph_out.mutable_graph, graph_out.value_store, None);
+   ```
+2. Extract call edges from frozen `CodeGraph` via `graph.all_call_edges()` → `&[(NodeIndex, NodeIndex)]`.
+   Convert to `(u32, u32)`: `edges.iter().map(|(a, b)| (a.index() as u32, b.index() as u32))`
+3. Run `node2vec_random_walks()` + `train_skipgram()` from `predictive::embeddings`
+4. Collect embeddings as `FxHashMap<u32, Vec<f32>>`, cast to `Vec<f64>` for quantization
 
-**Note:** This requires the full parse pipeline but NOT git_enrich, calibrate, or detect stages.
+**Note:** This uses only collect/parse/graph stages — skips git_enrich, calibrate, detect, etc.
 Expected startup: ~15-20 seconds to parse repotoire's ~93K lines of Rust.
 
 **Flow:**
