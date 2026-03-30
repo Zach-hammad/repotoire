@@ -484,26 +484,6 @@ impl AnalysisEngine {
             last_stats: stats.clone(),
         });
 
-        // Spawn background L3 embedding computation if not cached
-        if cached_embeddings.is_none() {
-            let graph_arc = Arc::clone(&self.state.as_ref().unwrap().graph);
-            let cache_dir = crate::cache::paths::cache_dir(&self.repo_path);
-            let fingerprint = self.state.as_ref().unwrap().edge_fingerprint;
-
-            std::thread::spawn(move || {
-                tracing::debug!("Background: computing L3 node2vec embeddings...");
-                let t0 = std::time::Instant::now();
-                crate::predictive::embedding_scorer::compute_and_cache_embeddings(
-                    graph_arc,
-                    cache_dir,
-                    fingerprint,
-                );
-                tracing::debug!(
-                    "Background: L3 embeddings done in {:.1}s",
-                    t0.elapsed().as_secs_f64()
-                );
-            });
-        }
 
         Ok(AnalysisResult {
             findings: final_findings,
@@ -780,27 +760,6 @@ impl AnalysisEngine {
 
         // Spawn background L3 embedding computation if topology changed and not cached
         if topology_changed && cached_embeddings.is_none() {
-            let graph_arc = self
-                .state
-                .as_ref()
-                .map(|s| Arc::clone(&s.graph))
-                .unwrap();
-            let cache_dir = crate::cache::paths::cache_dir(&self.repo_path);
-            let fingerprint = self.state.as_ref().unwrap().edge_fingerprint;
-
-            std::thread::spawn(move || {
-                tracing::debug!("Background: computing L3 node2vec embeddings...");
-                let t0 = std::time::Instant::now();
-                crate::predictive::embedding_scorer::compute_and_cache_embeddings(
-                    graph_arc,
-                    cache_dir,
-                    fingerprint,
-                );
-                tracing::debug!(
-                    "Background: L3 embeddings done in {:.1}s",
-                    t0.elapsed().as_secs_f64()
-                );
-            });
         }
 
         Ok(AnalysisResult {
@@ -855,6 +814,22 @@ impl AnalysisEngine {
             .graph
             .save_cache(&graph_path)
             .context("Failed to save graph cache")?;
+
+        // Compute L3 embeddings if not cached (runs after all output is shown to user)
+        let cache_dir = crate::cache::paths::cache_dir(&self.repo_path);
+        let embeddings_exist = crate::predictive::embedding_scorer::load_embeddings(
+            &cache_dir,
+            state.edge_fingerprint,
+        )
+        .is_some();
+
+        if !embeddings_exist {
+            crate::predictive::embedding_scorer::compute_and_cache_embeddings(
+                Arc::clone(&state.graph),
+                cache_dir,
+                state.edge_fingerprint,
+            );
+        }
 
         Ok(())
     }
