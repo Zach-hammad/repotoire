@@ -192,6 +192,54 @@ impl CoChangeConfigToml {
     }
 }
 
+/// Ownership analysis configuration from repotoire.toml `[ownership]` section.
+#[derive(Debug, Clone, Deserialize)]
+pub struct OwnershipConfigToml {
+    /// Enable ownership analysis (default: true)
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Exponential decay half-life in days (default: 150)
+    #[serde(default)]
+    pub half_life_days: Option<f64>,
+    /// Normalized DOA threshold for authorship (default: 0.75)
+    #[serde(default)]
+    pub author_threshold: Option<f64>,
+    /// Months of inactivity before author is considered inactive (default: 6)
+    #[serde(default)]
+    pub inactive_months: Option<u32>,
+    /// Ignore files smaller than this LOC (default: 10)
+    #[serde(default)]
+    pub min_file_loc: Option<usize>,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl Default for OwnershipConfigToml {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            half_life_days: None,
+            author_threshold: None,
+            inactive_months: None,
+            min_file_loc: None,
+        }
+    }
+}
+
+impl OwnershipConfigToml {
+    pub fn to_runtime(&self) -> crate::git::ownership::OwnershipConfig {
+        let defaults = crate::git::ownership::OwnershipConfig::default();
+        crate::git::ownership::OwnershipConfig {
+            half_life_days: self.half_life_days.unwrap_or(defaults.half_life_days),
+            author_threshold: self.author_threshold.unwrap_or(defaults.author_threshold),
+            inactive_months: self.inactive_months.unwrap_or(defaults.inactive_months),
+            min_file_loc: self.min_file_loc.unwrap_or(defaults.min_file_loc),
+        }
+    }
+}
+
 /// Project-level configuration loaded from repotoire.toml or similar
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct ProjectConfig {
@@ -218,6 +266,10 @@ pub struct ProjectConfig {
     /// Co-change analysis configuration
     #[serde(default)]
     pub co_change: CoChangeConfigToml,
+
+    /// Ownership analysis configuration
+    #[serde(default)]
+    pub ownership: OwnershipConfigToml,
 
     /// Cached auto-detected project type (not serialized)
     #[serde(skip)]

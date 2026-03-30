@@ -30,6 +30,7 @@ pub mod blame;
 pub mod co_change;
 pub mod enrichment;
 pub mod history;
+pub mod ownership;
 
 pub use blame::{BlameInfo, LineBlame};
 pub use enrichment::{EnrichmentStats, GitEnricher};
