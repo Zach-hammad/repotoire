@@ -90,8 +90,8 @@ impl Default for TurboQuantConfig {
 
 /// Precomputed quantization state: rotation matrix + codebook.
 pub struct TurboQuantCodebook {
-    rotation: DMatrix<f64>,
-    rotation_t: DMatrix<f64>,
+    pub(crate) rotation: DMatrix<f64>,
+    pub(crate) rotation_t: DMatrix<f64>,
     centroids: Vec<f64>,
     boundaries: Vec<f64>,
     dim: usize,
@@ -220,7 +220,7 @@ fn lloyd_max_codebook_4bit(dim: usize) -> (Vec<f64>, Vec<f64>) {
 }
 
 /// Find the nearest centroid index for a scalar value.
-fn quantize_scalar(value: f64, boundaries: &[f64]) -> u8 {
+pub(crate) fn quantize_scalar(value: f64, boundaries: &[f64]) -> u8 {
     // Binary search: find first boundary > value
     match boundaries.binary_search_by(|b| b.partial_cmp(&value).unwrap()) {
         Ok(i) => i as u8 + 1,  // value == boundary → round up
@@ -294,7 +294,7 @@ git commit -m "feat(quantize): add bit packing and Lloyd-Max codebook for 4-bit"
 ```rust
 /// Naive uniform scalar quantizer for baseline comparison.
 /// Uniform grid over [-3/sqrt(d), 3/sqrt(d)] with 2^b levels.
-fn uniform_codebook_4bit(dim: usize) -> (Vec<f64>, Vec<f64>) {
+pub(crate) fn uniform_codebook_4bit(dim: usize) -> (Vec<f64>, Vec<f64>) {
     let range = 3.0 / (dim as f64).sqrt();
     let num_levels = 16usize;
     let step = 2.0 * range / num_levels as f64;
@@ -338,7 +338,7 @@ impl TurboQuantCodebook {
             let u1: f64 = rng.random();
             let u2: f64 = rng.random();
             // Box-Muller transform for N(0,1)
-            (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
+            (-2.0 * (1.0 - u1).ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
         }).collect();
         let g = DMatrix::from_vec(d, d, data);
 
@@ -430,7 +430,7 @@ impl TurboQuantCodebook {
         let x: Vec<f64> = (0..128).map(|_| {
             let u1: f64 = rng.random();
             let u2: f64 = rng.random();
-            (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
+            (-2.0 * (1.0 - u1).ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
         }).collect();
 
         let qv = cb.quantize(&x);
@@ -564,12 +564,12 @@ git commit -m "feat(quantize): implement TurboQuant quantize/reconstruct with ro
         let query: Vec<f64> = (0..128).map(|_| {
             let u1: f64 = rng.random();
             let u2: f64 = rng.random();
-            (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
+            (-2.0 * (1.0 - u1).ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
         }).collect();
         let x: Vec<f64> = (0..128).map(|_| {
             let u1: f64 = rng.random();
             let u2: f64 = rng.random();
-            (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
+            (-2.0 * (1.0 - u1).ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
         }).collect();
 
         let qv = cb.quantize(&x);
@@ -599,7 +599,7 @@ git commit -m "feat(quantize): implement TurboQuant quantize/reconstruct with ro
             (0..128).map(|_| {
                 let u1: f64 = rng.random();
                 let u2: f64 = rng.random();
-                (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
+                (-2.0 * (1.0 - u1).ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
             }).collect()
         };
 
