@@ -6,7 +6,8 @@
 use petgraph::algo::{dominators, tarjan_scc};
 use petgraph::stable_graph::{NodeIndex, StableGraph};
 use rayon::prelude::*;
-use std::collections::{HashMap, HashSet, VecDeque};
+use foldhash::{HashMap, HashMapExt};
+use std::collections::{HashSet, VecDeque};
 
 use crate::graph::interner::global_interner;
 use crate::graph::store_models::{CodeEdge, CodeNode};

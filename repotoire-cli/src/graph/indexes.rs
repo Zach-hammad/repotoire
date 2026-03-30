@@ -5,6 +5,7 @@
 //! analyses (import cycles, edge fingerprint). All subsequent queries are O(1)
 //! lookups instead of O(N) or O(E) graph scans.
 
+use foldhash::HashMap as FoldHashMap;
 use petgraph::algo::tarjan_scc;
 use petgraph::stable_graph::{NodeIndex, StableGraph};
 use petgraph::visit::{EdgeRef, IntoEdgeReferences};
@@ -26,31 +27,31 @@ pub struct GraphIndexes {
     pub(crate) classes: Vec<NodeIndex>,
     pub(crate) files: Vec<NodeIndex>,
 
-    // ── Adjacency per edge kind ──
+    // ── Adjacency per edge kind (FoldHashMap for fast lookups on hot path) ──
     // Calls
-    pub(crate) call_callers: HashMap<NodeIndex, Vec<NodeIndex>>,
-    pub(crate) call_callees: HashMap<NodeIndex, Vec<NodeIndex>>,
+    pub(crate) call_callers: FoldHashMap<NodeIndex, Vec<NodeIndex>>,
+    pub(crate) call_callees: FoldHashMap<NodeIndex, Vec<NodeIndex>>,
     // Imports
-    pub(crate) import_sources: HashMap<NodeIndex, Vec<NodeIndex>>,
-    pub(crate) import_targets: HashMap<NodeIndex, Vec<NodeIndex>>,
+    pub(crate) import_sources: FoldHashMap<NodeIndex, Vec<NodeIndex>>,
+    pub(crate) import_targets: FoldHashMap<NodeIndex, Vec<NodeIndex>>,
     // Inherits
-    pub(crate) inherit_parents: HashMap<NodeIndex, Vec<NodeIndex>>,
-    pub(crate) inherit_children: HashMap<NodeIndex, Vec<NodeIndex>>,
+    pub(crate) inherit_parents: FoldHashMap<NodeIndex, Vec<NodeIndex>>,
+    pub(crate) inherit_children: FoldHashMap<NodeIndex, Vec<NodeIndex>>,
     // Contains
-    pub(crate) contains_children: HashMap<NodeIndex, Vec<NodeIndex>>,
-    pub(crate) contains_parent: HashMap<NodeIndex, Vec<NodeIndex>>,
+    pub(crate) contains_children: FoldHashMap<NodeIndex, Vec<NodeIndex>>,
+    pub(crate) contains_parent: FoldHashMap<NodeIndex, Vec<NodeIndex>>,
     // Uses
-    pub(crate) uses_targets: HashMap<NodeIndex, Vec<NodeIndex>>,
-    pub(crate) uses_sources: HashMap<NodeIndex, Vec<NodeIndex>>,
+    pub(crate) uses_targets: FoldHashMap<NodeIndex, Vec<NodeIndex>>,
+    pub(crate) uses_sources: FoldHashMap<NodeIndex, Vec<NodeIndex>>,
     // ModifiedIn (one-directional: entity → commit)
-    pub(crate) modified_in: HashMap<NodeIndex, Vec<NodeIndex>>,
+    pub(crate) modified_in: FoldHashMap<NodeIndex, Vec<NodeIndex>>,
 
     // ── Spatial indexes: per-file node lookups ──
-    pub(crate) functions_by_file: HashMap<StrKey, Vec<NodeIndex>>,
-    pub(crate) classes_by_file: HashMap<StrKey, Vec<NodeIndex>>,
-    pub(crate) all_nodes_by_file: HashMap<StrKey, Vec<NodeIndex>>,
+    pub(crate) functions_by_file: FoldHashMap<StrKey, Vec<NodeIndex>>,
+    pub(crate) classes_by_file: FoldHashMap<StrKey, Vec<NodeIndex>>,
+    pub(crate) all_nodes_by_file: FoldHashMap<StrKey, Vec<NodeIndex>>,
     /// Sorted by line_start for binary search in `function_at()`.
-    pub(crate) function_spatial: HashMap<StrKey, Vec<(u32, u32, NodeIndex)>>,
+    pub(crate) function_spatial: FoldHashMap<StrKey, Vec<(u32, u32, NodeIndex)>>,
 
     // ── Pre-computed bulk edge lists ──
     pub(crate) all_call_edges: Vec<(NodeIndex, NodeIndex)>,

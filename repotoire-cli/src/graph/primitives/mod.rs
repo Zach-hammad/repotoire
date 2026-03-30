@@ -5,8 +5,9 @@
 //! centrality, and call-graph SCCs. All fields are immutable after construction.
 //! Detectors read them at O(1) — zero graph traversal at detection time.
 
+use foldhash::{HashMap, HashMapExt};
 use petgraph::stable_graph::{NodeIndex, StableGraph};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use super::store_models::{CodeEdge, CodeNode};
 use crate::git::co_change::CoChangeMatrix;

@@ -8,7 +8,8 @@ use petgraph::stable_graph::{NodeIndex, StableGraph};
 use petgraph::visit::EdgeRef;
 use rayon::prelude::*;
 use std::cmp::Reverse;
-use std::collections::{BTreeMap, BinaryHeap, HashMap, HashSet};
+use foldhash::{HashMap, HashMapExt};
+use std::collections::{BTreeMap, BinaryHeap, HashSet};
 
 use crate::git::co_change::CoChangeMatrix;
 use crate::graph::interner::StrKey;
