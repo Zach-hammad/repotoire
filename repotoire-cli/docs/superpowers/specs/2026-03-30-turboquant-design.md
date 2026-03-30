@@ -38,9 +38,11 @@ embeddings before deciding where to deploy it (VectorBase, bge-large pipeline, o
 Based on Zandieh et al. 2025 ([arXiv:2504.19874](https://arxiv.org/abs/2504.19874)).
 
 **Preprocessing (once):**
-1. Generate random d×d matrix G with i.i.d. N(0,1) entries (seeded RNG)
+1. Generate random d×d matrix G with i.i.d. N(0,1) entries (seeded RNG via `rand_chacha`)
 2. Compute QR decomposition: G = QR, keep Q as rotation matrix R (orthogonal)
-3. Precompute Lloyd-Max codebook for the Beta distribution f_X(x) = [Γ(d/2)] / [√π·Γ((d-1)/2)] · (1−x²)^((d−3)/2) at b=4 bits → 16 centroids + 15 decision boundaries
+3. Precompute Lloyd-Max codebook for the Beta distribution
+   f_X(x) = [Γ(d/2)] / [√π·Γ((d-1)/2)] · (1−x²)^((d−3)/2)
+   at b=4 bits → 16 centroids + 15 decision boundaries
 
 **Quantization:**
 1. Normalize: x̂ = x / ||x||₂, store norm separately
@@ -54,30 +56,65 @@ Based on Zandieh et al. 2025 ([arXiv:2504.19874](https://arxiv.org/abs/2504.1987
 3. Scale: x̃ = x̃ · norm
 
 **Asymmetric Distance Computation (ADC):**
+
+ADC computes **approximate squared Euclidean distance** between the rotated, normalized query and
+the quantized database vector. Since both are L2-normalized before rotation, this is equivalent to
+approximate cosine distance: `cosine_sim ≈ 1 - dist_sq / 2`.
+
 For kNN search, the query stays uncompressed. Pre-rotate the query once, then distance to each
 quantized vector is a table lookup:
 
-1. Precompute: q_rot = R · (query / ||query||₂)
-2. Build distance table: dist_table[k] = (q_rot_j − c_k)² for each coordinate j and centroid k
-   → d × 2^b = 128 × 16 = 2048 entries, fits in L1 cache
-3. For each quantized vector: dist = Σ_j dist_table[idx_j] (just index lookups + addition)
+1. Normalize query: q̂ = query / ||query||₂
+2. Rotate: q_rot = R · q̂
+3. Build distance table: `dist_table[j][k] = (q_rot[j] − c_k)²` for each coordinate j ∈ [d]
+   and centroid k ∈ [2^b] → d × 2^b = 128 × 16 = 2048 entries, fits in L1 cache.
+   Stored as flat array: `table[j * num_levels + k]`
+4. For each quantized vector: `dist_sq = Σ_j table[j * num_levels + idx_j]`
+   (just index lookups + addition — no floating point multiply)
 
 ### Lloyd-Max Codebook
 
-The Beta distribution at d=128 is well-approximated by N(0, 1/d). For 4-bit (16 levels), the
-Lloyd-Max quantizer for a Gaussian can be precomputed to high precision. We hardcode the centroids
-and boundaries for (d=128, b=4) as compile-time constants, avoiding runtime optimization.
+The Beta distribution at d=128 is well-approximated by N(0, 1/d) ≈ N(0, 0.0078). For 4-bit
+(16 levels), we hardcode the Lloyd-Max codebook for N(0, 1/128) as compile-time constants.
 
-The codebook values are scaled by 1/√d to match the unit sphere coordinate distribution.
+The standard Lloyd-Max centroids for N(0,1) at 4-bit are well-known. Scale each centroid by
+`1/√d = 1/√128 ≈ 0.0884` to get the codebook for N(0, 1/d).
 
-**Fallback:** For non-standard (d, b) pairs, run Lloyd-Max optimization (~300 iterations) at
-initialization using the Beta distribution PDF.
+**Hardcoded values for (d=128, b=4):**
+The 16 centroids for N(0,1) 4-bit Lloyd-Max are approximately:
+±{0.1284, 0.3882, 0.6568, 0.9424, 1.2562, 1.6180, 2.0690, 2.7326}
+Scaled by 1/√128: ±{0.01135, 0.03432, 0.05807, 0.08331, 0.11104, 0.14302, 0.18290, 0.24155}
+
+**Fallback for non-standard (d, b) pairs:**
+Run Lloyd-Max optimization (~300 iterations) at initialization:
+1. Initialize centroids uniformly over [−3σ, 3σ] where σ = 1/√d
+2. Repeat until convergence (relative change < 1e-10):
+   a. Update boundaries: b_k = (c_k + c_{k+1}) / 2
+   b. Update centroids: c_k = E[X | b_{k-1} < X < b_k] computed via numerical integration
+      (Simpson's rule over the Gaussian PDF with σ = 1/√d, 1000 quadrature points)
+3. Store final centroids and boundaries
+
+### Bit Packing Convention
+
+4-bit indices are packed two per byte, lower nibble first:
+
+```
+byte[i] = (idx[2*i] & 0x0F) | (idx[2*i + 1] << 4)
+```
+
+Unpacking:
+```
+idx[2*i]     = byte[i] & 0x0F
+idx[2*i + 1] = byte[i] >> 4
+```
+
+For d=128: `indices.len() = 64` bytes.
 
 ### Naive Baseline
 
 For comparison, implement simple uniform scalar quantization:
 1. Rotate with same R
-2. Quantize each coordinate to nearest value in a uniform grid over [−1/√d, 1/√d]
+2. Quantize each coordinate to nearest value in a uniform grid over [−3/√d, 3/√d]
 3. Same ADC search
 
 This isolates the contribution of the Lloyd-Max codebook (optimal for Beta distribution) vs
@@ -101,7 +138,7 @@ pub struct TurboQuantConfig {
 pub struct TurboQuantCodebook {
     rotation: DMatrix<f64>,       // d×d orthogonal matrix R
     rotation_t: DMatrix<f64>,     // R^T (precomputed transpose)
-    centroids: Vec<f64>,          // 2^b centroid values
+    centroids: Vec<f64>,          // 2^b centroid values (sorted)
     boundaries: Vec<f64>,         // 2^b - 1 decision boundaries
     dim: usize,
     bits: usize,
@@ -110,17 +147,22 @@ pub struct TurboQuantCodebook {
 
 /// A quantized vector: packed codebook indices + original norm.
 pub struct QuantizedVector {
-    indices: Vec<u8>,     // packed 4-bit indices (dim/2 bytes for b=4)
-    norm: f64,            // original L2 norm
+    indices: Vec<u8>,     // packed 4-bit indices, 2 per byte, lower nibble first
+    norm: f64,            // original L2 norm (preserved for reconstruction)
 }
 
 /// Precomputed ADC distance table for a query.
 pub struct DistanceTable {
-    table: Vec<f64>,      // dim × num_levels squared distances
+    table: Vec<f64>,      // flat array: table[j * num_levels + k] = (q_rot[j] - c_k)²
     dim: usize,
     num_levels: usize,
 }
 ```
+
+**Note on f32 vs f64:** The existing node2vec implementation (`predictive/embeddings.rs`)
+produces `Vec<f32>` embeddings. The quantizer operates on `f64` for numerical precision during
+rotation. The benchmark casts `f32 → f64` at the boundary. The `QuantizedVector` itself is
+format-agnostic — it stores only packed indices + norm.
 
 ### Public API
 
@@ -129,26 +171,33 @@ impl TurboQuantCodebook {
     /// Create a new quantizer. Precomputes rotation matrix and codebook.
     pub fn new(config: TurboQuantConfig) -> Self;
 
-    /// Quantize a raw vector.
+    /// Quantize a raw vector. Normalizes internally, stores norm.
     pub fn quantize(&self, x: &[f64]) -> QuantizedVector;
 
-    /// Reconstruct a quantized vector (lossy).
+    /// Reconstruct a quantized vector (lossy). Returns unnormalized vector.
     pub fn reconstruct(&self, qv: &QuantizedVector) -> Vec<f64>;
 
     /// Precompute ADC distance table for a query vector.
+    /// Query is L2-normalized internally before rotation.
     pub fn build_distance_table(&self, query: &[f64]) -> DistanceTable;
 
-    /// Cosine similarity between raw query and quantized vector via ADC.
+    /// Approximate squared L2 distance between normalized query and quantized vector.
+    /// For cosine similarity: cos_sim ≈ 1 - adc_distance() / 2
     pub fn adc_distance(&self, table: &DistanceTable, qv: &QuantizedVector) -> f64;
 
-    /// Brute-force kNN search over quantized database.
+    /// Brute-force kNN search over quantized database using ADC.
+    /// Returns (index, approximate_cosine_similarity) pairs, sorted descending.
     pub fn knn_search(
         &self,
         query: &[f64],
         database: &[QuantizedVector],
         k: usize,
-    ) -> Vec<(usize, f64)>;  // (index, distance)
+    ) -> Vec<(usize, f64)>;
 }
+
+/// Pack/unpack helpers
+pub fn pack_4bit(indices: &[u8]) -> Vec<u8>;
+pub fn unpack_4bit(packed: &[u8], dim: usize) -> Vec<u8>;
 ```
 
 ---
@@ -157,27 +206,50 @@ impl TurboQuantCodebook {
 
 ### `src/quantize/bench.rs`
 
+**Invocation:** `#[test] #[ignore]` test, run via:
+```bash
+cargo test bench_turboquant -- --ignored --nocapture
+```
+
+The `#[ignore]` tag keeps it out of normal `cargo test` runs since it needs to build a real
+code graph (~15-20s startup).
+
+**Building the code graph:**
+
+The benchmark needs real node2vec embeddings. To obtain them:
+1. Use `AnalysisEngine::new(repo_path)` pointed at `env!("CARGO_MANIFEST_DIR")` (repotoire's own source)
+2. Run the pipeline through the graph stage only: `engine.collect() → engine.parse() → engine.graph()`
+3. Extract edges from the frozen `CodeGraph` as `Vec<(u32, u32)>` via `graph.edges_idx()`
+4. Run `node2vec_random_walks()` + `train_skipgram()` from `predictive::embeddings`
+5. Collect embeddings as `FxHashMap<u32, Vec<f32>>`, cast to `Vec<f64>` for quantization
+
+**Note:** This requires the full parse pipeline but NOT git_enrich, calibrate, or detect stages.
+Expected startup: ~15-20 seconds to parse repotoire's ~93K lines of Rust.
+
 **Flow:**
-1. Run node2vec on repotoire's own code graph (~5500 functions, 128D)
-2. Quantize all embeddings with TurboQuant (4-bit)
-3. Also quantize with naive uniform baseline
-4. For each node as query:
-   - Compute exact brute-force kNN (ground truth)
+1. Build code graph and generate node2vec embeddings (~5500 functions, 128D)
+2. Cast `f32 → f64`
+3. Quantize all embeddings with TurboQuant (4-bit)
+4. Also quantize with naive uniform baseline
+5. For a sample of 500 random query nodes:
+   - Compute exact brute-force kNN (ground truth, on raw f64 vectors)
    - Compute TurboQuant ADC kNN
    - Compute naive baseline ADC kNN
-5. Report metrics
+6. Report metrics as JSON to stdout
 
 **Metrics:**
 - **recall@k** for k = 1, 5, 10, 50 (fraction of true top-k found by approximate search)
 - **compression ratio** (raw bytes vs quantized bytes per vector)
 - **quantization MSE** (mean squared error of reconstructed vs original)
 - **cosine similarity** (average cosine between original and reconstructed)
-- **search latency** (time per query: brute force vs ADC)
+- **search latency** (time per query: brute force vs ADC, in microseconds)
+- **TurboQuant vs naive recall** (side-by-side comparison)
 
 **Success criteria:**
-- recall@10 ≥ 0.95
+- recall@10 ≥ 0.95 (aspiration), ≥ 0.90 (CI hard gate)
 - 8x compression (512 → 64 bytes per 128D vector)
 - cosine similarity ≥ 0.99
+- TurboQuant recall > naive baseline recall (proves Lloyd-Max codebook matters)
 
 **Output:** JSON report with all metrics, printed to stdout.
 
@@ -188,14 +260,14 @@ impl TurboQuantCodebook {
 ```
 src/quantize/
   mod.rs              — pub mod turbo_quant; pub mod bench;
-  turbo_quant.rs      — TurboQuantCodebook, QuantizedVector, ADC, kNN search
-  bench.rs            — Benchmark harness, recall@k computation, JSON output
+  turbo_quant.rs      — TurboQuantCodebook, QuantizedVector, ADC, kNN search, pack/unpack
+  bench.rs            — Benchmark harness (#[test] #[ignore]), recall@k, JSON output
 ```
 
 ## Dependencies
 
-- `nalgebra` — QR decomposition, matrix multiplication. Add to Cargo.toml.
-- `rand` / `rand_chacha` — seeded RNG for reproducible rotation matrix. Already in deps.
+- `nalgebra = "0.33"` — QR decomposition (`DMatrix::qr()` → `.q()`), matrix multiplication. Add to Cargo.toml.
+- `rand` / `rand_chacha` — seeded RNG for reproducible rotation matrix. Already in Cargo.toml.
 - No other new dependencies.
 
 ## Files to Modify
@@ -211,26 +283,28 @@ src/quantize/
 
 ### Unit Tests (`src/quantize/turbo_quant.rs`)
 
-- Rotation matrix is orthogonal: R^T · R = I (within floating point tolerance)
+- Rotation matrix is orthogonal: R^T · R ≈ I (within 1e-10 tolerance)
 - Quantize → reconstruct round-trip preserves direction (cosine > 0.99 for 4-bit)
 - Quantize → reconstruct preserves norm (within quantization error)
-- ADC distance matches brute-force reconstruction distance
+- ADC distance matches brute-force reconstruction distance (within 1e-6)
 - kNN search returns correct k results
-- Packed indices round-trip correctly (pack → unpack → same values)
-- Codebook centroids are sorted and within expected range
+- Packed indices round-trip: `unpack_4bit(pack_4bit(indices)) == indices`
+- Codebook centroids are sorted and within expected range [−3/√d, 3/√d]
+- Lloyd-Max fallback produces same codebook as hardcoded values (within tolerance)
 
-### Benchmark Test
+### Benchmark Test (`#[test] #[ignore]`)
 
 - Run on repotoire's own codebase
 - Assert recall@10 ≥ 0.90 (conservative threshold for CI)
 - Assert compression ratio ≥ 7x
+- Assert TurboQuant recall@10 > naive baseline recall@10
 
 ---
 
 ## References
 
 - Zandieh et al. 2025 — "TurboQuant: Online Vector Quantization with Near-optimal Distortion Rate" ([arXiv](https://arxiv.org/abs/2504.19874)). Core algorithm.
-- Dejan AI blog — "TurboQuant: From Paper to Triton Kernel" ([blog](https://dejan.ai/blog/turboquant/)). Practical implementation notes.
+- Dejan AI blog — "TurboQuant: From Paper to Triton Kernel" ([blog](https://dejan.ai/blog/turboquant/)). Practical implementation notes, gotchas.
 - Google Research blog — "TurboQuant: Redefining AI efficiency with extreme compression" ([blog](https://research.google/blog/turboquant-redefining-ai-efficiency-with-extreme-compression/)). Overview.
 - Lloyd 1982 — "Least squares quantization in PCM". Lloyd-Max algorithm.
 - Jegou et al. 2011 — "Product quantization for nearest neighbor search". ADC technique.
