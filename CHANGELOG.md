@@ -5,6 +5,41 @@ All notable changes to Repotoire will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0](https://github.com/Zach-hammad/repotoire/compare/v0.5.0...v0.6.0) (2026-03-30)
+
+
+### Features
+
+* add 4 bus factor detectors (single-owner, silo, orphaned, critical-path) ([eeca7b6](https://github.com/Zach-hammad/repotoire/commit/eeca7b68f9451d244e9180c29b9d3737cb22d664))
+* add DOA-based ownership model and config for bus factor analysis ([1b7df5a](https://github.com/Zach-hammad/repotoire/commit/1b7df5a2bd390c4df9fe87c258776a4f5db1c9be))
+* integrate ownership model into reporting layer ([19d404e](https://github.com/Zach-hammad/repotoire/commit/19d404ed1b9f39e13c870aa3bcac0a766386b979))
+* **predictive:** add L3 quantized embedding scorer with cache and RelationalScorer enum ([bdf682e](https://github.com/Zach-hammad/repotoire/commit/bdf682e927568c01fad828e08b885d651f601a83))
+* **predictive:** wire L3 embedding scorer into analysis pipeline with background computation ([16a5ec7](https://github.com/Zach-hammad/repotoire/commit/16a5ec7a8fa9ece7fb6acb48e4650458992d10f4))
+* **predictive:** wire L3 quantized embeddings into analysis pipeline ([47af2c2](https://github.com/Zach-hammad/repotoire/commit/47af2c277791cbdde1e9bbe0e400aceb44ae9293))
+* **quantize:** add knn_search_rerank + benchmark both ADC and rerank recall ([09cba14](https://github.com/Zach-hammad/repotoire/commit/09cba146bb3ea5cd1a4daed98b127ce9c7500f16))
+* **quantize:** add TurboQuant benchmark harness (Task 5) ([71d7c15](https://github.com/Zach-hammad/repotoire/commit/71d7c15550cd2ea816928f2c3874990ec0b8a20d))
+* **quantize:** add TurboQuant vector quantization module (Tasks 1-3) ([7212c79](https://github.com/Zach-hammad/repotoire/commit/7212c79c07adee20630ad2324e63f19dc01d247f))
+* wire ownership model into pipeline and AnalysisContext ([a944bfa](https://github.com/Zach-hammad/repotoire/commit/a944bfaed489b55d244cc5e6490a579f56b97ac5))
+
+
+### Bug Fixes
+
+* address code review findings in LSP server and watch mode ([3064251](https://github.com/Zach-hammad/repotoire/commit/306425149e3e80acfbf21a5741a28e14d6bf96c9))
+* deprecate --since flag, wire git churn into debt command ([9de5000](https://github.com/Zach-hammad/repotoire/commit/9de5000b8080e474fbc4bce285cc167c0da7847a))
+* enhance narrative bus factor section and add critical-path detector positive test ([5336913](https://github.com/Zach-hammad/repotoire/commit/53369136433b0fc8acc8d09810148c0fb9617aba))
+* **plan:** 3 audit bugs — Box-Muller ln(0), visibility, private fields ([1c4571a](https://github.com/Zach-hammad/repotoire/commit/1c4571a7184cd1c8bb129ca3839cf2a85af303ef))
+* **plan:** address 8 review issues — PrecomputedAnalysis, Path types, spec compliance ([17b0de7](https://github.com/Zach-hammad/repotoire/commit/17b0de735701ad6b81a8b8f66c805a14435205b0))
+* **plan:** correct rand imports — use Rng trait, remove nonexistent Standard ([df1a8a3](https://github.com/Zach-hammad/repotoire/commit/df1a8a37787a5dae0697292c561d4aebb24a16fc))
+* **plan:** final audit fixes — treemap color inversion, GitData wiring, step numbering ([661ebae](https://github.com/Zach-hammad/repotoire/commit/661ebae6a7a12bbc08e21f57475a96e420696030))
+* **plan:** round 4 audit — correct import paths, add HashMap import, drop complexity check ([a7cc23d](https://github.com/Zach-hammad/repotoire/commit/a7cc23ded4af6f2d2b3e44ae5da82db3945339c3))
+* **predictive:** compute L3 embeddings in save() instead of background thread ([1239dab](https://github.com/Zach-hammad/repotoire/commit/1239dabee4b3372e92efc4e2f8b272f0e7e0d302))
+* resolve 14 test compilation warnings that break CI with -Dwarnings ([b79b61e](https://github.com/Zach-hammad/repotoire/commit/b79b61e1a59bdf5ff6ec66422a0823a44dca55a8))
+* resolve 24 QA pain points, fix finding dedup + inline suppression bugs ([bc24940](https://github.com/Zach-hammad/repotoire/commit/bc24940d769c1dbc22ca5e72a4dcaf17977074eb))
+* resolve 8 clippy errors triggered by cargo fmt reformatting ([e085f5f](https://github.com/Zach-hammad/repotoire/commit/e085f5f295d9aaa6d61e817ede350e2b752ec6b2))
+* resolve all clippy warnings for RUSTFLAGS="-Dwarnings" ([ec35102](https://github.com/Zach-hammad/repotoire/commit/ec351028f71e32af236eb64e507853c131e33a35))
+* resolve CI failures — formatting + unused imports in graph module ([593fd7a](https://github.com/Zach-hammad/repotoire/commit/593fd7adc4e2188c978a8de730b03b71a983f3a5))
+* resolve clippy warnings and harden LSP server ([6f1de69](https://github.com/Zach-hammad/repotoire/commit/6f1de692a6e524715cb8b38ce6b589d2bae0743e))
+
 ## [0.5.0](https://github.com/Zach-hammad/repotoire/compare/v0.4.0...v0.5.0) (2026-03-19)
 
 
