@@ -20,3 +20,7 @@ thresholds = { min_total_degree = 100, min_elevated_fanin = 30 }
 [detectors.shotgun-surgery]
 # Core utility functions (load, save, find, add_node) are used everywhere by design.
 thresholds = { high_files = 25, critical_modules = 10 }
+
+[ownership]
+# Solo developer project — bus factor findings are expected and not actionable.
+enabled = false
