@@ -82,6 +82,7 @@ export default function FAQPage() {
 
   return (
     <section className="py-24 px-4 sm:px-6 lg:px-8">
+      {/* repotoire:ignore[XssDetector] — JSON-LD structured data, no user input */}
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }}

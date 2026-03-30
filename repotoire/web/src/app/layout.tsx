@@ -91,6 +91,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={`${inter.variable} ${spaceGrotesk.variable} ${geistMono.variable} font-sans antialiased`}>
+        {/* repotoire:ignore[XssDetector] — JSON-LD structured data, no user input */}
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{
