@@ -25,3 +25,12 @@ pub use shotgun_surgery::ShotgunSurgeryDetector;
 pub use single_point_of_failure::SinglePointOfFailureDetector;
 pub use structural_bridge_risk::StructuralBridgeRiskDetector;
 pub use temporal_bottleneck::TemporalBottleneckDetector;
+
+mod single_owner_module;
+pub use single_owner_module::SingleOwnerModuleDetector;
+mod knowledge_silo;
+pub use knowledge_silo::KnowledgeSiloDetector;
+mod orphaned_knowledge;
+pub use orphaned_knowledge::OrphanedKnowledgeDetector;
+mod critical_path_single_owner;
+pub use critical_path_single_owner::CriticalPathSingleOwnerDetector;

@@ -183,6 +183,10 @@ const DEFAULT_DETECTOR_FACTORIES: &[DetectorFactory] = &[
     register::<TemporalBottleneckDetector>(),
     register::<ArchitecturalBottleneckDetector>(),
     register::<DegreeCentralityDetector>(),
+    register::<SingleOwnerModuleDetector>(),
+    register::<KnowledgeSiloDetector>(),
+    register::<OrphanedKnowledgeDetector>(),
+    register::<CriticalPathSingleOwnerDetector>(),
     // Rust-specific (bugs and safety)
     register::<UnwrapWithoutContextDetector>(),
     register::<UnsafeWithoutSafetyCommentDetector>(),
@@ -361,6 +365,8 @@ pub use architecture::{
     DegreeCentralityDetector, HiddenCouplingDetector, ModuleCohesionDetector,
     MutualRecursionDetector, PageRankDriftDetector, ShotgunSurgeryDetector,
     SinglePointOfFailureDetector, StructuralBridgeRiskDetector, TemporalBottleneckDetector,
+    SingleOwnerModuleDetector, KnowledgeSiloDetector, OrphanedKnowledgeDetector,
+    CriticalPathSingleOwnerDetector,
 };
 
 // Performance detectors
