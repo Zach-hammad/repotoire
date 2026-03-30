@@ -369,7 +369,6 @@ pub fn build_graph(
 ///
 /// Returns a [`ValueStore`] containing all resolved symbolic values extracted
 /// during parsing, with cross-function propagation already applied.
-
 #[allow(dead_code)]
 pub(super) fn build_graph_chunked(
     graph: &mut GraphBuilder,

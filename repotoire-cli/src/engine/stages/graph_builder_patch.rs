@@ -76,7 +76,7 @@ pub fn patch_builder(
 
         // Add import edges (best-effort)
         for import in &parse_result.imports {
-            if let Some(src_idx) = builder.get_node_index(&*file_str) {
+            if let Some(src_idx) = builder.get_node_index(&file_str) {
                 let target = &import.path;
                 if let Some(tgt_idx) = builder.get_node_index(target) {
                     builder.add_edge(src_idx, tgt_idx, CodeEdge::imports());

@@ -160,7 +160,7 @@ impl LazyClassDetector {
     }
 
     /// Get method nodes belonging to a class (by line range containment).
-    fn get_methods_of_class<'a>(
+    fn get_methods_of_class(
         graph: &dyn crate::graph::GraphQuery,
         class: &CodeNode,
     ) -> Vec<CodeNode> {

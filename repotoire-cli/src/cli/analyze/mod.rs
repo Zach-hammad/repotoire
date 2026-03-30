@@ -197,7 +197,7 @@ pub fn run_engine(
     // Optional outputs, telemetry, caching, and session persistence
     emit_optional_output(
         &output,
-        &all_findings,
+        all_findings,
         report,
         &result,
         &engine,
@@ -210,7 +210,7 @@ pub fn run_engine(
         path,
         &result.score,
         &result.stats,
-        &all_findings,
+        all_findings,
         &lang_loc_precomputed,
         &precomputed_primary_language,
         &engine,

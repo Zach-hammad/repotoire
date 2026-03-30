@@ -106,12 +106,14 @@ fn credential_only_in_string_literal(line: &str) -> bool {
                 // Track interpolation braces in f-strings and template literals
                 if (is_fstring || is_template_literal) && bytes[i] == b'{' {
                     // In JS/TS template literals, interpolation starts with `${`
-                    if is_template_literal {
-                        if i + 1 < bytes.len() && bytes[i] == b'$' && bytes[i + 1] == b'{' {
-                            brace_depth += 1;
-                            i += 2;
-                            continue;
-                        }
+                    if is_template_literal
+                        && i + 1 < bytes.len()
+                        && bytes[i] == b'$'
+                        && bytes[i + 1] == b'{'
+                    {
+                        brace_depth += 1;
+                        i += 2;
+                        continue;
                     }
                     // Python f-strings use bare `{`
                     if is_fstring {

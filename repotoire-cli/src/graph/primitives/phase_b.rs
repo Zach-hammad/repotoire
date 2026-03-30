@@ -194,7 +194,7 @@ pub(super) fn build_weighted_overlay(
         }
 
         // For each directory, find the index/mod/init file and connect it to siblings
-        for (_dir, file_keys) in &dir_to_files {
+        for file_keys in dir_to_files.values() {
             // Find aggregator files (mod.rs, __init__.py, index.ts, etc.)
             let aggregators: Vec<StrKey> = file_keys
                 .iter()

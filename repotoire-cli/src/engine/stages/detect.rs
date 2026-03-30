@@ -241,12 +241,12 @@ fn detect_stage_incremental(
 
     // Precompute: reuse cached when topology unchanged, else full recompute
     let precompute_start = Instant::now();
-    let precomputed = if !input.topology_changed && input.cached_gd_precomputed.is_some() {
+    let precomputed = if let Some(cached) = input
+        .cached_gd_precomputed
+        .filter(|_| !input.topology_changed)
+    {
         // Fast path: reuse cached PrecomputedAnalysis
         // Re-run TAINT because changed files may have new sinks/sources
-        let cached = input
-            .cached_gd_precomputed
-            .expect("cached_gd_precomputed must be Some when topology_changed is false");
         let mut reused = cached.clone(); // cheap: all Arc bumps
         reused.git_churn = Arc::clone(&input.file_churn);
         reused.co_change_matrix = input.co_change_matrix.as_ref().map(Arc::clone);
