@@ -1,6 +1,6 @@
 [package]
 name = "repotoire"
-version = "0.5.3"
+version = "0.6.0"
 edition = "2021"
 description = "Graph-powered code analysis CLI. 110 detectors for security, architecture, bus factor, and code quality."
 license = "Apache-2.0"
