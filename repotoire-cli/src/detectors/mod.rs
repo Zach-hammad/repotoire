@@ -258,16 +258,23 @@ const DEEP_ONLY_DETECTOR_FACTORIES: &[DetectorFactory] = &[
 ];
 
 /// Create default detectors (high-value: security, bugs, performance, architecture).
+/// Respects `[detectors.X] enabled = false` in repotoire.toml.
 pub fn create_default_detectors(init: &DetectorInit) -> Vec<Arc<dyn Detector>> {
-    DEFAULT_DETECTOR_FACTORIES.iter().map(|f| f(init)).collect()
+    DEFAULT_DETECTOR_FACTORIES
+        .iter()
+        .map(|f| f(init))
+        .filter(|d| init.project_config.is_detector_enabled(d.name()))
+        .collect()
 }
 
 /// Create ALL detectors including deep-scan detectors (code smells, style, dead code).
+/// Respects `[detectors.X] enabled = false` in repotoire.toml.
 pub fn create_all_detectors(init: &DetectorInit) -> Vec<Arc<dyn Detector>> {
     DEFAULT_DETECTOR_FACTORIES
         .iter()
         .chain(DEEP_ONLY_DETECTOR_FACTORIES.iter())
         .map(|f| f(init))
+        .filter(|d| init.project_config.is_detector_enabled(d.name()))
         .collect()
 }
 
