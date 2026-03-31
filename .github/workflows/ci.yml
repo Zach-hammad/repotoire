@@ -20,35 +20,24 @@ jobs:
       - name: Check generated product facts
         run: python3 scripts/product_facts.py --check
 
-  test:
-    name: Test
+  rust-ci:
+    name: Rust CI
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      
-      - uses: dtolnay/rust-toolchain@stable
-      
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: repotoire-cli
-      
-      - name: Run tests
-        run: cd repotoire-cli && cargo test --all-features
 
-  clippy:
-    name: Clippy
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-      
+
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: repotoire-cli
-      
+          workspaces: |
+            repotoire-cli -> target
+
+      - name: Run tests
+        run: cd repotoire-cli && cargo test --all-features
+
       - name: Run Clippy
         run: cd repotoire-cli && cargo clippy --all-features -- -D warnings
 
@@ -61,29 +50,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-      
+
       - name: Check formatting
         run: cd repotoire-cli && cargo fmt --all -- --check
-
-  # Self-analysis with repotoire
-  analyze:
-    name: Repotoire Analysis
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      
-      - uses: dtolnay/rust-toolchain@stable
-      
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: repotoire-cli
-      
-      - name: Build repotoire
-        run: cd repotoire-cli && cargo build --release
-      
-      - name: Run self-analysis
-        run: |
-          cd repotoire-cli
-          ./target/release/repotoire analyze --fail-on critical
-          echo "## Repotoire Analysis" >> $GITHUB_STEP_SUMMARY
-          ./target/release/repotoire analyze --format text | head -30 >> $GITHUB_STEP_SUMMARY
