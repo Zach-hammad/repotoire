@@ -750,7 +750,14 @@ fn send_diff_telemetry(telemetry: &crate::telemetry::Telemetry, repo_path: &Path
 NOTE: Don't add new fields to `DiffRun` for attribution counts — keep telemetry schema stable.
 The `all_new_count` preserves the existing metric semantics.
 
-- [ ] **Step 5: Verify compilation + run tests**
+- [ ] **Step 5: Update `emit_output` signature**
+
+Change `emit_output` (diff.rs:335) from `result: &DiffResult` to `result: &SmartDiffResult`.
+This is the glue between `run()` and the formatters — all three formatters now take `&SmartDiffResult`,
+so `emit_output` must match. The summary line `result.new_findings.len()` still works since
+`Vec<AttributedFinding>` has `.len()`.
+
+- [ ] **Step 6: Verify compilation + run tests**
 
 Run: `cargo check && cargo test diff -- --nocapture`
 
