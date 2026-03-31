@@ -583,7 +583,7 @@ git commit -m "feat(diff): wire hunk-level attribution with --all/--changed flag
 The text output now groups findings by attribution:
 
 ```rust
-pub fn format_text(result: &DiffResult, no_emoji: bool) -> String {
+pub fn format_text(result: &SmartDiffResult, no_emoji: bool) -> String {
     let mut out = String::new();
 
     // Header
@@ -664,7 +664,7 @@ fn format_finding_line(out: &mut String, finding: &Finding, _no_emoji: bool) {
     out.push_str(&format!(
         "  {} {:<40} {}{}\n",
         severity_icon(&finding.severity),
-        &finding.title[..finding.title.len().min(40)],
+        &finding.title.chars().take(40).collect::<String>(),
         file, line
     ));
 }
