@@ -79,6 +79,20 @@ impl std::str::FromStr for Severity {
     }
 }
 
+fn serialize_empty_map_as_null<S>(
+    map: &std::collections::BTreeMap<String, String>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    if map.is_empty() {
+        Option::<std::collections::BTreeMap<String, String>>::None.serialize(serializer)
+    } else {
+        Some(map).serialize(serializer)
+    }
+}
+
 /// Deserialize a BTreeMap that may be `null` in JSON (treat null as empty map)
 fn deserialize_null_as_empty_map<'de, D>(
     // repotoire:ignore[surprisal]
@@ -87,8 +101,7 @@ fn deserialize_null_as_empty_map<'de, D>(
 where
     D: serde::Deserializer<'de>,
 {
-    let opt: Option<std::collections::BTreeMap<String, String>> =
-        Option::deserialize(deserializer)?;
+    let opt = Option::<std::collections::BTreeMap<String, String>>::deserialize(deserializer)?;
     Ok(opt.unwrap_or_default())
 }
 
@@ -132,7 +145,7 @@ pub struct Finding {
     /// Keys: threshold_source, effective_threshold, actual_value, default_threshold
     #[serde(
         default,
-        skip_serializing_if = "std::collections::BTreeMap::is_empty",
+        serialize_with = "serialize_empty_map_as_null",
         deserialize_with = "deserialize_null_as_empty_map"
     )]
     pub threshold_metadata: std::collections::BTreeMap<String, String>,
@@ -407,6 +420,43 @@ mod tests {
         let finding: Finding =
             serde_json::from_str(json).expect("deserialize finding with missing metadata");
         assert!(finding.threshold_metadata.is_empty());
+    }
+
+    #[test]
+    fn test_finding_bincode_round_trip_with_threshold_metadata() {
+        let finding = Finding {
+            id: "test-bin".into(),
+            detector: "TestDetector".into(),
+            severity: Severity::High,
+            title: "Test finding".into(),
+            description: "A test".into(),
+            confidence: Some(0.85),
+            threshold_metadata: {
+                let mut m = std::collections::BTreeMap::new();
+                m.insert("threshold_source".into(), "adaptive".into());
+                m.insert("effective_threshold".into(), "15".into());
+                m
+            },
+            ..Default::default()
+        };
+
+        let bytes = bincode::serialize(&finding).expect("serialize finding");
+        let back: Finding = bincode::deserialize(&bytes).expect("deserialize finding");
+
+        assert_eq!(back.id, "test-bin");
+        assert_eq!(back.confidence, Some(0.85));
+        assert_eq!(
+            back.threshold_metadata
+                .get("threshold_source")
+                .expect("key exists"),
+            "adaptive"
+        );
+        assert_eq!(
+            back.threshold_metadata
+                .get("effective_threshold")
+                .expect("key exists"),
+            "15"
+        );
     }
 
     #[test]

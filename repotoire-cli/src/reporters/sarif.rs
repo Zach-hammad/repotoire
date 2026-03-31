@@ -110,8 +110,6 @@ struct SarifResult {
     locations: Vec<SarifLocation>,
     fingerprints: HashMap<String, String>,
     properties: SarifResultProperties,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    fixes: Vec<SarifFix>,
     /// Confidence ranking from 0.0 (lowest) to 100.0 (highest)
     /// See SARIF 2.1.0 spec §3.27.28
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -193,12 +191,6 @@ struct SarifResultProperties {
     cwe_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     threshold_metadata: Option<std::collections::BTreeMap<String, String>>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct SarifFix {
-    description: SarifMessage,
 }
 
 // ============================================================================
@@ -342,17 +334,6 @@ fn build_result(finding: &Finding, index: usize) -> SarifResult {
         },
     );
 
-    // Build fixes
-    let fixes: Vec<SarifFix> = finding
-        .suggested_fix
-        .as_ref()
-        .map(|fix| {
-            vec![SarifFix {
-                description: SarifMessage { text: fix.clone() },
-            }]
-        })
-        .unwrap_or_default();
-
     // Convert confidence (0.0-1.0) to SARIF rank (0.0-100.0)
     let rank = finding.confidence.map(|c| (c * 100.0).clamp(0.0, 100.0));
 
@@ -381,7 +362,6 @@ fn build_result(finding: &Finding, index: usize) -> SarifResult {
                 Some(finding.threshold_metadata.clone())
             },
         },
-        fixes,
         rank,
     }
 }
@@ -602,6 +582,47 @@ mod tests {
         assert!(
             sarif_json.contains("\"rank\": 85.0"),
             "SARIF output should contain rank: 85.0"
+        );
+    }
+
+    #[test]
+    fn test_suggested_fix_stays_in_properties_not_sarif_fixes() {
+        let report = HealthReport {
+            overall_score: 80.0,
+            grade: Grade::B,
+            structure_score: 80.0,
+            quality_score: 80.0,
+            architecture_score: Some(80.0),
+            findings: vec![Finding {
+                id: "test-fix".to_string(),
+                detector: "SecurityDetector".to_string(),
+                severity: Severity::High,
+                title: "Security issue".to_string(),
+                description: "Potential vulnerability".to_string(),
+                affected_files: vec![PathBuf::from("src/main.py")],
+                line_start: Some(7),
+                line_end: Some(7),
+                suggested_fix: Some("Replace string formatting with parameters".to_string()),
+                ..Default::default()
+            }],
+            findings_summary: crate::models::FindingsSummary::default(),
+            total_files: 1,
+            total_functions: 1,
+            total_classes: 0,
+            total_loc: 10,
+        };
+
+        let sarif_str = render(&report).expect("render SARIF");
+        let parsed: serde_json::Value = serde_json::from_str(&sarif_str).expect("parse SARIF JSON");
+        let result = &parsed["runs"][0]["results"][0];
+
+        assert_eq!(
+            result["properties"]["suggestedFix"],
+            "Replace string formatting with parameters"
+        );
+        assert!(
+            result.get("fixes").is_none(),
+            "SARIF should not emit invalid machine-applicable fixes for free-text suggestions"
         );
     }
 }
