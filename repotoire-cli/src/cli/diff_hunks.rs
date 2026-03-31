@@ -150,7 +150,10 @@ mod tests {
 
     #[test]
     fn test_parse_hunk_header_with_count() {
-        assert_eq!(parse_hunk_header("@@ -10,5 +20,3 @@ fn foo()"), Some((20, 3)));
+        assert_eq!(
+            parse_hunk_header("@@ -10,5 +20,3 @@ fn foo()"),
+            Some((20, 3))
+        );
     }
 
     #[test]
@@ -196,7 +199,7 @@ diff --git a/src/api.rs b/src/api.rs
         let hunks = DiffHunks::parse_diff(diff);
         let file_hunks = hunks.hunks.get(&PathBuf::from("src/api.rs")).unwrap();
         assert_eq!(file_hunks.len(), 2);
-        assert_eq!(file_hunks[0], (5, 7));   // start=5, count=3
+        assert_eq!(file_hunks[0], (5, 7)); // start=5, count=3
         assert_eq!(file_hunks[1], (51, 54)); // start=51, count=4
     }
 
@@ -210,7 +213,10 @@ diff --git a/src/api.rs b/src/api.rs
 ";
         let hunks = DiffHunks::parse_diff(diff);
         // Line 12 is within hunk (10-14)
-        assert_eq!(hunks.attribute(Path::new("src/api.rs"), Some(12)), Attribution::InChangedHunk);
+        assert_eq!(
+            hunks.attribute(Path::new("src/api.rs"), Some(12)),
+            Attribution::InChangedHunk
+        );
     }
 
     #[test]
@@ -223,9 +229,15 @@ diff --git a/src/api.rs b/src/api.rs
 ";
         let hunks = DiffHunks::parse_diff(diff);
         // Line 17 is hunk_end(14) + 3 margin = within margin
-        assert_eq!(hunks.attribute(Path::new("src/api.rs"), Some(17)), Attribution::InChangedHunk);
+        assert_eq!(
+            hunks.attribute(Path::new("src/api.rs"), Some(17)),
+            Attribution::InChangedHunk
+        );
         // Line 18 is hunk_end(14) + 4 = outside margin
-        assert_eq!(hunks.attribute(Path::new("src/api.rs"), Some(18)), Attribution::InChangedFile);
+        assert_eq!(
+            hunks.attribute(Path::new("src/api.rs"), Some(18)),
+            Attribution::InChangedFile
+        );
     }
 
     #[test]
@@ -238,7 +250,10 @@ diff --git a/src/api.rs b/src/api.rs
 ";
         let hunks = DiffHunks::parse_diff(diff);
         // Line 100 is in the file but far from the hunk
-        assert_eq!(hunks.attribute(Path::new("src/api.rs"), Some(100)), Attribution::InChangedFile);
+        assert_eq!(
+            hunks.attribute(Path::new("src/api.rs"), Some(100)),
+            Attribution::InChangedFile
+        );
     }
 
     #[test]
@@ -250,7 +265,10 @@ diff --git a/src/api.rs b/src/api.rs
 @@ -10,2 +10,5 @@ fn handler() {
 ";
         let hunks = DiffHunks::parse_diff(diff);
-        assert_eq!(hunks.attribute(Path::new("src/other.rs"), Some(10)), Attribution::InUnchangedFile);
+        assert_eq!(
+            hunks.attribute(Path::new("src/other.rs"), Some(10)),
+            Attribution::InUnchangedFile
+        );
     }
 
     #[test]
@@ -263,13 +281,19 @@ diff --git a/src/api.rs b/src/api.rs
 ";
         let hunks = DiffHunks::parse_diff(diff);
         // File-level finding (no line) → InChangedFile
-        assert_eq!(hunks.attribute(Path::new("src/api.rs"), None), Attribution::InChangedFile);
+        assert_eq!(
+            hunks.attribute(Path::new("src/api.rs"), None),
+            Attribution::InChangedFile
+        );
     }
 
     #[test]
     fn test_empty_diff() {
         let hunks = DiffHunks::parse_diff("");
         assert_eq!(hunks.changed_file_count(), 0);
-        assert_eq!(hunks.attribute(Path::new("any.rs"), Some(1)), Attribution::InUnchangedFile);
+        assert_eq!(
+            hunks.attribute(Path::new("any.rs"), Some(1)),
+            Attribution::InUnchangedFile
+        );
     }
 }

@@ -11,8 +11,7 @@ use std::sync::LazyLock;
 /// Declare a `LazyLock<Finder>` static for SIMD-accelerated substring search.
 macro_rules! finder {
     ($name:ident, $needle:literal) => {
-        pub static $name: LazyLock<Finder<'static>> =
-            LazyLock::new(|| Finder::new($needle));
+        pub static $name: LazyLock<Finder<'static>> = LazyLock::new(|| Finder::new($needle));
     };
 }
 

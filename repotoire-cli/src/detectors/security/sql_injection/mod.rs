@@ -147,12 +147,28 @@ impl SQLInjectionDetector {
     /// Error messages, log statements, and exception constructors are never SQL queries.
     fn is_error_or_log_context(line: &str) -> bool {
         let patterns = [
-            "Error(",    "error(",    "throw ",    "throw(",
-            "console.",  "log(",      "warn(",     "debug(",
-            "info(",     "trace(",    "panic!(",   "bail!(",
-            "anyhow!(",  "mkErr(",    "reject(",   "println!(",
-            "eprintln!(", "tracing::", "logger.",   "Logger.",
-            "raise ",    "Exception(",
+            "Error(",
+            "error(",
+            "throw ",
+            "throw(",
+            "console.",
+            "log(",
+            "warn(",
+            "debug(",
+            "info(",
+            "trace(",
+            "panic!(",
+            "bail!(",
+            "anyhow!(",
+            "mkErr(",
+            "reject(",
+            "println!(",
+            "eprintln!(",
+            "tracing::",
+            "logger.",
+            "Logger.",
+            "raise ",
+            "Exception(",
         ];
         patterns.iter().any(|p| line.contains(p))
     }

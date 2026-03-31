@@ -4,11 +4,11 @@
 //! weighted phase orchestrator, overlay builder, weighted PageRank, weighted betweenness,
 //! Louvain community detection, modularity.
 
+use foldhash::{HashMap, HashMapExt};
 use petgraph::stable_graph::{NodeIndex, StableGraph};
 use petgraph::visit::EdgeRef;
 use rayon::prelude::*;
 use std::cmp::Reverse;
-use foldhash::{HashMap, HashMapExt};
 use std::collections::{BTreeMap, BinaryHeap, HashSet};
 
 use crate::git::co_change::CoChangeMatrix;

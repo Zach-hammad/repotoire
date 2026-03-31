@@ -85,7 +85,9 @@ impl Detector for LogInjectionDetector {
                             || find_in(&FIND_USER, line)
                             || find_in(&FIND_PARAMS, line);
                         if has_user_input
-                            && (find_in(&FIND_F_QUOTE, line) || find_in(&FIND_DOLLAR_BRACE, line) || find_in(&FIND_PLUS_SPACE, line))
+                            && (find_in(&FIND_F_QUOTE, line)
+                                || find_in(&FIND_DOLLAR_BRACE, line)
+                                || find_in(&FIND_PLUS_SPACE, line))
                         {
                             findings.push(Finding {
                                 id: String::new(),

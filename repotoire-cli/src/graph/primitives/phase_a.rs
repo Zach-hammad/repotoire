@@ -3,10 +3,10 @@
 //! Contains 8 algorithms computed on the raw call/import graph:
 //! SCCs, PageRank, dominators, articulation points, call depths, betweenness.
 
+use foldhash::{HashMap, HashMapExt};
 use petgraph::algo::{dominators, tarjan_scc};
 use petgraph::stable_graph::{NodeIndex, StableGraph};
 use rayon::prelude::*;
-use foldhash::{HashMap, HashMapExt};
 use std::collections::{HashSet, VecDeque};
 
 use crate::graph::interner::global_interner;

@@ -285,8 +285,8 @@ impl Detector for CommandInjectionDetector {
 
                         // Check for template literal with interpolation ON THIS LINE
                         // Use raw_line because masking replaces template_string nodes with spaces
-                        let has_template_interpolation =
-                            find_in(&FIND_BACKTICK, raw_line) && find_in(&FIND_DOLLAR_BRACE, raw_line);
+                        let has_template_interpolation = find_in(&FIND_BACKTICK, raw_line)
+                            && find_in(&FIND_DOLLAR_BRACE, raw_line);
 
                         // Check if exec is using a dangerous variable we identified earlier
                         let uses_dangerous_var = dangerous_vars.iter().any(|v| line.contains(v));
@@ -372,7 +372,9 @@ impl Detector for CommandInjectionDetector {
                         || find_in(&FIND_EXEC_SYNC_PAREN, line)
                         || find_in(&FIND_EXEC_ASYNC_PAREN, line)
                     {
-                        if find_in(&FIND_BACKTICK, raw_line) && find_in(&FIND_DOLLAR_BRACE, raw_line) {
+                        if find_in(&FIND_BACKTICK, raw_line)
+                            && find_in(&FIND_DOLLAR_BRACE, raw_line)
+                        {
                             let (severity, description) = check_taint(
                                 "Template literal with variable interpolation passed to exec(). This is a classic command injection pattern."
                             );

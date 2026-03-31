@@ -520,7 +520,12 @@ pub fn run(
     // 4. Compute raw diff (existing function, unchanged)
     let base_label = base_ref.as_deref().unwrap_or("cached");
     let raw_diff = diff_findings(
-        &baseline, &head, base_label, "HEAD", score_before, score_after,
+        &baseline,
+        &head,
+        base_label,
+        "HEAD",
+        score_before,
+        score_after,
     );
 
     // 5. Parse git diff hunks for attribution
@@ -598,7 +603,6 @@ fn load_score_from(path: &Path) -> Option<f64> {
     let json_val: serde_json::Value = serde_json::from_str(&data).ok()?;
     json_val.get("health_score").and_then(|v| v.as_f64())
 }
-
 
 #[cfg(test)]
 mod tests {
