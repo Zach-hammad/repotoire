@@ -35,7 +35,7 @@ jobs:
             target: x86_64-pc-windows-msvc
             artifact: repotoire-windows-x86_64.zip
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -74,7 +74,7 @@ jobs:
     if: always() && !cancelled()
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: dtolnay/rust-toolchain@stable
 
