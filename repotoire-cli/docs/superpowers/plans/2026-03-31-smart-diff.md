@@ -757,11 +757,42 @@ This is the glue between `run()` and the formatters — all three formatters now
 so `emit_output` must match. The summary line `result.new_findings.len()` still works since
 `Vec<AttributedFinding>` has `.len()`.
 
-- [ ] **Step 6: Verify compilation + run tests**
+- [ ] **Step 6: Update existing tests that construct DiffResult for format functions**
+
+The existing tests at diff.rs:585 (`test_format_json_structure`) and diff.rs:608
+(`test_format_text_no_new_findings`) construct a `DiffResult` and pass it to `format_json()`
+/ `format_text()`. These functions now accept `&SmartDiffResult`. Update the tests to
+construct `SmartDiffResult` instead:
+
+```rust
+let result = SmartDiffResult {
+    base_ref: "main".to_string(),
+    head_ref: "HEAD".to_string(),
+    files_changed: 1,
+    new_findings: vec![AttributedFinding {
+        finding: make_finding("test-det", "src/main.rs", Some(10)),
+        attribution: Attribution::InChangedHunk,
+    }],
+    all_new_count: 1,
+    fixed_findings: vec![],
+    score_before: Some(90.0),
+    score_after: Some(85.0),
+};
+```
+
+- [ ] **Step 7: Remove dead `count_changed_files()` call**
+
+In `load_baseline_and_head()` (diff.rs:274), the function calls `count_changed_files()` and
+returns the count. But `SmartDiffResult` uses `hunks.changed_file_count()` instead. Remove
+the `count_changed_files()` call from `load_baseline_and_head()` and change the return type
+from 5-tuple to 4-tuple (drop `files_changed`). Update `run()` accordingly — it no longer
+destructures `files_changed` from the baseline loader.
+
+- [ ] **Step 8: Verify compilation + run tests**
 
 Run: `cargo check && cargo test diff -- --nocapture`
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add src/cli/diff.rs
