@@ -36,6 +36,22 @@ fn severity_to_security_score(severity: &Severity) -> f64 {
     }
 }
 
+fn path_to_sarif_uri(path: &std::path::Path) -> String {
+    let raw = path.to_string_lossy();
+    let mut encoded = String::with_capacity(raw.len());
+
+    for b in raw.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' | b':' => {
+                encoded.push(char::from(b))
+            }
+            _ => encoded.push_str(&format!("%{:02X}", b)),
+        }
+    }
+
+    encoded
+}
+
 // ============================================================================
 // SARIF Data Structures
 // ============================================================================
@@ -312,7 +328,7 @@ fn build_result(finding: &Finding, index: usize) -> SarifResult {
         .map(|file| SarifLocation {
             physical_location: SarifPhysicalLocation {
                 artifact_location: SarifArtifactLocation {
-                    uri: file.display().to_string(),
+                    uri: path_to_sarif_uri(file),
                     uri_base_id: Some("%SRCROOT%".to_string()),
                 },
                 region: finding.line_start.map(|start| SarifRegion {
@@ -473,6 +489,15 @@ mod tests {
         assert_eq!(severity_to_sarif_level(&Severity::Critical), "error");
         assert_eq!(severity_to_sarif_level(&Severity::Medium), "warning");
         assert_eq!(severity_to_sarif_level(&Severity::Low), "note");
+    }
+
+    #[test]
+    fn test_path_to_sarif_uri_encodes_reserved_characters() {
+        let path = PathBuf::from("repotoire/web/src/app/(marketing)/blog/[slug]/page.tsx");
+        assert_eq!(
+            path_to_sarif_uri(&path),
+            "repotoire/web/src/app/%28marketing%29/blog/%5Bslug%5D/page.tsx"
+        );
     }
 
     #[test]

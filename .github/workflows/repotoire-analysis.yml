@@ -8,7 +8,6 @@ on:
 
 permissions:
   security-events: write
-  pull-requests: write
   contents: read
 
 jobs:
@@ -20,13 +19,24 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: Zach-hammad/repotoire-action@v1
-        id: repotoire
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
         with:
-          fail-on: high
+          workspaces: |
+            repotoire-cli -> target
+
+      - name: Build and analyze current checkout
+        run: |
+          mkdir -p "$RUNNER_TEMP/repotoire-results"
+          cargo run --manifest-path repotoire-cli/Cargo.toml -- analyze . \
+            --format sarif \
+            --output "$RUNNER_TEMP/repotoire-results/results.sarif.json" \
+            --json-sidecar "$RUNNER_TEMP/repotoire-results/results.json" \
+            --per-page 0
 
       - uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
-          sarif_file: ${{ steps.repotoire.outputs.sarif-file }}
+          sarif_file: ${{ runner.temp }}/repotoire-results/results.sarif.json
           category: repotoire
