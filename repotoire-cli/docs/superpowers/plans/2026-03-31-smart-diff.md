@@ -320,7 +320,7 @@ In `src/cli/mod.rs`, add near the top with other module declarations:
 mod diff_hunks;
 ```
 
-Or if diff_hunks is only used by diff.rs, add it as `pub(super) mod diff_hunks;` or keep it in the `cli` module.
+(Private `mod diff_hunks;` is sufficient — diff.rs imports via `super::diff_hunks`.)
 
 - [ ] **Step 3: Run tests**
 
@@ -373,9 +373,10 @@ In `src/cli/mod.rs`, add to the `Diff` variant (~line 241):
     },
 ```
 
-- [ ] **Step 2: Update DiffResult to include attribution**
+- [ ] **Step 2: Add AttributedFinding + keep DiffResult compatible**
 
-In `src/cli/diff.rs`, add an `AttributedFinding` struct and update `DiffResult`:
+In `src/cli/diff.rs`, add the `AttributedFinding` wrapper but DON'T change `DiffResult.new_findings`
+type. Instead, store attributed findings separately:
 
 ```rust
 use super::diff_hunks::{Attribution, DiffHunks};
@@ -386,23 +387,55 @@ pub struct AttributedFinding {
     pub finding: Finding,
     pub attribution: Attribution,
 }
+```
 
-/// Result of diffing two sets of findings.
+Keep the existing `DiffResult` struct unchanged. Instead, create a new `SmartDiffResult`
+that `run()` builds after attribution:
+
+```rust
+/// Result of a smart diff with attribution.
 #[derive(Debug)]
-pub struct DiffResult {
+pub struct SmartDiffResult {
     pub base_ref: String,
     pub head_ref: String,
     pub files_changed: usize,
-    pub new_findings: Vec<AttributedFinding>,
+    pub new_findings: Vec<AttributedFinding>,  // attributed
+    pub all_new_count: usize,                   // total before filtering (for telemetry)
     pub fixed_findings: Vec<Finding>,
     pub score_before: Option<f64>,
     pub score_after: Option<f64>,
 }
+
+impl SmartDiffResult {
+    pub fn score_delta(&self) -> Option<f64> {
+        match (self.score_before, self.score_after) {
+            (Some(before), Some(after)) => Some(after - before),
+            _ => None,
+        }
+    }
+
+    /// Extract just the Finding structs (for APIs that need &[Finding]).
+    pub fn findings_only(&self) -> Vec<Finding> {
+        self.new_findings.iter().map(|af| af.finding.clone()).collect()
+    }
+
+    /// Extract hunk-level findings only.
+    pub fn hunk_findings(&self) -> Vec<Finding> {
+        self.new_findings.iter()
+            .filter(|af| af.attribution == Attribution::InChangedHunk)
+            .map(|af| af.finding.clone())
+            .collect()
+    }
+}
 ```
 
-- [ ] **Step 3: Update `run()` to parse hunks and attribute findings**
+The existing `diff_findings()` function stays unchanged — it returns raw `(Vec<Finding>, Vec<Finding>)`.
+Attribution is applied after.
 
-In `run()`, after computing the diff, parse hunks and attribute:
+- [ ] **Step 3: Update `run()` to parse hunks and build SmartDiffResult**
+
+Refactor `run()`. The existing `diff_findings()` function stays — it returns the raw `DiffResult`
+with `Vec<Finding>`. Then we attribute and filter:
 
 ```rust
 pub fn run(
@@ -416,44 +449,61 @@ pub fn run(
     changed: bool,
     telemetry: &crate::telemetry::Telemetry,
 ) -> Result<()> {
-    // ... existing code up to diff_findings ...
+    let start = Instant::now();
+    // ... existing setup code (canonicalize, verify git, load cache) ...
+
+    // Compute raw diff (existing function, unchanged)
+    let raw_diff = diff_findings(&baseline, &head, base_label, "HEAD",
+        files_changed, score_before, score_after);
 
     // Parse git diff hunks for attribution
     let effective_base = base_ref.as_deref().unwrap_or("HEAD~1");
-    let hunks = DiffHunks::from_git_diff(&repo_path, effective_base)?;
+    let hunks = DiffHunks::from_git_diff(&repo_path, effective_base)
+        .unwrap_or_else(|e| {
+            tracing::debug!("git diff -U0 failed: {e}, attributing all as InUnchangedFile");
+            DiffHunks::parse_diff("") // empty hunks = all findings unattributed
+        });
 
     // Attribute each new finding
-    let attributed: Vec<AttributedFinding> = raw_new_findings.into_iter().map(|f| {
+    let all_attributed: Vec<AttributedFinding> = raw_diff.new_findings.into_iter().map(|f| {
         let attr = f.affected_files.first()
             .map(|path| hunks.attribute(path, f.line_start))
             .unwrap_or(Attribution::InUnchangedFile);
         AttributedFinding { finding: f, attribution: attr }
     }).collect();
 
+    let all_new_count = all_attributed.len();
+
     // Filter based on flags
     let filtered: Vec<AttributedFinding> = if all {
-        attributed // show everything
+        all_attributed
     } else if changed {
-        attributed.into_iter()
+        all_attributed.into_iter()
             .filter(|af| af.attribution != Attribution::InUnchangedFile)
             .collect()
     } else {
-        // Default: only InChangedHunk
-        attributed.into_iter()
+        all_attributed.into_iter()
             .filter(|af| af.attribution == Attribution::InChangedHunk)
             .collect()
     };
 
-    let result = DiffResult {
-        base_ref: base_label.to_string(),
-        head_ref: "HEAD".to_string(),
+    let result = SmartDiffResult {
+        base_ref: raw_diff.base_ref,
+        head_ref: raw_diff.head_ref,
         files_changed: hunks.changed_file_count(),
         new_findings: filtered,
-        fixed_findings,
-        score_before,
-        score_after,
+        all_new_count,
+        fixed_findings: raw_diff.fixed_findings,
+        score_before: raw_diff.score_before,
+        score_after: raw_diff.score_after,
     };
+
+    // ... telemetry, output, fail-on (updated for SmartDiffResult) ...
+}
 ```
+
+IMPORTANT: `diff_findings()` is NOT changed. It still returns `DiffResult` with `Vec<Finding>`.
+The new `SmartDiffResult` is built from its output + attribution.
 
 - [ ] **Step 4: Update the CLI dispatch in mod.rs to pass new flags**
 
@@ -478,22 +528,37 @@ Some(Commands::Diff {
 
 - [ ] **Step 5: Update `check_fail_threshold` to use attributed findings**
 
-The fail-on check should only consider `InChangedHunk` findings by default:
+The fail-on check uses `SmartDiffResult.hunk_findings()` which returns `Vec<Finding>`:
 
 ```rust
-fn check_fail_threshold(fail_on: Option<Severity>, new_findings: &[AttributedFinding]) -> Result<()> {
+fn check_fail_threshold_smart(fail_on: Option<Severity>, result: &SmartDiffResult) -> Result<()> {
     if let Some(threshold) = fail_on {
-        // Only fail on findings in changed hunks
-        let hunk_findings: Vec<&Finding> = new_findings.iter()
-            .filter(|af| af.attribution == Attribution::InChangedHunk)
-            .map(|af| &af.finding)
-            .collect();
+        let hunk_findings = result.hunk_findings(); // Vec<Finding> — owned, correct type
         let new_summary = FindingsSummary::from_findings(&hunk_findings);
-        // ... rest unchanged
+        let should_fail = match threshold {
+            Severity::Critical => new_summary.critical > 0,
+            Severity::High => new_summary.critical > 0 || new_summary.high > 0,
+            Severity::Medium => {
+                new_summary.critical > 0 || new_summary.high > 0 || new_summary.medium > 0
+            }
+            Severity::Low | Severity::Info => {
+                new_summary.critical > 0 || new_summary.high > 0
+                    || new_summary.medium > 0 || new_summary.low > 0
+            }
+        };
+        if should_fail {
+            anyhow::bail!(
+                "Failing due to --fail-on={}: {} new finding(s) in changed hunks",
+                threshold, hunk_findings.len()
+            );
+        }
     }
     Ok(())
 }
 ```
+
+Note: `hunk_findings()` returns `Vec<Finding>` (owned), so `FindingsSummary::from_findings(&hunk_findings)`
+works because `&Vec<Finding>` coerces to `&[Finding]`.
 
 - [ ] **Step 6: Verify compilation**
 
@@ -605,55 +670,76 @@ fn format_finding_line(out: &mut String, finding: &Finding, _no_emoji: bool) {
 }
 ```
 
-- [ ] **Step 2: Update format_json**
+- [ ] **Step 2: Update format_json to accept SmartDiffResult**
 
-Add `attribution` field to each finding:
-
-```rust
-// In the new_findings array:
-"new_findings": result.new_findings.iter().map(|af| {
-    json!({
-        "detector": af.finding.detector,
-        "severity": format!("{:?}", af.finding.severity).to_lowercase(),
-        "title": af.finding.title,
-        "file": af.finding.affected_files.first().map(|p| p.display().to_string()),
-        "line": af.finding.line_start,
-        "attribution": match af.attribution {
-            Attribution::InChangedHunk => "in_changed_hunk",
-            Attribution::InChangedFile => "in_changed_file",
-            Attribution::InUnchangedFile => "in_unchanged_file",
-        }
-    })
-}).collect::<Vec<_>>(),
-```
-
-- [ ] **Step 3: Update format_sarif**
-
-Filter to `InChangedHunk` only for SARIF (GitHub Code Scanning annotations):
+Change `format_json` signature from `&DiffResult` to `&SmartDiffResult`. Add `attribution` field:
 
 ```rust
-pub fn format_sarif(result: &DiffResult) -> Result<String> {
-    // Only include InChangedHunk findings in SARIF
-    let hunk_findings: Vec<Finding> = result.new_findings.iter()
-        .filter(|af| af.attribution == Attribution::InChangedHunk)
-        .map(|af| af.finding.clone())
-        .collect();
+pub fn format_json(result: &SmartDiffResult) -> String {
+    let findings_json: Vec<serde_json::Value> = result.new_findings.iter().map(|af| {
+        json!({
+            "detector": af.finding.detector,
+            "severity": format!("{:?}", af.finding.severity).to_lowercase(),
+            "title": af.finding.title,
+            "file": af.finding.affected_files.first().map(|p| p.display().to_string()),
+            "line": af.finding.line_start,
+            "attribution": match af.attribution {
+                Attribution::InChangedHunk => "in_changed_hunk",
+                Attribution::InChangedFile => "in_changed_file",
+                Attribution::InUnchangedFile => "in_unchanged_file",
+            }
+        })
+    }).collect();
 
-    // ... create temporary HealthReport with hunk_findings ...
+    // For summary counts, use findings_only() to get Vec<Finding> for FindingsSummary
+    let all_findings = result.findings_only();
+    let new_summary = FindingsSummary::from_findings(&all_findings);
+    // ... rest of JSON construction using findings_json and new_summary
 }
 ```
 
-- [ ] **Step 4: Update telemetry to include attribution counts**
+- [ ] **Step 3: Update format_sarif to accept SmartDiffResult**
+
+SARIF filters to `InChangedHunk` only. Use `hunk_findings()` helper:
 
 ```rust
-// In send_diff_telemetry, add:
-let hunk_count = result.new_findings.iter()
-    .filter(|af| af.attribution == Attribution::InChangedHunk).count();
-let file_count = result.new_findings.iter()
-    .filter(|af| af.attribution == Attribution::InChangedFile).count();
-let unrelated_count = result.new_findings.iter()
-    .filter(|af| af.attribution == Attribution::InUnchangedFile).count();
+pub fn format_sarif(result: &SmartDiffResult) -> Result<String> {
+    let hunk_findings = result.hunk_findings(); // Vec<Finding> — correct type
+    let summary = FindingsSummary::from_findings(&hunk_findings);
+
+    let health = HealthReport {
+        findings: hunk_findings,
+        findings_summary: summary,
+        // ... other fields with defaults
+    };
+
+    crate::reporters::report_with_format(&health, crate::reporters::OutputFormat::Sarif)
+}
 ```
+
+The `hunk_findings()` method returns `Vec<Finding>` (owned, not references), so
+`FindingsSummary::from_findings(&hunk_findings)` compiles correctly.
+
+- [ ] **Step 4: Update telemetry to use all_new_count**
+
+In `send_diff_telemetry`, use `result.all_new_count` for the total (preserves historical metric
+semantics — always reports ALL new findings, not just filtered):
+
+```rust
+fn send_diff_telemetry(telemetry: &crate::telemetry::Telemetry, repo_path: &Path, result: &SmartDiffResult) {
+    // ... existing setup ...
+    let event = crate::telemetry::events::DiffRun {
+        // ...
+        findings_added: result.all_new_count as u64,  // total, not filtered
+        findings_removed: result.fixed_findings.len() as u64,
+        // ...
+    };
+    // ...
+}
+```
+
+NOTE: Don't add new fields to `DiffRun` for attribution counts — keep telemetry schema stable.
+The `all_new_count` preserves the existing metric semantics.
 
 - [ ] **Step 5: Verify compilation + run tests**
 
