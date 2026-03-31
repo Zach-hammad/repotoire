@@ -30,13 +30,18 @@ jobs:
         with:
           components: clippy
 
+      - uses: taiki-e/install-action@nextest
+
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
             repotoire-cli -> target
 
       - name: Run tests
-        run: cd repotoire-cli && cargo test --all-features
+        run: cd repotoire-cli && cargo nextest run --all-features
+
+      - name: Run doc tests
+        run: cd repotoire-cli && cargo test --all-features --doc
 
       - name: Run Clippy
         run: cd repotoire-cli && cargo clippy --all-features -- -D warnings
