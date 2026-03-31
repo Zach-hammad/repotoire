@@ -259,6 +259,14 @@ Examples:
         /// Output file path (default: stdout)
         #[arg(long, short = 'o')]
         output: Option<PathBuf>,
+
+        /// Show ALL new findings, not just those in changed hunks
+        #[arg(long)]
+        all: bool,
+
+        /// Show findings in changed files (hunks + non-hunk), hide unrelated files
+        #[arg(long)]
+        changed: bool,
     },
 
     /// View findings from last analysis (paginated, 20 per page by default)
@@ -642,6 +650,8 @@ pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> {
             fail_on,
             no_emoji,
             output,
+            all,
+            changed,
         }) => diff::run(
             &cli.path,
             base_ref,
@@ -649,6 +659,8 @@ pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> {
             fail_on,
             no_emoji,
             output.as_deref(),
+            all,
+            changed,
             &telemetry,
         ),
 
