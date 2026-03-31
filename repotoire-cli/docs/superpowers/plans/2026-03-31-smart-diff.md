@@ -640,9 +640,18 @@ pub fn format_text(result: &SmartDiffResult, no_emoji: bool) -> String {
         out.push('\n');
     }
 
-    // Score delta
-    if let Some(delta) = result.score_delta() {
-        // ... existing score formatting
+    // Score delta (preserve existing formatting from diff.rs:170-181)
+    if let (Some(before), Some(after)) = (result.score_before, result.score_after) {
+        let delta = after - before;
+        let delta_str = if delta >= 0.0 {
+            style(format!("+{:.1}", delta)).green().to_string()
+        } else {
+            style(format!("{:.1}", delta)).red().to_string()
+        };
+        out.push_str(&format!(
+            "Score: {:.1} \u{2192} {:.1} ({})\n",
+            before, after, delta_str,
+        ));
     }
 
     // Fixed findings
