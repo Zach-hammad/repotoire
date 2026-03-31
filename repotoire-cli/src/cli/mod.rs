@@ -5,6 +5,7 @@ mod benchmark;
 mod clean;
 mod debt;
 pub(crate) mod diff;
+mod diff_hunks;
 mod doctor;
 mod embedded_scripts;
 mod findings;
