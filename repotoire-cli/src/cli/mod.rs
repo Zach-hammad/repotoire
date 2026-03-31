@@ -757,14 +757,18 @@ pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> {
 
             // Load findings from last analysis
             let cache_path = crate::cli::analyze::cache_path(&cli.path);
-            let findings_path = cache_path.join("findings.json");
+            let findings_path = cache_path.join("last_findings.json");
 
             if !findings_path.exists() {
                 anyhow::bail!("No analysis results found. Run 'repotoire analyze' first.");
             }
 
             let content = std::fs::read_to_string(&findings_path)?;
-            let findings: Vec<crate::models::Finding> = serde_json::from_str(&content)?;
+            let json_val: serde_json::Value = serde_json::from_str(&content)?;
+            let findings: Vec<crate::models::Finding> = json_val
+                .get("findings")
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .unwrap_or_default();
 
             if index == 0 || index > findings.len() {
                 anyhow::bail!(
