@@ -9,6 +9,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
   RUSTFLAGS: -Dwarnings
 
 jobs:
@@ -35,8 +36,12 @@ jobs:
         run: cd repotoire-cli && cargo fmt --all -- --check
 
   test:
-    name: Test
+    name: Test (${{ matrix.partition }}/2)
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        partition: [1, 2]
     steps:
       - uses: actions/checkout@v5
 
@@ -48,11 +53,13 @@ jobs:
         with:
           workspaces: |
             repotoire-cli -> target
+          shared-key: test
 
       - name: Run tests
-        run: cd repotoire-cli && cargo nextest run --all-features
+        run: cd repotoire-cli && cargo nextest run --all-features --partition count:${{ matrix.partition }}/2
 
       - name: Run doc tests
+        if: matrix.partition == 1
         run: cd repotoire-cli && cargo test --all-features --doc
 
   clippy:
@@ -69,6 +76,7 @@ jobs:
         with:
           workspaces: |
             repotoire-cli -> target
+          shared-key: clippy
 
       - name: Run Clippy
         run: cd repotoire-cli && cargo clippy --all-features -- -D warnings
