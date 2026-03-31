@@ -143,6 +143,20 @@ impl SQLInjectionDetector {
         false
     }
 
+    /// Check if the template literal is inside an error/logging context.
+    /// Error messages, log statements, and exception constructors are never SQL queries.
+    fn is_error_or_log_context(line: &str) -> bool {
+        let patterns = [
+            "Error(",    "error(",    "throw ",    "throw(",
+            "console.",  "log(",      "warn(",     "debug(",
+            "info(",     "trace(",    "panic!(",   "bail!(",
+            "anyhow!(",  "mkErr(",    "reject(",   "println!(",
+            "eprintln!(", "tracing::", "logger.",   "Logger.",
+            "raise ",    "Exception(",
+        ];
+        patterns.iter().any(|p| line.contains(p))
+    }
+
     /// Check if a JavaScript template literal is a safe tagged template
     /// Tagged templates like sql`...`, Prisma.sql`...`, db.sql`...` are parameterized
     fn is_safe_tagged_template(&self, line: &str) -> bool {
@@ -391,9 +405,12 @@ impl SQLInjectionDetector {
         // Skip safe tagged templates (Drizzle sql``, Prisma.sql``, etc.)
         // Skip when SQL keyword is actually a variable name (${insert.id})
         // Skip placeholder generation patterns
+        // Skip error/log contexts (never SQL queries)
+        // Require 2+ SQL keywords when only 1 is present (single keyword is often English)
         if JS_TEMPLATE_SQL.is_match(line)
             && !self.is_safe_tagged_template(line)
             && !self.is_variable_name_false_positive(line)
+            && !Self::is_error_or_log_context(line)
         {
             // Complete skip for placeholder generation - this can ONLY produce safe strings
             if is_placeholder_gen {
@@ -594,10 +611,12 @@ impl SQLInjectionDetector {
                         continue;
                     }
 
-                    // go_sprintf and js_template patterns already contain SQL keywords in the regex,
-                    // so they're self-evidently SQL context (building a SQL string, even if assigned to variable)
-                    let is_self_evident_sql =
-                        pattern_type == "go_sprintf" || pattern_type == "js_template";
+                    // go_sprintf patterns are self-evidently SQL (fmt.Sprintf with SQL keyword
+                    // is always building a SQL string). js_template is NOT self-evident —
+                    // a template literal with "create" could be English ("create succeeded")
+                    // rather than SQL. JS template literals must pass the SQL context check
+                    // (nearby .query(), .execute(), etc.) to reduce false positives.
+                    let is_self_evident_sql = pattern_type == "go_sprintf";
 
                     // Check if this line directly contains SQL context
                     let has_direct_sql_context = is_self_evident_sql || self.is_sql_context(line);
