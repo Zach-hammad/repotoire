@@ -1,0 +1,34 @@
+{
+  "detectors": {
+    "default": 77,
+    "deep_scan": 33,
+    "total": 110
+  },
+  "languages": {
+    "full_graph": [
+      "Python",
+      "TypeScript",
+      "JavaScript",
+      "Rust",
+      "Go",
+      "Java",
+      "C#",
+      "C",
+      "C++"
+    ],
+    "full_graph_count": 9,
+    "regex_scanned": [
+      "Ruby",
+      "PHP",
+      "Kotlin",
+      "Swift"
+    ],
+    "regex_scanned_count": 4,
+    "total_supported_count": 13
+  },
+  "messaging": {
+    "headline_detector_count": 110,
+    "headline_language_count": 9,
+    "headline_language_label": "graph-native languages"
+  }
+}

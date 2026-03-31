@@ -6,12 +6,19 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion"
+import {
+  FULL_GRAPH_LANGUAGE_LIST,
+  GRAPH_LANGUAGE_LABEL,
+  REGEX_SCANNED_LANGUAGE_LIST,
+  TOTAL_DETECTOR_LABEL,
+  TOTAL_LANGUAGE_LABEL,
+} from "@/lib/product-facts.generated"
 
 const faqs = [
   {
     question: "Is Repotoire really free?",
     answer:
-      "Yes. Repotoire is MIT-licensed and free forever. All 114 detectors, all 13 languages, all export formats. No freemium, no feature gates, no cloud account required.",
+      `Yes. Repotoire is MIT-licensed and free forever. ${TOTAL_DETECTOR_LABEL}, ${TOTAL_LANGUAGE_LABEL}, all export formats. No freemium, no feature gates, no cloud account required.`,
   },
   {
     question: "Do I need an API key?",
@@ -21,7 +28,7 @@ const faqs = [
   {
     question: "What languages are supported?",
     answer:
-      "Full graph analysis with tree-sitter: Python, TypeScript, JavaScript, Go, Java, Rust, C, C++, C#. Security and quality scanning via regex: Ruby, PHP, Kotlin, Swift.",
+      `Full graph analysis with tree-sitter: ${FULL_GRAPH_LANGUAGE_LIST}. Regex-scanned security and quality coverage: ${REGEX_SCANNED_LANGUAGE_LIST}.`,
   },
   {
     question: "How does it compare to SonarQube or Semgrep?",

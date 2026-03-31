@@ -1,6 +1,7 @@
 "use client"
 
 import { motion } from "framer-motion"
+import { PRODUCT_FACTS } from "@/lib/product-facts.generated"
 import { 
   GitBranch, 
   Search, 
@@ -117,9 +118,9 @@ export function CLIFeatures() {
           viewport={{ once: true }}
           className="mt-16 text-center"
         >
-          <p className="text-sm text-muted-foreground mb-4">Languages supported</p>
+          <p className="text-sm text-muted-foreground mb-4">Graph-native languages</p>
           <div className="flex flex-wrap justify-center gap-3">
-            {["Python", "TypeScript", "JavaScript", "Go", "Java", "Rust", "C/C++", "C#", "Kotlin"].map((lang) => (
+            {PRODUCT_FACTS.languages.full_graph.map((lang) => (
               <span
                 key={lang}
                 className="px-4 py-2 rounded-full bg-muted border border-border/50 text-sm text-foreground"

@@ -244,7 +244,7 @@ repotoire v0.5.1 — graph-powered code health
 Analyzing: /path/to/your/repo
   Files: 847 | Languages: TypeScript, Python
   Graph: 12,493 nodes, 31,207 edges
-  Detectors: 106 (73 default + 33 deep-scan)
+  Detectors: 110 (77 default + 33 deep-scan)
 
 Health Score: 82/100 (B+)
   Structure:    88/100
@@ -252,7 +252,7 @@ Health Score: 82/100 (B+)
   Architecture: 78/100
 ```
 
-Under the hood, it parses code with [tree-sitter](https://tree-sitter.github.io/tree-sitter/), builds an in-memory graph with [petgraph](https://docs.rs/petgraph/), and runs 106 pure Rust detectors in parallel via [rayon](https://docs.rs/rayon/). It supports 9 languages (Python, TypeScript, JavaScript, Rust, Go, Java, C#, C, C++), outputs in 5 formats (text, JSON, HTML, SARIF, Markdown), and the [GitHub Action](https://github.com/Zach-hammad/repotoire-action) integrates it into your PR workflow.
+Under the hood, it parses code with [tree-sitter](https://tree-sitter.github.io/tree-sitter/), builds an in-memory graph with [petgraph](https://docs.rs/petgraph/), and runs 110 pure Rust detectors in parallel via [rayon](https://docs.rs/rayon/). It supports 9 graph-native languages (Python, TypeScript, JavaScript, Rust, Go, Java, C#, C, C++), outputs in 5 formats (text, JSON, HTML, SARIF, Markdown), and the [GitHub Action](https://github.com/Zach-hammad/repotoire-action) integrates it into your PR workflow.
 
 The Rust advantage is clear here: building and analyzing a dependency graph with 30,000+ edges in under 2 seconds would be painful in Python or JavaScript. In Rust, it's just what the tool does.
 

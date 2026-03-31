@@ -1040,7 +1040,7 @@ no_circular_deps(M) :- module(M), NOT cycle_member(M).
 
 ### Task 13: Port Existing Detectors to Emit Base Facts
 
-**Goal:** The existing 114 detectors produce `Finding` structs directly. Port them to ALSO emit base facts into the inference engine, so higher-level rules can compose across detector boundaries.
+**Goal:** The existing 110 detectors produce `Finding` structs directly. Port them to ALSO emit base facts into the inference engine, so higher-level rules can compose across detector boundaries.
 
 **Approach:** NOT a rewrite. Add a `fn emit_facts(&self, findings: &[Finding]) -> Vec<BaseFact>` method to the detector trait. Each detector maps its findings to base facts:
 - SQL injection finding → `security_vuln(F, "sql_injection")` fact
@@ -1049,7 +1049,7 @@ no_circular_deps(M) :- module(M), NOT cycle_member(M).
 
 This lets inference rules like `high_risk_change(F) :- security_vuln(F, _), complex_function(F, s), hot_path(F)` compose signals from multiple detectors.
 
-**Estimated:** 2-3 evenings. Mechanical but tedious — 114 detectors to touch.
+**Estimated:** 2-3 evenings. Mechanical but tedious — 110 detectors to touch.
 
 ---
 
@@ -1171,7 +1171,7 @@ This lets inference rules like `high_risk_change(F) :- security_vuln(F, _), comp
 Phase 1 complete
     → Task 11 (more detectors)     — parallel with 12, 14
     → Task 12 (non-monotonic rules) — parallel with 11, 14
-    → Task 13 (port 114 detectors)  — after 12 (needs fact types)
+    → Task 13 (port 110 detectors)  — after 12 (needs fact types)
     → Task 14 (MCP shim)            — parallel with 11, 12
     → Task 15 (streaming provider)   — independent
     → Task 16 (agent loop)           — after 15

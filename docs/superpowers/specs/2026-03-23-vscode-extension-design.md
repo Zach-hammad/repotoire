@@ -79,7 +79,7 @@ Key fields:
         "repotoire.allDetectors": {
           "type": "boolean",
           "default": false,
-          "description": "Run all 106 detectors including deep-scan (code smells, style, dead code)"
+          "description": "Run all 110 detectors including deep-scan (code smells, style, dead code)"
         }
       }
     }

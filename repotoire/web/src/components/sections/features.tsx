@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
+import { FULL_GRAPH_LANGUAGE_LIST, GRAPH_LANGUAGE_LABEL, TOTAL_DETECTOR_LABEL } from "@/lib/product-facts.generated"
 
 const detectors = [
   { name: "Circular Dependencies", output: "A → B → C → A", color: "orange" },
@@ -62,13 +63,13 @@ export function Features() {
           id="features-heading"
           className={`text-3xl sm:text-4xl tracking-tight text-foreground mb-4 text-center opacity-0 ${isVisible ? "animate-fade-up" : ""}`}
         >
-          <span className="font-serif italic text-muted-foreground">114 detectors,</span>{" "}
-          <span className="text-gradient font-display font-semibold">13 languages</span>
+          <span className="font-serif italic text-muted-foreground">{TOTAL_DETECTOR_LABEL},</span>{" "}
+          <span className="text-gradient font-display font-semibold">{GRAPH_LANGUAGE_LABEL}</span>
         </h2>
         <p
           className={`text-muted-foreground max-w-xl mx-auto text-center mb-12 opacity-0 ${isVisible ? "animate-fade-up delay-100" : ""}`}
         >
-          Python, TypeScript, JavaScript, Go, Java, Rust, C, C++, C#, Kotlin — all parsed with tree-sitter. Adaptive thresholds learn YOUR coding style.
+          {FULL_GRAPH_LANGUAGE_LIST} use full tree-sitter graph analysis. Adaptive thresholds learn your coding style.
         </p>
 
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4" role="list" aria-label="Analysis tools">

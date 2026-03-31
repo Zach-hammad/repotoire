@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
+import { FULL_GRAPH_LANGUAGE_LIST, REGEX_SCANNED_LANGUAGE_LIST, TOTAL_LANGUAGE_LABEL } from "@/lib/product-facts.generated"
 
 const faqs = [
   {
@@ -12,7 +13,7 @@ const faqs = [
   {
     question: "What languages do you support?",
     answer:
-      "We support 13 languages. Full graph analysis: Python, TypeScript, JavaScript, Go, Java, Rust, C, C++, C#. Security scanning: Ruby, PHP, Kotlin, Swift.",
+      `${TOTAL_LANGUAGE_LABEL}. Full graph analysis: ${FULL_GRAPH_LANGUAGE_LIST}. Regex-scanned security and quality coverage: ${REGEX_SCANNED_LANGUAGE_LIST}.`,
   },
   {
     question: "Is the AI auto-fix safe?",

@@ -4,6 +4,7 @@ import Link from "next/link"
 import { Check, Terminal, Heart, Building2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
+import { GRAPH_LANGUAGE_LABEL, PRODUCT_FACTS } from "@/lib/product-facts.generated"
 
 const plans = [
   {
@@ -12,8 +13,8 @@ const plans = [
     price: "Free",
     description: "Everything you need",
     features: [
-      "114 code detectors",
-      "13 languages",
+      `${PRODUCT_FACTS.detectors.total} code detectors`,
+      GRAPH_LANGUAGE_LABEL,
       "Graph-based architecture analysis",
       "SSA taint flow analysis",
       "AI-powered fixes (BYOK)",

@@ -123,7 +123,9 @@ repotoire analyze . --relaxed   # Only HIGH+ findings
 
 ## Supported Languages
 
-Full parsing for: **Rust, Python, TypeScript, JavaScript, Go, Java, C/C++, C#, Kotlin**
+Full graph parsing for: **Rust, Python, TypeScript, JavaScript, Go, Java, C/C++, C#**
+
+Regex-scanned security/quality coverage: **Ruby, PHP, Kotlin, Swift**
 
 All use tree-sitter compiled to native Rust — no external dependencies.
 
@@ -196,7 +198,7 @@ def legacy_function():  # This line won't trigger findings
 ## How It Works
 
 ```
-Source Files → Tree-sitter Parser → Kuzu Graph DB → 108 Detectors → Report
+Source Files → Tree-sitter Parser → Kuzu Graph DB → 110 Detectors → Report
                      │                    │
               Native Rust           Graph algorithms:
               ~400 files/sec        • Tarjan's SCC
@@ -214,7 +216,7 @@ Source Files → Tree-sitter Parser → Kuzu Graph DB → 108 Detectors → Repo
 | **Local-first** | ✅ | ❌ | ✅ | ✅ |
 | **No Docker** | ✅ | ❌ | ✅ | ✅ |
 | **AI fixes** | ✅ | ❌ | ❌ | ❌ |
-| **Multi-language** | 9 | Many | Many | JS only |
+| **Graph-native languages** | 9 | Many | Many | JS only |
 | **Free** | ✅ | Limited | ✅ | ✅ |
 | **Setup time** | 30 sec | Hours | Minutes | Minutes |
 

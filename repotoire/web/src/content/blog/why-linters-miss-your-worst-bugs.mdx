@@ -122,9 +122,9 @@ These aren't exotic academic algorithms. They're the same algorithms that power 
 
 ## Repotoire's approach
 
-Repotoire is a pure Rust CLI that runs all of this locally. No cloud service, no Docker, no external database. It uses petgraph for the in-memory graph and tree-sitter for parsing across 9 languages (Python, TypeScript, JavaScript, Rust, Go, Java, C#, C, C++).
+Repotoire is a pure Rust CLI that runs all of this locally. No cloud service, no Docker, no external database. It uses petgraph for the in-memory graph and tree-sitter for parsing across 9 graph-native languages (Python, TypeScript, JavaScript, Rust, Go, Java, C#, C, C++).
 
-106 detectors run in parallel via rayon. 73 default detectors cover security, code quality, and architecture. 33 additional deep-scan detectors cover code smells, style issues, and dead code.
+110 detectors run in parallel via rayon. 77 default detectors cover security, code quality, and architecture. 33 additional deep-scan detectors cover code smells, style issues, and dead code.
 
 The graph algorithms run in two phases:
 - **Phase A** (computed at graph freeze): dominator trees, articulation points, PageRank, betweenness centrality, strongly connected components

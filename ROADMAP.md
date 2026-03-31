@@ -26,7 +26,7 @@ While AI coding tools make developers faster, they also introduce 4x more code d
 
 ### ✅ Detector Noise Reduction (March 2026)
 - Analyzed 9,469 merged PRs from 98 repos to determine which detectors produce actionable findings
-- Split 106 detectors into 73 default (security, bugs, perf, architecture) + 33 deep (`--all-detectors`)
+- Split 110 detectors into 77 default (security, bugs, perf, architecture) + 33 deep (`--all-detectors`)
 - Rearchitected 9 noisy detectors (ShotgunSurgery→ChangeCoupling, LazyClass→RedundantClass, AIComplexitySpike→ComplexityOutlier, etc.)
 - Average findings: 1,526 → ~87 per repo
 

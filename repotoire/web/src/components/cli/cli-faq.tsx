@@ -10,6 +10,7 @@ import {
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Users } from "lucide-react"
+import { FULL_GRAPH_LANGUAGE_LIST, REGEX_SCANNED_LANGUAGE_LIST, TOTAL_LANGUAGE_LABEL } from "@/lib/product-facts.generated"
 
 const faqs = [
   {
@@ -26,7 +27,7 @@ const faqs = [
   },
   {
     question: "What languages are supported?",
-    answer: "We support 9 languages with full graph analysis: Python, TypeScript, JavaScript, Go, Java, Rust, C/C++, C#, and Kotlin. All use tree-sitter for fast, accurate parsing.",
+    answer: `We support ${TOTAL_LANGUAGE_LABEL}. Full graph analysis: ${FULL_GRAPH_LANGUAGE_LIST}. Regex-scanned security and quality coverage: ${REGEX_SCANNED_LANGUAGE_LIST}.`,
   },
   {
     question: "Can I use this in CI/CD?",

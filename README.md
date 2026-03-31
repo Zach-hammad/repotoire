@@ -1,8 +1,8 @@
 # Repotoire 🎼
 
-**Graph-powered code analysis. 106 detectors. 13 languages. One binary.**
+**Graph-powered code analysis. 110 detectors. 9 graph-native languages. One binary.**
 
-Repotoire builds a knowledge graph of your codebase and runs 106 detectors (73 default + 33 deep-scan) to find security vulnerabilities, architectural issues, and code smells that file-by-file linters miss.
+Repotoire builds a knowledge graph of your codebase and runs 110 detectors (77 default + 33 deep-scan) to find security vulnerabilities, architectural issues, and code smells that file-by-file linters miss.
 
 [![Crates.io](https://img.shields.io/crates/v/repotoire.svg)](https://crates.io/crates/repotoire)
 [![CI](https://github.com/Zach-hammad/repotoire/actions/workflows/ci.yml/badge.svg)](https://github.com/Zach-hammad/repotoire/actions/workflows/ci.yml)
@@ -104,7 +104,7 @@ repotoire analyze .
 # Only high/critical findings
 repotoire analyze . --severity high
 
-# Run all 106 detectors (default runs 73 high-value detectors)
+# Run all 110 detectors (default runs 77 high-value detectors)
 repotoire analyze . --all-detectors
 
 # Output formats
@@ -282,13 +282,13 @@ ollama pull deepseek-coder:6.7b
 repotoire fix <finding-id>
 ```
 
-No API key? No problem. All 106 detectors work fully offline.
+No API key? No problem. All 110 detectors work fully offline.
 
 ## How It Works
 
 ```
 Source Files ──▶ Tree-sitter ──▶ Knowledge Graph ──▶ 106 Detectors
-(13 languages)    (parallel)     (petgraph + redb)    (parallel)
+(9 graph-native)  (parallel)     (petgraph + redb)    (parallel)
                                        │
                                  Graph algorithms:
                                  • Tarjan's SCC
@@ -324,4 +324,3 @@ Apache-2.0 — see [LICENSE](LICENSE)
 ```bash
 cargo install repotoire && repotoire analyze .
 ```
-

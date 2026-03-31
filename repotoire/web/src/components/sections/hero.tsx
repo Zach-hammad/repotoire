@@ -5,6 +5,7 @@ import Link from "next/link"
 import { motion, useReducedMotion } from "framer-motion"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
+import { GRAPH_LANGUAGE_LABEL, PRODUCT_FACTS } from "@/lib/product-facts.generated"
 import { Terminal, ArrowRight, Sparkles, Shield, Zap, LucideIcon } from "lucide-react"
 import {
   EASING,
@@ -232,8 +233,8 @@ export function Hero() {
             {/* Feature pills */}
             <div className="flex flex-wrap justify-center gap-2">
               <FeaturePill icon={Shield} text="Code stays local" delay={1.5} />
-              <FeaturePill icon={Zap} text="13 languages" delay={1.6} />
-              <FeaturePill icon={Sparkles} text="114 detectors" delay={1.7} />
+              <FeaturePill icon={Zap} text={GRAPH_LANGUAGE_LABEL} delay={1.6} />
+              <FeaturePill icon={Sparkles} text={`${PRODUCT_FACTS.detectors.total} detectors`} delay={1.7} />
             </div>
 
             {/* CTA */}

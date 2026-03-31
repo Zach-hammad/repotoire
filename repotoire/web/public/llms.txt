@@ -1,13 +1,13 @@
 # Repotoire
 
-> Graph-powered code intelligence with 106 pure Rust detectors.
+> Graph-powered code intelligence with 110 pure Rust detectors.
 
 Repotoire analyzes codebases using knowledge graphs (petgraph + tree-sitter) to detect code smells, security issues, architectural problems, and technical debt that traditional linters miss. Single binary, 9 languages, no external dependencies.
 
 ## Key Pages
 
 - [Homepage](https://www.repotoire.com) — Product overview and getting started
-- [Features](https://www.repotoire.com/features) — 106 detectors across security, architecture, code quality
+- [Features](https://www.repotoire.com/features) — 110 detectors across security, architecture, code quality
 - [How It Works](https://www.repotoire.com/how-it-works) — Graph-powered analysis pipeline
 - [Pricing](https://www.repotoire.com/pricing) — Free CLI, paid dashboard plans
 - [About](https://www.repotoire.com/about) — Team and mission
@@ -17,7 +17,7 @@ Repotoire analyzes codebases using knowledge graphs (petgraph + tree-sitter) to 
 - Language: Rust (93k+ lines)
 - Graph Engine: petgraph (in-memory) + redb (persistence)
 - Parsers: 9 tree-sitter parsers (Python, TypeScript/JS, Rust, Go, Java, C#, C, C++)
-- Detectors: 106 pure Rust (73 default + 33 deep-scan)
+- Detectors: 110 pure Rust (77 default + 33 deep-scan)
 - Scoring: Three-pillar (Structure 40%, Quality 30%, Architecture 30%)
 - Output: Text, JSON, HTML, SARIF 2.1.0, Markdown
 - Install: cargo install, brew, npm, GitHub Action

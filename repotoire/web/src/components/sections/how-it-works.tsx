@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
+import { GRAPH_LANGUAGE_LABEL } from "@/lib/product-facts.generated"
 
 export function HowItWorks() {
   const sectionRef = useRef<HTMLElement>(null)
@@ -61,7 +62,7 @@ export function HowItWorks() {
               <div className="text-muted-foreground"># Install CLI</div>
               <div className="text-primary mt-1">cargo install repotoire</div>
               <div className="text-muted-foreground mt-3">✓ Installed v0.1.44</div>
-              <div className="text-muted-foreground">✓ 13 languages supported</div>
+              <div className="text-muted-foreground">✓ {GRAPH_LANGUAGE_LABEL} supported</div>
             </div>
           </div>
 

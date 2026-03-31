@@ -116,7 +116,7 @@ export default function RepotoireVsSonarQubePage() {
               security hotspots. Its SAST capabilities are mature and well-tested across millions of projects.
             </p>
             <p className="text-muted-foreground leading-relaxed">
-              <strong className="text-foreground">Repotoire excels at depth.</strong> Its 106 detectors
+              <strong className="text-foreground">Repotoire excels at depth.</strong> Its 110 detectors
               include graph-based architectural analysis that SonarQube cannot perform: circular dependency
               detection via Tarjan&apos;s SCC, god class identification through fan-in/fan-out metrics,
               architectural bottleneck detection via PageRank and betweenness centrality, hidden coupling
@@ -189,7 +189,7 @@ sonar-scanner \\
                   </li>
                   <li className="flex items-start gap-2">
                     <span className="text-primary mt-0.5">&#10003;</span>
-                    <span>All 106 detectors included</span>
+                    <span>All 110 detectors included</span>
                   </li>
                   <li className="flex items-start gap-2">
                     <span className="text-primary mt-0.5">&#10003;</span>

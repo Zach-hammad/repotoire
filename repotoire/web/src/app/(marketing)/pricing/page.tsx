@@ -1,10 +1,11 @@
 import { Metadata } from "next"
 import { PricingCards } from "@/components/marketing/pricing-cards"
 import { PricingFAQ } from "@/components/marketing/pricing-faq"
+import { GRAPH_LANGUAGE_LABEL, TOTAL_DETECTOR_LABEL } from "@/lib/product-facts.generated"
 
 export const metadata: Metadata = {
   title: "Pricing - Repotoire",
-  description: "Repotoire is free, open source, and always will be. 114 detectors, 13 languages, zero cost.",
+  description: `Repotoire is free, open source, and always will be. ${TOTAL_DETECTOR_LABEL}, ${GRAPH_LANGUAGE_LABEL}, zero cost.`,
   openGraph: {
     title: "Pricing - Repotoire",
     description: "Repotoire is free, open source, and always will be.",
@@ -25,7 +26,7 @@ export default function PricingPage() {
               Free. <span className="text-gradient">Open source.</span> Always.
             </h1>
             <p className="mt-6 text-lg text-muted-foreground max-w-2xl mx-auto">
-              114 detectors. 13 languages. Graph-powered analysis. No API keys, no accounts, no cloud required.
+              {TOTAL_DETECTOR_LABEL}. {GRAPH_LANGUAGE_LABEL}. Graph-powered analysis. No API keys, no accounts, no cloud required.
             </p>
           </div>
 

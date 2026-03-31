@@ -8,7 +8,7 @@ Repotoire is a graph-powered code health platform that analyzes codebases using 
 - **Structural analysis** (tree-sitter AST parsing across 9 languages)
 - **Relational patterns** (graph algorithms via petgraph)
 
-This multi-layered approach enables detection of complex issues that traditional tools miss, such as circular dependencies, architectural bottlenecks, and modularity problems. 106 detectors (73 default + 33 deep-scan) are pure Rust — no external tool dependencies.
+This multi-layered approach enables detection of complex issues that traditional tools miss, such as circular dependencies, architectural bottlenecks, and modularity problems. 110 detectors (77 default + 33 deep-scan) are pure Rust — no external tool dependencies.
 
 ## Development Rules
 
@@ -82,7 +82,7 @@ repotoire clean /path/to/repo
 
 | Command | Description |
 |---------|-------------|
-| `analyze` | Analyze codebase for issues (73 default detectors, or all 106 with `--all-detectors`) |
+| `analyze` | Analyze codebase for issues (77 default detectors, or all 110 with `--all-detectors`) |
 | `diff` | Compare findings between two analysis states |
 | `findings` | View findings from last analysis |
 | `fix` | Generate fix for a finding (AI-powered or rule-based) |
@@ -129,7 +129,7 @@ During **Freeze**, `GraphPrimitives::compute()` runs Phase A algorithms (dominat
 
 3. **Engine** (`repotoire-cli/src/engine/`): `AnalysisEngine` is the primary analysis orchestrator. Runs 8 stages in order: collect, parse, graph, git_enrich, calibrate, detect, postprocess, score. Returns `AnalysisResult` (findings + score + stats). Stateful: supports cold, cached, and incremental modes. Persistence via `save()`/`load()` for cross-process incremental analysis. `AnalysisConfig` controls analysis parameters; `OutputOptions` handles presentation. Stage implementations live in `engine/stages/`.
 
-4. **Detectors** (`repotoire-cli/src/detectors/`): 106 pure Rust detectors split into two tiers: 73 default (security, bugs, performance, architecture) in `DEFAULT_DETECTOR_FACTORIES` and 33 deep-scan (code smells, style, dead code) in `DEEP_ONLY_DETECTOR_FACTORIES`. Deep-scan detectors run only with `--all-detectors`. No external tool dependencies — all analysis runs in-process. `RegisteredDetector` trait + compile-time factory registries. `create_default_detectors()` for normal mode, `create_all_detectors()` for deep mode. `run_detectors()` (in `runner.rs`) executes them in parallel via rayon. Security detectors use SSA-based intra-function taint analysis via tree-sitter ASTs. Graph-primitive detectors read pre-computed algorithms at O(1) via `GraphQuery`.
+4. **Detectors** (`repotoire-cli/src/detectors/`): 110 pure Rust detectors split into two tiers: 77 default (security, bugs, performance, architecture) in `DEFAULT_DETECTOR_FACTORIES` and 33 deep-scan (code smells, style, dead code) in `DEEP_ONLY_DETECTOR_FACTORIES`. Deep-scan detectors run only with `--all-detectors`. No external tool dependencies — all analysis runs in-process. `RegisteredDetector` trait + compile-time factory registries. `create_default_detectors()` for normal mode, `create_all_detectors()` for deep mode. `run_detectors()` (in `runner.rs`) executes them in parallel via rayon. Security detectors use SSA-based intra-function taint analysis via tree-sitter ASTs. Graph-primitive detectors read pre-computed algorithms at O(1) via `GraphQuery`.
 
 5. **Scoring** (`repotoire-cli/src/scoring/`): Three-pillar scoring — Structure (40%), Quality (30%), Architecture (30%). Flat severity-weighted penalties (Critical=5, High=2, Medium=0.5, Low=0.1) — no density normalization. Graph-derived bonuses (modularity, cohesion, clean deps, complexity distribution, test coverage). Compound smell escalation. 13 grade levels (A+ through F). Score floor at 5.0, cap at 99.9 with medium+ findings. Security multiplier (default 3x).
 
@@ -322,7 +322,7 @@ cargo test detectors::god_class
 - petgraph in-memory graph with redb persistence
 - String interning via lasso for memory efficiency
 - 9 tree-sitter language parsers (Python, TypeScript/JavaScript, Rust, Go, Java, C#, C, C++, lightweight fallback)
-- 106 pure Rust detectors: 73 default (security, bugs, perf, architecture) + 33 deep-scan (`--all-detectors`)
+- 110 pure Rust detectors: 77 default (security, bugs, perf, architecture) + 33 deep-scan (`--all-detectors`)
 - SSA-based taint analysis for security detectors
 - Three-pillar health scoring with flat severity weights (Critical=5, High=2, Medium=0.5, Low=0.1) and graph-derived bonuses
 - Compound smell escalation (arXiv:2509.03896)

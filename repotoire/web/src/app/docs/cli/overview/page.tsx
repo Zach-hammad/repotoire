@@ -33,7 +33,7 @@ repotoire status
 
 | Command | Description |
 |---------|-------------|
-| \`analyze\` | Parse codebase, build graph, run 114 detectors |
+| \`analyze\` | Parse codebase, build graph, run 110 detectors |
 | \`calibrate\` | Generate adaptive thresholds from your coding style |
 | \`findings\` | List all findings with filters |
 | \`fix\` | AI-powered fixes (BYOK — Claude, GPT-4, Ollama) |
@@ -139,9 +139,8 @@ repotoire config
 - Rust
 - C / C++
 - C#
-- Kotlin
 
-All languages are parsed with tree-sitter for accurate AST analysis.
+These languages use full tree-sitter parsing for accurate AST analysis.
 
 ## Exit Codes
 

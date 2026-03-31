@@ -1,4 +1,10 @@
 import type { Metadata } from "next";
+import {
+  FULL_GRAPH_LANGUAGE_LIST,
+  REGEX_SCANNED_LANGUAGE_LIST,
+  TOTAL_DETECTOR_LABEL,
+  TOTAL_LANGUAGE_LABEL,
+} from "@/lib/product-facts.generated";
 
 export const metadata: Metadata = {
   title: "Frequently Asked Questions - Repotoire",
@@ -18,7 +24,7 @@ export const metadata: Metadata = {
 const faqs = [
   {
     q: "What is Repotoire?",
-    a: "Repotoire is a graph-powered code analysis CLI that detects architectural issues, security vulnerabilities, and code smells across your codebase. It builds a knowledge graph of your code using petgraph and tree-sitter, then runs 106 pure Rust detectors to find problems that traditional file-by-file linters miss — like circular dependencies, god classes, architectural bottlenecks, and hidden coupling.",
+    a: `Repotoire is a graph-powered code analysis CLI that detects architectural issues, security vulnerabilities, and code smells across your codebase. It builds a knowledge graph of your code using petgraph and tree-sitter, then runs ${TOTAL_DETECTOR_LABEL} to find problems that traditional file-by-file linters miss — like circular dependencies, god classes, architectural bottlenecks, and hidden coupling.`,
   },
   {
     q: "How is Repotoire different from ESLint or SonarQube?",
@@ -26,7 +32,7 @@ const faqs = [
   },
   {
     q: "What languages does Repotoire support?",
-    a: "Repotoire supports 9 languages: Python, TypeScript, JavaScript (including TSX/JSX), Rust, Go, Java, C#, C, and C++. All parsing is done via tree-sitter grammars compiled into the binary — no external parser dependencies needed.",
+    a: `Repotoire supports ${TOTAL_LANGUAGE_LABEL}: full graph analysis for ${FULL_GRAPH_LANGUAGE_LIST}, plus regex-scanned security and quality coverage for ${REGEX_SCANNED_LANGUAGE_LIST}. All full-graph parsing is done via tree-sitter grammars compiled into the binary — no external parser dependencies needed.`,
   },
   {
     q: "How do I install Repotoire?",
@@ -37,8 +43,8 @@ const faqs = [
     a: "The CLI is free and open source. You can analyze any codebase locally without limits. The web dashboard (at repotoire.com) has free and paid tiers for team features, history, and CI/CD integration.",
   },
   {
-    q: "What are the 106 detectors?",
-    a: "Repotoire has 73 default detectors and 33 deep-scan detectors (enabled with --all-detectors). Categories include: 23 security detectors (SQL injection, XSS, SSRF, secrets detection), 25 code quality detectors (empty catch, deep nesting, magic numbers), 12 graph-based code smell detectors (god class, feature envy, circular dependencies), 12 architecture detectors (bottlenecks, PageRank drift, hidden coupling), and specialized detectors for AI-generated code, ML/data science, Rust, and async patterns.",
+    q: "What are the 110 detectors?",
+    a: "Repotoire has 77 default detectors and 33 deep-scan detectors (enabled with --all-detectors). Categories include security, code quality, graph-based code smells, architecture, and specialized detectors for AI-generated code, ML/data science, Rust, and async patterns.",
   },
   {
     q: "How does the scoring work?",

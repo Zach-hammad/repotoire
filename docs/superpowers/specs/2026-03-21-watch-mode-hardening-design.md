@@ -233,7 +233,7 @@ pub fn run(path, severity, all_detectors, workers, no_emoji, quiet, telemetry) -
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `--severity` | `Option<String>` | None | Minimum severity to display: critical, high, medium, low |
-| `--all-detectors` | `bool` | false | Run all 106 detectors including deep-scan |
+| `--all-detectors` | `bool` | false | Run all 110 detectors including deep-scan |
 
 Note: `--workers` is already a global CLI flag on the `Cli` struct (default 8, range 1-64). Watch currently ignores it and hardcodes `workers: 8`. The fix is to plumb the global `cli.workers` value through to watch's `AnalysisConfig`, not to add a duplicate flag.
 

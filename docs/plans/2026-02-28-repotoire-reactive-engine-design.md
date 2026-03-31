@@ -39,7 +39,7 @@ Repotoire's knowledge graph becomes a reactive inference engine — conclusions 
 │  Events: NodeAdded, EdgeAdded, NodeRemoved, EdgeRemoved │
 ├─────────────────────────────────────────────────────────┤
 │                  Layer 0: Parsing                        │
-│  tree-sitter (13 languages), rayon par_iter (existing). │
+│  tree-sitter (9 graph-native languages), rayon par_iter (existing). │
 │  NEW: per-function mini-CFG + def-use chains.           │
 │  NEW: usage pattern classifier per call site.           │
 └─────────────────────────────────────────────────────────┘
@@ -241,7 +241,7 @@ Proves: Ascent works with petgraph, def-use chains detect real patterns, tarpc t
 ### Phase 2: Expand (2-4 weeks)
 
 - Add remaining performance detectors (needless_collect, owned_param_read, allocate_in_loop)
-- Port existing 114 detectors to emit base facts for the inference engine
+- Port existing 110 detectors to emit base facts for the inference engine
 - MCP shim with next-step hints
 - Agent loop with Anthropic streaming (from original workstation plan)
 - Non-monotonic rules (dead code, unused imports) gated on completeness

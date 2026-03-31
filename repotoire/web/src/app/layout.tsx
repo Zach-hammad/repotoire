@@ -7,6 +7,7 @@ import { CookieConsent } from "@/components/cookie-consent"
 import { OfflineIndicator } from "@/components/offline-indicator"
 import { ServiceWorkerRegistration } from "@/components/service-worker-registration"
 import { Toaster } from "sonner"
+import { GRAPH_LANGUAGE_LABEL, TOTAL_DETECTOR_LABEL } from "@/lib/product-facts.generated"
 import "./globals.css"
 
 // Primary sans-serif: Clean, readable, professional
@@ -33,7 +34,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Repotoire — Graph-Powered Code Intelligence for Developers",
   description:
-    "Go beyond traditional linters with graph-powered code intelligence. 106 pure Rust detectors find architectural issues, circular dependencies, and code smells that other tools miss. Fast incremental analysis.",
+    `Go beyond traditional linters with graph-powered code intelligence. ${TOTAL_DETECTOR_LABEL} find architectural issues, circular dependencies, and code smells that other tools miss. Fast incremental analysis.`,
   generator: "v0.app",
   keywords: ["code analysis", "linter", "graph database", "AI", "technical debt", "code quality"],
   icons: {
@@ -47,7 +48,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "Repotoire — Graph-Powered Code Intelligence for Developers",
     description:
-      "106 pure Rust detectors find architectural issues, circular dependencies, and code smells that linters miss. Single binary, 9 languages, graph-powered analysis.",
+      `${TOTAL_DETECTOR_LABEL} find architectural issues, circular dependencies, and code smells that linters miss. Single binary, ${GRAPH_LANGUAGE_LABEL}, graph-powered analysis.`,
     type: "website",
     url: "https://www.repotoire.com",
     siteName: "Repotoire",
@@ -56,7 +57,7 @@ export const metadata: Metadata = {
         url: "https://www.repotoire.com/og-image.png",
         width: 1200,
         height: 630,
-        alt: "Repotoire — Graph-powered code analysis with 106 Rust detectors",
+        alt: `Repotoire — Graph-powered code analysis with ${TOTAL_DETECTOR_LABEL}`,
       },
     ],
   },
@@ -64,7 +65,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "Repotoire — Graph-Powered Code Intelligence for Developers",
     description:
-      "106 pure Rust detectors find architectural issues, circular dependencies, and code smells that linters miss. Single binary, 9 languages.",
+      `${TOTAL_DETECTOR_LABEL} find architectural issues, circular dependencies, and code smells that linters miss. Single binary, ${GRAPH_LANGUAGE_LABEL}.`,
     images: ["https://www.repotoire.com/og-image.png"],
   },
   robots: {
@@ -103,7 +104,7 @@ export default function RootLayout({
                   "@id": "https://www.repotoire.com/#website",
                   url: "https://www.repotoire.com",
                   name: "Repotoire",
-                  description: "Graph-powered code intelligence with 106 pure Rust detectors.",
+                  description: `Graph-powered code intelligence with ${TOTAL_DETECTOR_LABEL}.`,
                 },
                 {
                   "@type": "Organization",
@@ -114,7 +115,7 @@ export default function RootLayout({
                     "@type": "ImageObject",
                     url: "https://www.repotoire.com/logo.png",
                   },
-                  description: "Graph-powered code health platform. 106 pure Rust detectors, 9 languages, single binary.",
+                  description: `Graph-powered code health platform. ${TOTAL_DETECTOR_LABEL}, ${GRAPH_LANGUAGE_LABEL}, single binary.`,
                 },
                 {
                   "@type": "SoftwareApplication",

@@ -2,7 +2,7 @@
 
 ## Context
 
-Repotoire v0.5.3 ships 106 detectors for security, architecture, and code quality, but has no
+Repotoire v0.5.3 ships 110 detectors for security, architecture, and code quality, but has no
 dedicated bus factor analysis. The existing infrastructure is ~40% built: `FileOwnership` struct,
 a simple bar chart in HTML, and a one-line narrative mention. However, `compute_file_ownership()`
 only reads the last author from ExtraProps — it doesn't use full blame/history data.
