@@ -209,7 +209,7 @@ Repotoire provides faster re-analysis through a findings-level cache that skips 
 ### How It Works
 
 1. **SipHash Content Hashing**: Each file's content is hashed with `DefaultHasher` (SipHash) and compared to the cached hash
-2. **Findings Cache**: Detector results for unchanged files are loaded from a local JSON cache file (`~/.cache/repotoire/<repo-hash>/incremental/findings_cache.json`)
+2. **Findings Cache**: Detector results for unchanged files are loaded from a local bincode cache file (`~/.cache/repotoire/<repo-hash>/incremental/findings_cache.bin`)
 3. **Auto-Incremental Mode**: When a warm cache exists, incremental mode activates automatically
 4. **Binary Version Invalidation**: Cache is automatically invalidated when the Repotoire binary version changes
 5. **Cache Schema Versioning**: Internal `CACHE_VERSION` triggers rebuild on schema changes
