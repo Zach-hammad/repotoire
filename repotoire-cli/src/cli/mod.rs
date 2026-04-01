@@ -236,9 +236,12 @@ Workflow:
 
 Examples:
   repotoire diff                         Diff latest vs previous analysis
+  repotoire diff main                    Diff against main branch
+  repotoire diff --all                   Show ALL new findings (not just your changes)
+  repotoire diff --changed              Show findings in changed files only
   repotoire diff --format json           JSON output for CI
-  repotoire diff --fail-on high          Exit 1 if new high+ findings
-  repotoire diff --format sarif          SARIF with only new findings")]
+  repotoire diff --fail-on high          Exit 1 if new high+ findings in your hunks
+  repotoire diff --format sarif          SARIF with only hunk-level findings")]
     Diff {
         /// Git ref for baseline (branch, tag, commit). Omit to use last cached analysis.
         #[arg(value_name = "BASE_REF")]
