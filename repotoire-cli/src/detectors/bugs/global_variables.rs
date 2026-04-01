@@ -33,7 +33,20 @@ impl GlobalVariablesDetector {
 
     /// Extract variable name from declaration
     fn extract_var_name(line: &str) -> Option<String> {
-        if let Some(caps) = VAR_NAME.captures(line.trim()) {
+        let trimmed = line.trim();
+        // Handle global object property assignments
+        for prefix in &["window.", "globalThis.", "global.", "self."] {
+            if let Some(rest) = trimmed.strip_prefix(prefix) {
+                let name: String = rest
+                    .chars()
+                    .take_while(|c| c.is_alphanumeric() || *c == '_')
+                    .collect();
+                if !name.is_empty() {
+                    return Some(name);
+                }
+            }
+        }
+        if let Some(caps) = VAR_NAME.captures(trimmed) {
             return caps.get(1).map(|m| m.as_str().to_string());
         }
         // Handle Python global statement
@@ -205,7 +218,7 @@ impl Detector for GlobalVariablesDetector {
     }
 
     fn file_extensions(&self) -> &'static [&'static str] {
-        &["py", "js", "ts", "jsx", "tsx"]
+        &["py", "js", "ts", "jsx", "tsx", "mjs", "mts"]
     }
 
     fn detect(
@@ -217,7 +230,7 @@ impl Detector for GlobalVariablesDetector {
         let mut findings = vec![];
         let mut seen_globals: HashSet<(PathBuf, String)> = HashSet::new();
 
-        for path in files.files_with_extensions(&["py", "js", "ts"]) {
+        for path in files.files_with_extensions(&["py", "js", "ts", "jsx", "tsx", "mjs", "mts"]) {
             if findings.len() >= self.max_findings {
                 break;
             }
@@ -239,6 +252,15 @@ impl Detector for GlobalVariablesDetector {
                 {
                     continue;
                 }
+                let is_module = matches!(ext, "ts" | "tsx" | "mts" | "mjs")
+                    || content.lines().any(|l| {
+                        let t = l.trim();
+                        ((t.starts_with("import ") || t.starts_with("import{"))
+                            && !t.starts_with("import("))
+                            || t.starts_with("export ")
+                            || t.starts_with("export{")
+                    });
+
                 // Track Python function scope with indentation depth
                 let mut py_indent_stack: Vec<usize> = Vec::new(); // indent levels of open def blocks
                 let mut py_in_function = false;
@@ -293,13 +315,17 @@ impl Detector for GlobalVariablesDetector {
                         // Only flag explicit `global varname` statements that are INSIDE functions
                         // (that's their purpose: declaring a global from within a function)
                         py_in_function && trimmed.starts_with("global ")
+                    } else if is_module {
+                        // ES modules: only flag true globals that escape module scope
+                        let is_true_global = trimmed.starts_with("window.")
+                            || trimmed.starts_with("globalThis.")
+                            || trimmed.starts_with("global.")
+                            || trimmed.starts_with("self.");
+                        is_true_global && trimmed.contains('=') && !trimmed.contains("==")
                     } else {
-                        // For JS/TS: only flag `var`/`let` at module scope (no leading indentation).
-                        // Any indented declaration is inside a function, block, or class method —
-                        // JSX's {{ }} braces would break brace-counting, so indentation is safer.
-                        let at_module_scope = !line.starts_with(' ') && !line.starts_with('\t');
-                        // Skip CommonJS require() — `var x = require('...')` is the standard
-                        // Node.js import pattern, not a mutable global.
+                        // Script mode: current behavior
+                        let at_module_scope =
+                            !line.starts_with(' ') && !line.starts_with('\t');
                         let is_require = trimmed.contains("require(");
                         at_module_scope
                             && (trimmed.starts_with("var ") || trimmed.starts_with("let "))
@@ -320,8 +346,9 @@ impl Detector for GlobalVariablesDetector {
                             seen_globals.insert(key);
 
                             // Skip effectively-constant variables (assigned once, never reassigned)
-                            // Only for JS/TS — Python's `global` keyword already implies intentional mutation
-                            if ext != "py" {
+                            // Only for JS/TS script mode — Python's `global` keyword already implies intentional mutation
+                            // For module-mode true globals (window.x etc), always flag — they're mutable by nature
+                            if ext != "py" && !is_module {
                                 let reassignments =
                                     Self::count_reassignments(&content, &var_name, i);
                                 if reassignments == 0 {
@@ -473,5 +500,110 @@ mod tests {
         let findings = detector.detect(&ctx).unwrap();
 
         assert!(!findings.is_empty(), "Reassigned var should be flagged");
+    }
+
+    #[test]
+    fn test_no_finding_for_module_scoped_let() {
+        let store = GraphBuilder::new().freeze();
+        let detector = GlobalVariablesDetector::new("/mock/repo");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "state.js",
+                "import { something } from './other';\nlet currentAuth = null;\ncurrentAuth = getAuth();\nexport function getState() { return currentAuth; }\n",
+            )],
+        );
+        let findings = detector.detect(&ctx).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Module-scoped let should not be flagged, got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_ts_module_scoped_let() {
+        let store = GraphBuilder::new().freeze();
+        let detector = GlobalVariablesDetector::new("/mock/repo");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "auth.ts",
+                "let currentAuth: Auth | null = null;\ncurrentAuth = login();\nexport function getAuth() { return currentAuth; }\n",
+            )],
+        );
+        let findings = detector.detect(&ctx).unwrap();
+        assert!(
+            findings.is_empty(),
+            "TS module-scoped let should not be flagged"
+        );
+    }
+
+    #[test]
+    fn test_flags_window_global_in_module() {
+        let store = GraphBuilder::new().freeze();
+        let detector = GlobalVariablesDetector::new("/mock/repo");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "globals.js",
+                "import { x } from './y';\nwindow.myGlobal = 123;\n",
+            )],
+        );
+        let findings = detector.detect(&ctx).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "window.x assignment should be flagged in module"
+        );
+        assert!(findings[0].title.contains("myGlobal"));
+    }
+
+    #[test]
+    fn test_still_flags_script_mode_var() {
+        let store = GraphBuilder::new().freeze();
+        let detector = GlobalVariablesDetector::new("/mock/repo");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![("script.js", "var count = 0;\ncount++;\nconsole.log(count);")],
+        );
+        let findings = detector.detect(&ctx).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Script-mode var should still be flagged"
+        );
+    }
+
+    #[test]
+    fn test_flags_globalthis_in_module() {
+        let store = GraphBuilder::new().freeze();
+        let detector = GlobalVariablesDetector::new("/mock/repo");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "config.js",
+                "import { defaults } from './defaults';\nglobalThis.appConfig = defaults;\n",
+            )],
+        );
+        let findings = detector.detect(&ctx).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "globalThis.x assignment should be flagged"
+        );
+        assert!(findings[0].title.contains("appConfig"));
+    }
+
+    #[test]
+    fn test_no_finding_for_mjs_module_scoped_let() {
+        let store = GraphBuilder::new().freeze();
+        let detector = GlobalVariablesDetector::new("/mock/repo");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![("state.mjs", "let x = 1;\nx = 2;\nconsole.log(x);\n")],
+        );
+        let findings = detector.detect(&ctx).unwrap();
+        assert!(
+            findings.is_empty(),
+            ".mjs module-scoped let should not be flagged"
+        );
     }
 }
