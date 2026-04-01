@@ -64,6 +64,45 @@ impl UnhandledPromiseDetector {
     }
 }
 
+/// Extract variable name from an assignment: `const x = ...` -> Some("x")
+fn extract_assignment_target(line: &str) -> Option<&str> {
+    let trimmed = line.trim();
+    for prefix in &["const ", "let ", "var "] {
+        if let Some(rest) = trimmed.strip_prefix(prefix) {
+            let name = rest
+                .split(|c: char| !c.is_alphanumeric() && c != '_')
+                .next()?;
+            if !name.is_empty() {
+                return Some(name);
+            }
+        }
+    }
+    None
+}
+
+/// Check if a variable is returned later in the same function scope.
+fn is_returned_in_scope(lines: &[&str], from: usize, var_name: &str) -> bool {
+    // Use word-boundary regex to avoid substring matches (e.g., var "p" matching "promise")
+    let pattern = format!(r"\b{}\b", regex::escape(var_name));
+    let re = match Regex::new(&pattern) {
+        Ok(r) => r,
+        Err(_) => return false,
+    };
+    let mut depth = 0i32;
+    for line in &lines[from + 1..] {
+        let t = line.trim();
+        depth += t.matches('{').count() as i32;
+        depth -= t.matches('}').count() as i32;
+        if depth < 0 {
+            break;
+        }
+        if t.starts_with("return ") && re.is_match(t) {
+            return true;
+        }
+    }
+    false
+}
+
 impl Detector for UnhandledPromiseDetector {
     fn name(&self) -> &'static str {
         "unhandled-promise"
@@ -135,6 +174,11 @@ impl Detector for UnhandledPromiseDetector {
                         continue;
                     }
 
+                    // Skip void-prefixed promises — explicitly marked as intentionally unawaited
+                    if trimmed.starts_with("void ") {
+                        continue;
+                    }
+
                     let has_promise = PROMISE_PATTERN.is_match(line);
 
                     // Verify that this line is actually inside an async function
@@ -196,6 +240,22 @@ impl Detector for UnhandledPromiseDetector {
                         .iter()
                         .any(|f| line.contains(&format!("{}(", f)) && !line.contains("await"));
 
+                    // Skip returned promises — caller handles errors (no-floating-promises #4)
+                    if (has_promise || calls_async)
+                        && (trimmed.starts_with("return ") || trimmed.starts_with("return("))
+                    {
+                        continue;
+                    }
+
+                    // Skip assigned promises that are later returned
+                    if has_promise || calls_async {
+                        if let Some(var_name) = extract_assignment_target(trimmed) {
+                            if is_returned_in_scope(&lines, i, var_name) {
+                                continue;
+                            }
+                        }
+                    }
+
                     if has_promise || calls_async {
                         // Check surrounding context for error handling.
                         // Use a wider window to find try/catch inside the function body.
@@ -212,7 +272,34 @@ impl Detector for UnhandledPromiseDetector {
                             .any(|l| l.contains("try {") || l.contains("try{"));
                         let has_finally = context.contains(".finally");
 
-                        if has_catch || in_try {
+                        // Check for two-arg .then(success, error) — handles rejections
+                        let has_two_arg_then = if context.contains(".then(") {
+                            // Find .then( and check if there's a comma at depth 0 before closing paren
+                            if let Some(then_idx) = context.find(".then(") {
+                                let after = &context[then_idx + 6..];
+                                let mut found_comma = false;
+                                let mut depth = 0i32;
+                                for ch in after.chars() {
+                                    match ch {
+                                        '(' => depth += 1,
+                                        ')' if depth == 0 => break,
+                                        ')' => depth -= 1,
+                                        ',' if depth == 0 => {
+                                            found_comma = true;
+                                            break;
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                                found_comma
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        };
+
+                        if has_catch || in_try || has_two_arg_then {
                             continue;
                         }
 
@@ -353,6 +440,148 @@ mod tests {
         assert!(
             !findings.is_empty(),
             "Should detect promise .then() without .catch()"
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_returned_promise() {
+        let store = GraphBuilder::new().freeze();
+        let detector = UnhandledPromiseDetector::new("/mock/repo");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "db.ts",
+                "async function deleteDb() {\n  return new Promise((resolve, reject) => {\n    const req = indexedDB.deleteDatabase('mydb');\n    req.onsuccess = () => resolve(undefined);\n    req.onerror = () => reject(req.error);\n  });\n}\n",
+            )],
+        );
+        let findings = detector.detect(&ctx).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Returned Promise should not be flagged, got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_returned_async_call() {
+        let store = GraphBuilder::new().freeze();
+        let detector = UnhandledPromiseDetector::new("/mock/repo");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "api.ts",
+                "async function getUser(id: string) {\n  return fetch(`/api/users/${id}`);\n}\n",
+            )],
+        );
+        let findings = detector.detect(&ctx).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Returned async call should not be flagged"
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_assigned_and_returned() {
+        let store = GraphBuilder::new().freeze();
+        let detector = UnhandledPromiseDetector::new("/mock/repo");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "store.ts",
+                "async function saveData(data: any) {\n  const result = fetch('/api/save', { method: 'POST' });\n  return result;\n}\n",
+            )],
+        );
+        let findings = detector.detect(&ctx).unwrap();
+        assert!(
+            findings.is_empty(),
+            "Assigned-then-returned promise should not be flagged"
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_void_promise() {
+        let store = GraphBuilder::new().freeze();
+        let detector = UnhandledPromiseDetector::new("/mock/repo");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "fire.ts",
+                "async function init() {\n  void fetch('/api/ping');\n}\n",
+            )],
+        );
+        let findings = detector.detect(&ctx).unwrap();
+        assert!(
+            findings.is_empty(),
+            "void-prefixed promise should not be flagged"
+        );
+    }
+
+    #[test]
+    fn test_no_finding_for_two_arg_then() {
+        let store = GraphBuilder::new().freeze();
+        let detector = UnhandledPromiseDetector::new("/mock/repo");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "handler.js",
+                "async function load() {\n  fetch('/data').then(res => res.json(), err => console.error(err));\n}\n",
+            )],
+        );
+        let findings = detector.detect(&ctx).unwrap();
+        assert!(findings.is_empty(), "Two-arg .then() should not be flagged");
+    }
+
+    #[test]
+    fn test_still_flags_fire_and_forget() {
+        let store = GraphBuilder::new().freeze();
+        let detector = UnhandledPromiseDetector::new("/mock/repo");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "bad.js",
+                "async function doStuff() {\n  fetch('/api/data').then(res => res.json());\n}\n",
+            )],
+        );
+        let findings = detector.detect(&ctx).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Fire-and-forget .then() without .catch() should be flagged"
+        );
+    }
+
+    #[test]
+    fn test_still_flags_then_without_catch() {
+        let store = GraphBuilder::new().freeze();
+        let detector = UnhandledPromiseDetector::new("/mock/repo");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "single_arg.js",
+                "async function load() {\n  fetch('/data').then(res => process(res));\n}\n",
+            )],
+        );
+        let findings = detector.detect(&ctx).unwrap();
+        assert!(
+            !findings.is_empty(),
+            ".then() with one arg and no .catch() should be flagged"
+        );
+    }
+
+    #[test]
+    fn test_still_flags_arrow_fire_and_forget() {
+        let store = GraphBuilder::new().freeze();
+        let detector = UnhandledPromiseDetector::new("/mock/repo");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "loop.js",
+                "async function processAll(items) {\n  items.forEach(item => fetch(`/api/${item}`).then(r => r.json()));\n}\n",
+            )],
+        );
+        let findings = detector.detect(&ctx).unwrap();
+        assert!(
+            !findings.is_empty(),
+            "Arrow fire-and-forget should still be flagged"
         );
     }
 
