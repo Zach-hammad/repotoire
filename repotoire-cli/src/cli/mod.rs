@@ -2,7 +2,6 @@
 
 pub(crate) mod analyze;
 mod benchmark;
-mod clean;
 mod debt;
 pub(crate) mod diff;
 mod diff_hunks;
@@ -221,6 +220,10 @@ Examples:
         /// Show all findings, bypassing --min-confidence filter
         #[arg(long)]
         show_all: bool,
+
+        /// Force a fresh analysis, ignoring cached results
+        #[arg(long, hide = true)]
+        force_reanalyze: bool,
     },
 
     /// Compare findings between two analysis states (shows new, fixed, score delta)
@@ -399,13 +402,6 @@ Examples:
     /// from your style, not arbitrary numbers.
     Calibrate,
 
-    /// Remove cached analysis data for a repository (findings cache, graph data)
-    Clean {
-        /// Preview what would be removed without deleting
-        #[arg(long)]
-        dry_run: bool,
-    },
-
     /// Show version information
     Version,
 
@@ -512,7 +508,6 @@ fn extract_command_name(cmd: &Option<Commands>) -> (String, Option<String>) {
         Some(Commands::Doctor) => ("doctor".into(), None),
         Some(Commands::Watch { .. }) => ("watch".into(), None),
         Some(Commands::Calibrate) => ("calibrate".into(), None),
-        Some(Commands::Clean { .. }) => ("clean".into(), None),
         Some(Commands::Version) => ("version".into(), None),
         Some(Commands::Init) => ("init".into(), None),
         Some(Commands::Feedback { .. }) => ("feedback".into(), None),
@@ -573,6 +568,7 @@ pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> {
             timings,
             min_confidence,
             show_all,
+            force_reanalyze,
         }) => {
             // Deprecation warning for --thorough
             if thorough {
@@ -623,6 +619,7 @@ pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> {
                 no_git,
                 verify,
                 all_detectors,
+                force_reanalyze,
             };
 
             // Build OutputOptions (consumer-side: how to present)
@@ -731,7 +728,6 @@ pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> {
             &telemetry,
         ),
         Some(Commands::Calibrate) => run_calibrate(&cli.path),
-        Some(Commands::Clean { dry_run }) => clean::run(&cli.path, dry_run),
 
         Some(Commands::Version) => {
             println!("repotoire {}", env!("CARGO_PKG_VERSION"));
@@ -1066,7 +1062,7 @@ fn check_unknown_subcommand(path: &std::path::Path) -> anyhow::Result<()> {
     }
     let known_commands = [
         "init", "analyze", "diff", "findings", "fix", "graph", "stats", "status", "doctor",
-        "clean", "version", "debt",
+        "version", "debt",
     ];
     if !known_commands.contains(&path_str.as_ref()) {
         anyhow::bail!(

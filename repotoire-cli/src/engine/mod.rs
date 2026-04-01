@@ -66,6 +66,8 @@ pub struct AnalysisConfig {
     /// Run all detectors including deep-scan detectors (code smells, style, dead code).
     /// Default: false (only high-value detectors run).
     pub all_detectors: bool,
+    /// Force a fresh analysis, ignoring cached session data.
+    pub force_reanalyze: bool,
 }
 
 impl Default for AnalysisConfig {
@@ -77,6 +79,7 @@ impl Default for AnalysisConfig {
             no_git: false,
             verify: false,
             all_detectors: false,
+            force_reanalyze: false,
         }
     }
 }
@@ -802,8 +805,7 @@ impl AnalysisEngine {
             last_score: state.last_score.clone(),
             last_stats: state.last_stats.clone(),
             fingerprint: {
-                let binary_hash =
-                    crate::detectors::binary_file_hash().unwrap_or(0);
+                let binary_hash = crate::detectors::binary_file_hash().unwrap_or(0);
                 Some(crate::detectors::compute_fingerprint(
                     binary_hash,
                     &self.project_config,
@@ -850,7 +852,11 @@ impl AnalysisEngine {
     ///
     /// Transient fields (PrecomputedAnalysis, ValueStore, NgramModel, StyleProfile)
     /// are left empty and rebuilt on the next `analyze()` call.
-    pub fn load(session_path: &Path, repo_path: &Path, all_detectors: bool) -> anyhow::Result<Self> {
+    pub fn load(
+        session_path: &Path,
+        repo_path: &Path,
+        all_detectors: bool,
+    ) -> anyhow::Result<Self> {
         let repo_path = repo_path.canonicalize()?;
         let project_config = load_project_config(&repo_path);
 
@@ -884,11 +890,8 @@ impl AnalysisEngine {
                 anyhow::bail!("Cannot hash binary for session validation");
             }
         };
-        let current_fp = crate::detectors::compute_fingerprint(
-            binary_hash,
-            &project_config,
-            all_detectors,
-        );
+        let current_fp =
+            crate::detectors::compute_fingerprint(binary_hash, &project_config, all_detectors);
         if meta.fingerprint != Some(current_fp) {
             anyhow::bail!("Session fingerprint mismatch — config or binary changed");
         }

@@ -91,15 +91,27 @@ pub fn run_engine(
     // Clear per-run caches (important for long-running server modes)
     crate::parsers::clear_structural_fingerprint_cache();
 
+    // Prune stale caches (7 days) and remove legacy directories
+    crate::detectors::prune_stale_caches(std::time::Duration::from_secs(7 * 24 * 3600));
+    let repo_path_canon = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let legacy = repo_path_canon.join(".repotoire");
+    if legacy.is_dir() {
+        let _ = std::fs::remove_dir_all(&legacy);
+        tracing::info!("Removed legacy cache directory: {}", legacy.display());
+    }
+
     // Try to load a previously saved session for incremental analysis;
     // fall back to a fresh engine on any failure (version mismatch, missing files, etc.)
-    let canon_for_session = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let canon_for_session = repo_path_canon;
     let session_dir = crate::cache::paths::cache_dir(&canon_for_session).join("session");
-    let mut engine =
+    let mut engine = if config.force_reanalyze {
+        crate::engine::AnalysisEngine::new(path, config.all_detectors)?
+    } else {
         match crate::engine::AnalysisEngine::load(&session_dir, path, config.all_detectors) {
             Ok(e) => e,
             Err(_) => crate::engine::AnalysisEngine::new(path, config.all_detectors)?,
-        };
+        }
+    };
     let result = engine.analyze(&config)?;
 
     // Guard: empty repository — show a helpful message instead of a misleading 100/100 A+
