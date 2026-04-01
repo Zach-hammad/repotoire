@@ -808,6 +808,12 @@ pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> {
             // Send detector_feedback telemetry
             if let crate::telemetry::Telemetry::Active(ref state) = telemetry {
                 if let Some(distinct_id) = &state.distinct_id {
+                    let file_ext = finding
+                        .affected_files
+                        .first()
+                        .and_then(|p| p.extension())
+                        .and_then(|e| e.to_str())
+                        .unwrap_or("");
                     let event = crate::telemetry::events::DetectorFeedback {
                         repo_id: crate::telemetry::config::compute_repo_id(&cli.path),
                         detector: finding.detector.clone(),
@@ -817,7 +823,14 @@ pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> {
                             "false_positive".into()
                         },
                         severity: finding.severity.to_string(),
-                        language: String::new(),
+                        language: crate::telemetry::events::ext_to_language(file_ext).to_string(),
+                        file_extension: if file_ext.is_empty() {
+                            None
+                        } else {
+                            Some(file_ext.to_string())
+                        },
+                        finding_title: Some(finding.title.clone()),
+                        reason: reason.clone(),
                         version: env!("CARGO_PKG_VERSION").to_string(),
                         ..Default::default()
                     };

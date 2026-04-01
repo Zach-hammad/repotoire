@@ -59,6 +59,12 @@ pub struct DetectorFeedback {
     pub language: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub framework: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_extension: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub finding_title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
     pub version: String,
 }
 
@@ -216,6 +222,26 @@ pub fn select_calibration_outliers(
     (total, at_default, outliers)
 }
 
+/// Map file extension to language name for telemetry.
+/// Keep in sync with parsers/mod.rs extension registry.
+pub fn ext_to_language(ext: &str) -> &'static str {
+    match ext {
+        "py" => "python",
+        "js" | "mjs" | "cjs" => "javascript",
+        "ts" | "mts" | "cts" => "typescript",
+        "jsx" => "jsx",
+        "tsx" => "tsx",
+        "rs" => "rust",
+        "go" => "go",
+        "java" => "java",
+        "cs" => "csharp",
+        "c" => "c",
+        "h" => "c_or_cpp",
+        "cpp" | "cc" | "cxx" | "hpp" => "cpp",
+        _ => "unknown",
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -341,5 +367,59 @@ mod tests {
 
         // At most 10 outliers returned
         assert!(outliers.len() <= 10);
+    }
+
+    #[test]
+    fn test_ext_to_language() {
+        assert_eq!(ext_to_language("ts"), "typescript");
+        assert_eq!(ext_to_language("js"), "javascript");
+        assert_eq!(ext_to_language("mjs"), "javascript");
+        assert_eq!(ext_to_language("py"), "python");
+        assert_eq!(ext_to_language("rs"), "rust");
+        assert_eq!(ext_to_language("h"), "c_or_cpp");
+        assert_eq!(ext_to_language("xyz"), "unknown");
+    }
+
+    #[test]
+    fn test_detector_feedback_enriched_serializes() {
+        let event = DetectorFeedback {
+            detector: "GlobalVariablesDetector".to_string(),
+            verdict: "false_positive".to_string(),
+            severity: "low".to_string(),
+            language: "typescript".to_string(),
+            file_extension: Some("ts".to_string()),
+            finding_title: Some("Global mutable variable: currentAuth".to_string()),
+            reason: Some("Module-scoped let in TS".to_string()),
+            version: "0.6.0".to_string(),
+            ..Default::default()
+        };
+
+        let json = serde_json::to_value(&event).expect("should serialize");
+        assert_eq!(json["language"], "typescript");
+        assert_eq!(json["file_extension"], "ts");
+        assert_eq!(
+            json["finding_title"],
+            "Global mutable variable: currentAuth"
+        );
+        assert_eq!(json["reason"], "Module-scoped let in TS");
+        // Optional None fields should not appear
+        assert!(json.get("repo_id").is_none() || json["repo_id"].is_null());
+        assert!(json.get("framework").is_none() || json["framework"].is_null());
+    }
+
+    #[test]
+    fn test_detector_feedback_reason_omitted_when_none() {
+        let event = DetectorFeedback {
+            detector: "Test".to_string(),
+            verdict: "true_positive".to_string(),
+            severity: "high".to_string(),
+            language: "rust".to_string(),
+            version: "0.6.0".to_string(),
+            ..Default::default()
+        };
+
+        let json = serde_json::to_value(&event).expect("should serialize");
+        // reason is None → should not appear in JSON (skip_serializing_if)
+        assert!(json.get("reason").is_none() || json["reason"].is_null());
     }
 }
