@@ -13,7 +13,6 @@ static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 use anyhow::Result;
 use clap::Parser;
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 fn main() -> Result<()> {
     #[cfg(feature = "dhat")]
@@ -24,10 +23,7 @@ fn main() -> Result<()> {
 
     // Initialize logging: --log-level flag, overridden by RUST_LOG env var
     let default_filter = cli.log_level.as_filter_str();
-    tracing_subscriber::registry()
-        .with(fmt::layer().with_writer(std::io::stderr))
-        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_filter)))
-        .init();
+    repotoire::log::StderrSubscriber::init(default_filter);
 
     // Initialize telemetry (no-op if disabled)
     let telemetry = repotoire::telemetry::init()?;

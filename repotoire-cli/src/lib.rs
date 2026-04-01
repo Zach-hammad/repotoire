@@ -27,6 +27,7 @@ pub mod engine;
 pub mod fixes;
 pub mod git;
 pub mod graph;
+pub mod log;
 pub mod models;
 pub mod parsers;
 pub mod predictive;
