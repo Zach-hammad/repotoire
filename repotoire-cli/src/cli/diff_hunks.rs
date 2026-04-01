@@ -62,10 +62,21 @@ impl DiffHunks {
         let mut pending_rename_from: Option<PathBuf> = None;
 
         for line in diff_text.lines() {
-            // Track renames
-            if let Some(old) = line.strip_prefix("rename from ") {
+            // Reset pending rename on new diff block
+            if line.starts_with("diff --git ") {
+                pending_rename_from = None;
+            }
+
+            // Track renames and copies (git diff -M / -C)
+            if let Some(old) = line
+                .strip_prefix("rename from ")
+                .or_else(|| line.strip_prefix("copy from "))
+            {
                 pending_rename_from = Some(PathBuf::from(old));
-            } else if let Some(new) = line.strip_prefix("rename to ") {
+            } else if let Some(new) = line
+                .strip_prefix("rename to ")
+                .or_else(|| line.strip_prefix("copy to "))
+            {
                 if let Some(old) = pending_rename_from.take() {
                     let new_path = PathBuf::from(new);
                     changed_files.insert(new_path.clone());

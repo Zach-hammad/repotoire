@@ -372,7 +372,11 @@ pub fn format_markdown(result: &SmartDiffResult) -> String {
         out.push_str(&format!(
             "{} finding{} fixed\n",
             result.fixed_findings.len(),
-            if result.fixed_findings.len() == 1 { "" } else { "s" }
+            if result.fixed_findings.len() == 1 {
+                ""
+            } else {
+                "s"
+            }
         ));
     }
 
@@ -390,7 +394,12 @@ fn format_markdown_row(out: &mut String, finding: &Finding) {
         .line_start
         .map(|l| format!(":{l}"))
         .unwrap_or_default();
-    let title: String = finding.title.chars().take(60).collect();
+    let title: String = finding
+        .title
+        .chars()
+        .take(60)
+        .collect::<String>()
+        .replace('|', "\\|");
     out.push_str(&format!(
         "| {} | {} | `{}{}` |\n",
         finding.severity, title, file, line
@@ -536,8 +545,7 @@ fn load_baseline_and_head(
     // Load baseline findings from snapshot (saved by a previous `analyze`)
     let baseline_path = repotoire_dir.join("baseline_findings.json");
     let baseline = if baseline_path.exists() {
-        super::analyze::output::load_cached_findings_from(&baseline_path)
-            .unwrap_or_default()
+        super::analyze::output::load_cached_findings_from(&baseline_path).unwrap_or_default()
     } else {
         // No baseline yet — treat everything as new (first-run scenario)
         Vec::new()
@@ -607,7 +615,10 @@ fn emit_output(
     }
 
     // Summary (text mode only)
-    if !matches!(format, OutputFormat::Json | OutputFormat::Sarif) {
+    if !matches!(
+        format,
+        OutputFormat::Json | OutputFormat::Sarif | OutputFormat::Markdown
+    ) {
         let elapsed = start.elapsed();
         let prefix = if no_emoji { "" } else { "✨ " };
         eprintln!(
@@ -683,7 +694,8 @@ pub fn run(
     let (baseline, head, score_before, score_after) =
         match load_baseline_and_head(&repotoire_dir, &repo_path, base_ref.as_deref()) {
             Ok(result) => result,
-            Err(_) => {
+            Err(e) => {
+                tracing::debug!("load_baseline_and_head failed: {e}");
                 eprintln!("No cached analysis found, running analysis...");
                 run_inline_analysis(&repo_path, &repotoire_dir)?;
                 load_baseline_and_head(&repotoire_dir, &repo_path, base_ref.as_deref())
