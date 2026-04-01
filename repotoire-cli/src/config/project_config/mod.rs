@@ -28,7 +28,7 @@
 //! workers = 8
 //! ```
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
 use tracing::{debug, warn};
@@ -48,7 +48,7 @@ pub const DEFAULT_EXCLUDE_PATTERNS: &[&str] = &[
 ];
 
 /// Project type affects detector thresholds and scoring
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ProjectType {
     /// Web apps, REST APIs, CRUD - strictest coupling analysis (default)
@@ -160,7 +160,7 @@ use super::project_type_scoring::{
 };
 
 /// Co-change analysis configuration from repotoire.toml `[co_change]` section.
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CoChangeConfigToml {
     /// Exponential decay half-life in days (default: 90)
     #[serde(default)]
@@ -193,7 +193,7 @@ impl CoChangeConfigToml {
 }
 
 /// Ownership analysis configuration from repotoire.toml `[ownership]` section.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OwnershipConfigToml {
     /// Enable ownership analysis (default: true)
     #[serde(default = "default_true")]
@@ -241,7 +241,7 @@ impl OwnershipConfigToml {
 }
 
 /// Project-level configuration loaded from repotoire.toml or similar
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ProjectConfig {
     /// Project type (auto-detected if not specified)
     #[serde(default)]
@@ -278,7 +278,7 @@ pub struct ProjectConfig {
 }
 
 /// Configuration override for a specific detector
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct DetectorConfigOverride {
     /// Whether the detector is enabled (default: true)
     #[serde(default)]
@@ -295,7 +295,7 @@ pub struct DetectorConfigOverride {
 }
 
 /// A threshold value can be an integer, float, or boolean
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ThresholdValue {
     Integer(i64),
@@ -341,7 +341,7 @@ impl ThresholdValue {
 }
 
 /// Scoring configuration for health score calculation
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScoringConfig {
     /// Multiplier for security-related findings (default: 3.0)
     #[serde(default = "default_security_multiplier")]
@@ -366,7 +366,7 @@ fn default_security_multiplier() -> f64 {
 }
 
 /// Weights for the three scoring pillars
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PillarWeights {
     /// Weight for structure score (default: 0.4)
     #[serde(default = "default_structure_weight")]
@@ -421,7 +421,7 @@ impl PillarWeights {
 }
 
 /// Path exclusion configuration
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ExcludeConfig {
     /// Paths/patterns to exclude from analysis
     #[serde(default)]
@@ -453,7 +453,7 @@ impl ExcludeConfig {
 }
 
 /// Default CLI flags that can be set in project config
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CliDefaults {
     /// Default output format (text, json, sarif, html, markdown)
     #[serde(default)]
