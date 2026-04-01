@@ -282,6 +282,121 @@ pub fn format_text(result: &SmartDiffResult, no_emoji: bool) -> String {
     out
 }
 
+/// Render the diff result as clean Markdown (no ANSI escapes).
+pub fn format_markdown(result: &SmartDiffResult) -> String {
+    let mut out = String::new();
+
+    out.push_str(&format!(
+        "# Repotoire Diff: {}..{} ({} files changed)\n\n",
+        result.base_ref, result.head_ref, result.files_changed,
+    ));
+
+    let hunk_findings: Vec<_> = result
+        .new_findings
+        .iter()
+        .filter(|af| af.attribution == Attribution::InChangedHunk)
+        .collect();
+    let file_findings: Vec<_> = result
+        .new_findings
+        .iter()
+        .filter(|af| af.attribution == Attribution::InChangedFile)
+        .collect();
+    let unrelated_findings: Vec<_> = result
+        .new_findings
+        .iter()
+        .filter(|af| af.attribution == Attribution::InUnchangedFile)
+        .collect();
+
+    if result.new_findings.is_empty() && result.all_new_count > 0 {
+        out.push_str("**No new findings in your changes.**\n\n");
+        out.push_str(&format!(
+            "> {} finding{} in other files (use `--all` to see)\n\n",
+            result.all_new_count,
+            if result.all_new_count == 1 { "" } else { "s" }
+        ));
+    } else if result.new_findings.is_empty() {
+        out.push_str("**No new findings.**\n\n");
+    } else {
+        if !hunk_findings.is_empty() {
+            out.push_str(&format!(
+                "## Your Changes ({} finding{})\n\n",
+                hunk_findings.len(),
+                if hunk_findings.len() == 1 { "" } else { "s" }
+            ));
+            out.push_str("| Severity | Finding | Location |\n");
+            out.push_str("|----------|---------|----------|\n");
+            for af in &hunk_findings {
+                format_markdown_row(&mut out, &af.finding);
+            }
+            out.push('\n');
+        }
+
+        if !file_findings.is_empty() {
+            out.push_str(&format!(
+                "## Pre-existing ({} in changed files)\n\n",
+                file_findings.len()
+            ));
+            out.push_str("| Severity | Finding | Location |\n");
+            out.push_str("|----------|---------|----------|\n");
+            for af in &file_findings {
+                format_markdown_row(&mut out, &af.finding);
+            }
+            out.push('\n');
+        }
+
+        if !unrelated_findings.is_empty() {
+            out.push_str(&format!(
+                "## Unrelated ({} in unchanged files)\n\n",
+                unrelated_findings.len()
+            ));
+            out.push_str("| Severity | Finding | Location |\n");
+            out.push_str("|----------|---------|----------|\n");
+            for af in &unrelated_findings {
+                format_markdown_row(&mut out, &af.finding);
+            }
+            out.push('\n');
+        }
+    }
+
+    // Score delta
+    if let (Some(before), Some(after)) = (result.score_before, result.score_after) {
+        let delta = after - before;
+        let sign = if delta >= 0.0 { "+" } else { "" };
+        out.push_str(&format!(
+            "**Score:** {:.1} \u{2192} {:.1} ({}{:.1})\n\n",
+            before, after, sign, delta,
+        ));
+    }
+
+    if !result.fixed_findings.is_empty() {
+        out.push_str(&format!(
+            "{} finding{} fixed\n",
+            result.fixed_findings.len(),
+            if result.fixed_findings.len() == 1 { "" } else { "s" }
+        ));
+    }
+
+    out
+}
+
+/// Format a single finding as a Markdown table row.
+fn format_markdown_row(out: &mut String, finding: &Finding) {
+    let file = finding
+        .affected_files
+        .first()
+        .map(|p| p.display().to_string())
+        .unwrap_or_default();
+    let line = finding
+        .line_start
+        .map(|l| format!(":{l}"))
+        .unwrap_or_default();
+    let title: String = finding.title.chars().take(60).collect();
+    out.push_str(&format!(
+        "| {} | {} | `{}{}` |\n",
+        finding.severity, title, file, line
+    ));
+}
+
 /// Render the diff result as pretty-printed JSON.
 pub fn format_json(result: &SmartDiffResult) -> String {
     let all_findings = result.findings_only();
@@ -446,6 +561,7 @@ fn emit_output(
     let output_str = match format {
         OutputFormat::Json => format_json(result),
         OutputFormat::Sarif => format_sarif(result)?,
+        OutputFormat::Markdown => format_markdown(result),
         _ => format_text(result, no_emoji),
     };
 
@@ -803,5 +919,46 @@ mod tests {
         let json_str = format_json(&result);
         let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
         assert_eq!(parsed["total_new_findings"], 3);
+    }
+
+    #[test]
+    fn test_format_markdown_structure() {
+        let result = SmartDiffResult {
+            base_ref: "main".to_string(),
+            head_ref: "HEAD".to_string(),
+            files_changed: 1,
+            new_findings: vec![AttributedFinding {
+                finding: make_finding("xss", "src/web.rs", Some(5)),
+                attribution: Attribution::InChangedHunk,
+            }],
+            all_new_count: 1,
+            fixed_findings: vec![],
+            score_before: Some(90.0),
+            score_after: Some(88.0),
+        };
+
+        let md = format_markdown(&result);
+        assert!(md.starts_with("# Repotoire Diff:"));
+        assert!(md.contains("## Your Changes"));
+        assert!(md.contains("| Severity |"));
+        assert!(md.contains("`src/web.rs:5`"));
+        assert!(!md.contains("\x1b[")); // no ANSI escapes
+    }
+
+    #[test]
+    fn test_format_markdown_no_findings() {
+        let result = SmartDiffResult {
+            base_ref: "main".to_string(),
+            head_ref: "HEAD".to_string(),
+            files_changed: 1,
+            new_findings: vec![],
+            all_new_count: 0,
+            fixed_findings: vec![],
+            score_before: Some(90.0),
+            score_after: Some(90.0),
+        };
+
+        let md = format_markdown(&result);
+        assert!(md.contains("**No new findings.**"));
     }
 }
