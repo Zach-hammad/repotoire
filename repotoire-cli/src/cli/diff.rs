@@ -503,9 +503,9 @@ pub fn format_sarif(result: &SmartDiffResult) -> anyhow::Result<String> {
 /// Run analysis inline and cache results so diff can load them.
 fn run_inline_analysis(repo_path: &Path, repotoire_dir: &Path) -> Result<()> {
     let session_dir = repotoire_dir.join("session");
-    let mut engine = match crate::engine::AnalysisEngine::load(&session_dir, repo_path) {
+    let mut engine = match crate::engine::AnalysisEngine::load(&session_dir, repo_path, false) {
         Ok(e) => e,
-        Err(_) => crate::engine::AnalysisEngine::new(repo_path)?,
+        Err(_) => crate::engine::AnalysisEngine::new(repo_path, false)?,
     };
 
     let config = crate::engine::AnalysisConfig::default();

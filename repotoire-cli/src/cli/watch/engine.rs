@@ -25,7 +25,7 @@ pub struct WatchEngine {
 
 impl WatchEngine {
     pub fn new(repo_path: &Path, config: AnalysisConfig) -> Result<Self> {
-        let engine = AnalysisEngine::new(repo_path)?;
+        let engine = AnalysisEngine::new(repo_path, config.all_detectors)?;
         let session_dir = crate::cache::cache_dir(repo_path).join("session");
         Ok(Self {
             engine,

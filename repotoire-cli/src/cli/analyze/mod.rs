@@ -70,7 +70,6 @@ impl Default for OutputOptions {
     }
 }
 
-
 /// Run analysis via the `AnalysisEngine` pipeline.
 ///
 /// This is the primary analysis entry point. The engine handles all 8 stages
@@ -96,10 +95,11 @@ pub fn run_engine(
     // fall back to a fresh engine on any failure (version mismatch, missing files, etc.)
     let canon_for_session = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
     let session_dir = crate::cache::paths::cache_dir(&canon_for_session).join("session");
-    let mut engine = match crate::engine::AnalysisEngine::load(&session_dir, path) {
-        Ok(e) => e,
-        Err(_) => crate::engine::AnalysisEngine::new(path)?,
-    };
+    let mut engine =
+        match crate::engine::AnalysisEngine::load(&session_dir, path, config.all_detectors) {
+            Ok(e) => e,
+            Err(_) => crate::engine::AnalysisEngine::new(path, config.all_detectors)?,
+        };
     let result = engine.analyze(&config)?;
 
     // Guard: empty repository — show a helpful message instead of a misleading 100/100 A+

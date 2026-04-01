@@ -160,7 +160,7 @@ pub use crate::cli::analyze::OutputOptions;
 /// use repotoire::engine::{AnalysisEngine, AnalysisConfig};
 /// use std::path::Path;
 ///
-/// let mut engine = AnalysisEngine::new(Path::new("/path/to/repo")).unwrap();
+/// let mut engine = AnalysisEngine::new(Path::new("/path/to/repo"), false).unwrap();
 /// let result = engine.analyze(&AnalysisConfig::default()).unwrap();
 /// println!("Score: {} ({})", result.score.overall, result.score.grade);
 /// ```
@@ -170,13 +170,15 @@ pub struct AnalysisEngine {
     state: Option<state::EngineState>,
     progress: Option<ProgressFn>,
     ownership_model: Option<Arc<crate::git::ownership::OwnershipModel>>,
+    /// Whether --all-detectors was set (for fingerprint computation in save)
+    all_detectors: bool,
 }
 
 impl AnalysisEngine {
     /// Create a new engine for the given repository path.
     ///
     /// Canonicalizes the path and loads project config from `repotoire.toml` (or defaults).
-    pub fn new(repo_path: &Path) -> anyhow::Result<Self> {
+    pub fn new(repo_path: &Path, all_detectors: bool) -> anyhow::Result<Self> {
         let repo_path = repo_path.canonicalize()?;
         let project_config = load_project_config(&repo_path);
         Ok(Self {
@@ -185,6 +187,7 @@ impl AnalysisEngine {
             state: None,
             progress: None,
             ownership_model: None,
+            all_detectors,
         })
     }
 
@@ -798,6 +801,15 @@ impl AnalysisEngine {
             last_findings: state.last_findings.clone(),
             last_score: state.last_score.clone(),
             last_stats: state.last_stats.clone(),
+            fingerprint: {
+                let binary_hash =
+                    crate::detectors::binary_file_hash().unwrap_or(0);
+                Some(crate::detectors::compute_fingerprint(
+                    binary_hash,
+                    &self.project_config,
+                    self.all_detectors,
+                ))
+            },
         };
 
         let json = serde_json::to_string(&meta).context("Failed to serialize engine session")?;
@@ -838,7 +850,7 @@ impl AnalysisEngine {
     ///
     /// Transient fields (PrecomputedAnalysis, ValueStore, NgramModel, StyleProfile)
     /// are left empty and rebuilt on the next `analyze()` call.
-    pub fn load(session_path: &Path, repo_path: &Path) -> anyhow::Result<Self> {
+    pub fn load(session_path: &Path, repo_path: &Path, all_detectors: bool) -> anyhow::Result<Self> {
         let repo_path = repo_path.canonicalize()?;
         let project_config = load_project_config(&repo_path);
 
@@ -863,6 +875,22 @@ impl AnalysisEngine {
                 meta.binary_version,
                 env!("CARGO_PKG_VERSION")
             );
+        }
+
+        // Fingerprint check — catches config changes, dev rebuilds, mode changes
+        let binary_hash = match crate::detectors::binary_file_hash() {
+            Some(h) => h,
+            None => {
+                anyhow::bail!("Cannot hash binary for session validation");
+            }
+        };
+        let current_fp = crate::detectors::compute_fingerprint(
+            binary_hash,
+            &project_config,
+            all_detectors,
+        );
+        if meta.fingerprint != Some(current_fp) {
+            anyhow::bail!("Session fingerprint mismatch — config or binary changed");
         }
 
         // Load graph from CodeGraph bincode cache
@@ -901,6 +929,7 @@ impl AnalysisEngine {
             state: Some(state),
             progress: None,
             ownership_model: None,
+            all_detectors,
         })
     }
 }
@@ -934,7 +963,7 @@ def add(a, b):
         )
         .unwrap();
 
-        let mut engine = AnalysisEngine::new(tmp.path()).unwrap();
+        let mut engine = AnalysisEngine::new(tmp.path(), false).unwrap();
         let config = AnalysisConfig {
             workers: 2,
             no_git: true, // temp dir has no git
@@ -962,7 +991,7 @@ def greet(name):
         )
         .unwrap();
 
-        let mut engine = AnalysisEngine::new(tmp.path()).unwrap();
+        let mut engine = AnalysisEngine::new(tmp.path(), false).unwrap();
         let config = AnalysisConfig {
             workers: 2,
             no_git: true,
@@ -987,7 +1016,7 @@ def greet(name):
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("test.py"), "def hello(): pass").unwrap();
 
-        let mut engine = AnalysisEngine::new(dir.path()).unwrap();
+        let mut engine = AnalysisEngine::new(dir.path(), false).unwrap();
         let config = AnalysisConfig {
             no_git: true,
             max_files: 5,
@@ -1000,7 +1029,7 @@ def greet(name):
         engine.save(session_dir.path()).unwrap();
         drop(engine);
 
-        let engine2 = AnalysisEngine::load(session_dir.path(), dir.path()).unwrap();
+        let engine2 = AnalysisEngine::load(session_dir.path(), dir.path(), false).unwrap();
         // Engine loaded successfully with graph and findings
         assert!(engine2.graph().is_some());
 
@@ -1014,7 +1043,7 @@ def greet(name):
     #[test]
     fn test_save_noop_without_state() {
         let dir = tempfile::tempdir().unwrap();
-        let engine = AnalysisEngine::new(dir.path()).unwrap();
+        let engine = AnalysisEngine::new(dir.path(), false).unwrap();
         let session_dir = tempfile::tempdir().unwrap();
         // save() on a fresh engine (no analyze() yet) should be a no-op
         engine.save(session_dir.path()).unwrap();
@@ -1027,7 +1056,7 @@ def greet(name):
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("app.py"), "def run(): return 42").unwrap();
 
-        let mut engine = AnalysisEngine::new(dir.path()).unwrap();
+        let mut engine = AnalysisEngine::new(dir.path(), false).unwrap();
         let config = AnalysisConfig {
             no_git: true,
             workers: 2,
@@ -1039,7 +1068,7 @@ def greet(name):
         engine.save(session_dir.path()).unwrap();
         drop(engine);
 
-        let mut engine2 = AnalysisEngine::load(session_dir.path(), dir.path()).unwrap();
+        let mut engine2 = AnalysisEngine::load(session_dir.path(), dir.path(), false).unwrap();
         let r2 = engine2.analyze(&config).unwrap();
 
         assert!(matches!(r2.stats.mode, AnalysisMode::Cached));
@@ -1052,7 +1081,7 @@ def greet(name):
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("main.py"), "def foo(): pass").unwrap();
 
-        let mut engine = AnalysisEngine::new(dir.path()).unwrap();
+        let mut engine = AnalysisEngine::new(dir.path(), false).unwrap();
         let config = AnalysisConfig {
             no_git: true,
             workers: 2,
@@ -1078,7 +1107,7 @@ def greet(name):
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("main.py"), "def foo(): pass").unwrap();
 
-        let mut engine = AnalysisEngine::new(dir.path()).unwrap();
+        let mut engine = AnalysisEngine::new(dir.path(), false).unwrap();
         let config = AnalysisConfig {
             no_git: true,
             workers: 2,
@@ -1104,7 +1133,7 @@ def greet(name):
         std::fs::write(dir.path().join("main.py"), "def foo(): pass").unwrap();
         std::fs::write(dir.path().join("helper.py"), "def bar(): return 1").unwrap();
 
-        let mut engine = AnalysisEngine::new(dir.path()).unwrap();
+        let mut engine = AnalysisEngine::new(dir.path(), false).unwrap();
         let config = AnalysisConfig {
             no_git: true,
             workers: 2,
@@ -1130,7 +1159,7 @@ def greet(name):
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("main.py"), "def foo(): pass").unwrap();
 
-        let mut engine = AnalysisEngine::new(dir.path()).unwrap();
+        let mut engine = AnalysisEngine::new(dir.path(), false).unwrap();
         let config = AnalysisConfig {
             no_git: true,
             workers: 2,
@@ -1154,7 +1183,7 @@ def greet(name):
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("main.py"), "def foo(): pass").unwrap();
 
-        let mut engine = AnalysisEngine::new(dir.path()).unwrap();
+        let mut engine = AnalysisEngine::new(dir.path(), false).unwrap();
         let config = AnalysisConfig {
             no_git: true,
             workers: 2,
@@ -1204,7 +1233,7 @@ def greet(name):
             .output()
             .unwrap();
 
-        let mut engine = AnalysisEngine::new(dir.path()).unwrap();
+        let mut engine = AnalysisEngine::new(dir.path(), false).unwrap();
         let _result = engine.analyze(&AnalysisConfig::default()).unwrap();
         assert!(
             engine.co_change().is_some(),
@@ -1242,7 +1271,7 @@ def greet(name):
             .output()
             .unwrap();
 
-        let mut engine = AnalysisEngine::new(dir.path()).unwrap();
+        let mut engine = AnalysisEngine::new(dir.path(), false).unwrap();
         let result = engine.analyze(&AnalysisConfig::default()).unwrap();
 
         let health = crate::models::HealthReport {
@@ -1287,7 +1316,7 @@ def greet(name):
         };
 
         // Cold analysis
-        let mut engine = AnalysisEngine::new(dir.path()).unwrap();
+        let mut engine = AnalysisEngine::new(dir.path(), false).unwrap();
         let cold_result = engine.analyze(&config).unwrap();
         assert!(matches!(cold_result.stats.mode, AnalysisMode::Cold));
         let cold_files = cold_result.stats.files_analyzed;
@@ -1300,7 +1329,7 @@ def greet(name):
         engine.save(session_dir.path()).unwrap();
 
         // No changes → should be Cached
-        let mut engine2 = AnalysisEngine::load(session_dir.path(), dir.path()).unwrap();
+        let mut engine2 = AnalysisEngine::load(session_dir.path(), dir.path(), false).unwrap();
         let cached_result = engine2.analyze(&config).unwrap();
         assert!(matches!(cached_result.stats.mode, AnalysisMode::Cached));
         assert_eq!(cached_result.score.overall, cold_score);
@@ -1313,7 +1342,7 @@ def greet(name):
         )
         .unwrap();
 
-        let mut engine3 = AnalysisEngine::load(session_dir.path(), dir.path()).unwrap();
+        let mut engine3 = AnalysisEngine::load(session_dir.path(), dir.path(), false).unwrap();
         let incr_result = engine3.analyze(&config).unwrap();
         assert!(matches!(
             incr_result.stats.mode,

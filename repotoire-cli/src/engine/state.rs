@@ -43,6 +43,10 @@ pub(crate) struct SessionMeta {
     pub last_score: ScoreResult,
     /// Stats from the last analysis (for cached return).
     pub last_stats: AnalysisStats,
+    /// Cache fingerprint — auto-invalidates when config, binary, or mode changes.
+    /// Old sessions without this field deserialize as None and trigger cold run.
+    #[serde(default)]
+    pub fingerprint: Option<u64>,
 }
 
 /// Cached state from a previous analysis run.
