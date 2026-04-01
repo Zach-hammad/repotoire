@@ -1015,4 +1015,23 @@ mod tests {
         let md = format_markdown(&result);
         assert!(md.contains("**No new findings.**"));
     }
+
+    #[test]
+    fn test_format_markdown_filtered_hint() {
+        let result = SmartDiffResult {
+            base_ref: "main".to_string(),
+            head_ref: "HEAD".to_string(),
+            files_changed: 2,
+            new_findings: vec![],
+            all_new_count: 4,
+            fixed_findings: vec![],
+            score_before: Some(90.0),
+            score_after: Some(88.0),
+        };
+
+        let md = format_markdown(&result);
+        assert!(md.contains("**No new findings in your changes.**"));
+        assert!(md.contains("4 finding"));
+        assert!(md.contains("`--all`"));
+    }
 }
