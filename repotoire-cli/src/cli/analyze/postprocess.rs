@@ -193,17 +193,8 @@ pub fn postprocess_findings(
     // when signals match; unmatched findings are left untouched.
     crate::detectors::confidence_enrichment::enrich_all(findings);
 
-    // Step 0.65: Apply user FP/TP labels from feedback command.
-    // FP-labeled findings are removed; TP-labeled findings are pinned.
-    // Runs after enrichment so user labels override enrichment adjustments.
-    apply_user_labels(findings, show_all);
-
-    // Step 0.7: Confidence threshold filter (--min-confidence).
-    // Removes findings whose effective confidence is below the threshold.
-    // Skipped when --show-all is set or no threshold is configured.
-    filter_by_min_confidence(findings, min_confidence, show_all);
-
-    // Step 1: Update incremental cache
+    // Step 1: Update incremental cache — stores enriched findings BEFORE
+    // any filtering. Labels and filters are applied fresh on every run.
     update_incremental_cache(
         is_incremental_mode,
         incremental_cache,
@@ -211,6 +202,19 @@ pub fn postprocess_findings(
         findings,
         repo_path,
     );
+
+    // Touch last_used marker for stale cache pruning
+    incremental_cache.touch_last_used();
+
+    // Step 1.5: Apply user FP/TP labels from feedback command.
+    // FP-labeled findings are removed; TP-labeled findings are pinned.
+    // Runs after cache write so cache always has full pre-label findings.
+    apply_user_labels(findings, show_all);
+
+    // Step 1.6: Confidence threshold filter (--min-confidence).
+    // Runs after labels so TP-pinned findings (confidence 0.95) survive.
+    // Skipped when --show-all is set or no threshold is configured.
+    filter_by_min_confidence(findings, min_confidence, show_all);
 
     // Step 2: Apply detector overrides from project config
     apply_detector_overrides(findings, project_config);
@@ -1305,9 +1309,7 @@ mod label_tests {
             .expect("FP finding should exist");
         assert_eq!(fp.confidence, Some(0.05));
         assert_eq!(
-            fp.threshold_metadata
-                .get("user_label")
-                .map(|s| s.as_str()),
+            fp.threshold_metadata.get("user_label").map(|s| s.as_str()),
             Some("false_positive")
         );
     }
