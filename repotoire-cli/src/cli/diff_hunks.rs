@@ -24,6 +24,8 @@ pub struct DiffHunks {
     hunks: HashMap<PathBuf, Vec<(u32, u32)>>,
     /// All files that appear in the diff.
     changed_files: HashSet<PathBuf>,
+    /// Renamed files: old_path → new_path.
+    renames: HashMap<PathBuf, PathBuf>,
 }
 
 /// Line tolerance for hunk attribution (matches fuzzy matching in findings_match).
@@ -43,6 +45,7 @@ impl DiffHunks {
             return Ok(Self {
                 hunks: HashMap::new(),
                 changed_files: HashSet::new(),
+                renames: HashMap::new(),
             });
         }
 
@@ -54,11 +57,21 @@ impl DiffHunks {
     pub fn parse_diff(diff_text: &str) -> Self {
         let mut hunks: HashMap<PathBuf, Vec<(u32, u32)>> = HashMap::new();
         let mut changed_files: HashSet<PathBuf> = HashSet::new();
+        let mut renames: HashMap<PathBuf, PathBuf> = HashMap::new();
         let mut current_file: Option<PathBuf> = None;
+        let mut pending_rename_from: Option<PathBuf> = None;
 
         for line in diff_text.lines() {
-            // Track current file from +++ header
-            if let Some(path) = line.strip_prefix("+++ b/") {
+            // Track renames
+            if let Some(old) = line.strip_prefix("rename from ") {
+                pending_rename_from = Some(PathBuf::from(old));
+            } else if let Some(new) = line.strip_prefix("rename to ") {
+                if let Some(old) = pending_rename_from.take() {
+                    let new_path = PathBuf::from(new);
+                    changed_files.insert(new_path.clone());
+                    renames.insert(old, new_path);
+                }
+            } else if let Some(path) = line.strip_prefix("+++ b/") {
                 let p = PathBuf::from(path);
                 changed_files.insert(p.clone());
                 current_file = Some(p);
@@ -87,12 +100,20 @@ impl DiffHunks {
         Self {
             hunks,
             changed_files,
+            renames,
         }
     }
 
     /// Attribute a finding based on its file and line.
     pub fn attribute(&self, file: &Path, line: Option<u32>) -> Attribution {
-        if !self.changed_files.contains(file) {
+        // Resolve old->new rename if this finding uses the pre-rename path
+        let effective = self
+            .renames
+            .get(file)
+            .map(|p| p.as_path())
+            .unwrap_or(file);
+
+        if !self.changed_files.contains(effective) {
             return Attribution::InUnchangedFile;
         }
 
@@ -103,7 +124,7 @@ impl DiffHunks {
         };
 
         // Check if line falls within any hunk (±HUNK_MARGIN)
-        if let Some(file_hunks) = self.hunks.get(file) {
+        if let Some(file_hunks) = self.hunks.get(effective) {
             for &(start, end) in file_hunks {
                 let expanded_start = start.saturating_sub(HUNK_MARGIN);
                 let expanded_end = end.saturating_add(HUNK_MARGIN);
@@ -294,6 +315,49 @@ diff --git a/src/api.rs b/src/api.rs
         assert_eq!(
             hunks.attribute(Path::new("any.rs"), Some(1)),
             Attribution::InUnchangedFile
+        );
+    }
+
+    #[test]
+    fn test_parse_diff_rename_without_content_change() {
+        let diff = "\
+diff --git a/src/old.rs b/src/new.rs
+similarity index 100%
+rename from src/old.rs
+rename to src/new.rs
+";
+        let hunks = DiffHunks::parse_diff(diff);
+        // Old path resolves to new path via rename
+        assert_eq!(
+            hunks.attribute(Path::new("src/old.rs"), Some(10)),
+            Attribution::InChangedFile
+        );
+    }
+
+    #[test]
+    fn test_parse_diff_rename_with_content_change() {
+        let diff = "\
+diff --git a/src/old.rs b/src/new.rs
+similarity index 80%
+rename from src/old.rs
+rename to src/new.rs
+--- a/src/old.rs
++++ b/src/new.rs
+@@ -5,0 +5,3 @@ fn foo() {
++    added();
++    lines();
++    here();
+";
+        let hunks = DiffHunks::parse_diff(diff);
+        // Finding at line 6 in old path -> resolves via rename -> in hunk
+        assert_eq!(
+            hunks.attribute(Path::new("src/old.rs"), Some(6)),
+            Attribution::InChangedHunk
+        );
+        // Finding at line 100 in old path -> resolves via rename -> in file but not hunk
+        assert_eq!(
+            hunks.attribute(Path::new("src/old.rs"), Some(100)),
+            Attribution::InChangedFile
         );
     }
 }
