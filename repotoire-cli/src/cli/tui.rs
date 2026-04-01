@@ -640,20 +640,32 @@ fn render_list(screen: &mut Screen, area: Rect, app: &mut App) {
         }
 
         // Title (truncate to fit)
-        let title_max = (inner.width as usize).saturating_sub((x - inner.x) as usize + file_display.len() + 2);
-        let title = if finding.title.len() > title_max {
-            &finding.title[..title_max]
-        } else {
-            &finding.title
-        };
-        screen.current.set_str(x, y, title, base.fg(if is_selected { Color::White } else { Color::Reset }));
-        x += title.len() as u16;
-
-        // File path (right-aligned-ish)
+        // Title + file, truncated to fit remaining width
+        let used = (x.saturating_sub(inner.x)) as usize;
+        let remaining = (inner.width as usize).saturating_sub(used);
         let file_str = format!("  {}", file_display);
-        screen
-            .current
-            .set_str(x, y, &file_str, base.fg(Color::DarkGray));
+        let title_max = remaining.saturating_sub(file_str.len());
+
+        if title_max > 0 {
+            let title = if finding.title.len() > title_max {
+                // Find a valid UTF-8 boundary
+                let mut end = title_max;
+                while end > 0 && !finding.title.is_char_boundary(end) {
+                    end -= 1;
+                }
+                &finding.title[..end]
+            } else {
+                &finding.title
+            };
+            screen.current.set_str(x, y, title, base.fg(if is_selected { Color::White } else { Color::Reset }));
+            x += title.len() as u16;
+        }
+
+        if x < inner.x + inner.width {
+            screen
+                .current
+                .set_str(x, y, &file_str, base.fg(Color::DarkGray));
+        }
 
         // Fill rest of line with bg color for highlight
         if is_selected {
