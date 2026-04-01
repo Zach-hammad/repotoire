@@ -491,6 +491,42 @@ pub fn format_sarif(result: &SmartDiffResult) -> anyhow::Result<String> {
     crate::reporters::report_with_format(&report, crate::reporters::OutputFormat::Sarif)
 }
 
+/// Run analysis inline and cache results so diff can load them.
+fn run_inline_analysis(repo_path: &Path, repotoire_dir: &Path) -> Result<()> {
+    let session_dir = repotoire_dir.join("session");
+    let mut engine = match crate::engine::AnalysisEngine::load(&session_dir, repo_path) {
+        Ok(e) => e,
+        Err(_) => crate::engine::AnalysisEngine::new(repo_path)?,
+    };
+
+    let config = crate::engine::AnalysisConfig::default();
+    let result = engine.analyze(&config)?;
+
+    // Build a HealthReport for cache_results
+    let findings_summary = FindingsSummary::from_findings(&result.findings);
+    let report = crate::models::HealthReport {
+        overall_score: result.score.overall,
+        grade: result.score.grade,
+        structure_score: result.score.breakdown.structure.final_score,
+        quality_score: result.score.breakdown.quality.final_score,
+        architecture_score: Some(result.score.breakdown.architecture.final_score),
+        findings: result.findings.clone(),
+        findings_summary,
+        total_files: result.stats.files_analyzed,
+        total_functions: result.stats.total_functions,
+        total_classes: result.stats.total_classes,
+        total_loc: result.stats.total_loc,
+    };
+
+    super::analyze::output::cache_results(repotoire_dir, &report, &result.findings)?;
+
+    if let Err(e) = engine.save(&session_dir) {
+        tracing::debug!("Failed to save session after inline analysis: {e}");
+    }
+
+    Ok(())
+}
+
 /// Load baseline and head findings from cache, returning them along with scores.
 fn load_baseline_and_head(
     repotoire_dir: &Path,
@@ -501,13 +537,11 @@ fn load_baseline_and_head(
     let baseline_path = repotoire_dir.join("baseline_findings.json");
     let baseline = if baseline_path.exists() {
         super::analyze::output::load_cached_findings_from(&baseline_path)
+            .unwrap_or_default()
     } else {
-        // Fall back to last_findings.json if no snapshot exists yet
-        super::analyze::output::load_cached_findings(repotoire_dir)
-    }
-    .context(
-        "No baseline found. Run 'repotoire analyze' to establish a baseline, then run it again after making changes.",
-    )?;
+        // No baseline yet — treat everything as new (first-run scenario)
+        Vec::new()
+    };
 
     let score_before = load_score_from(&if baseline_path.exists() {
         repotoire_dir.join("baseline_health.json")
@@ -645,9 +679,17 @@ pub fn run(
     let repotoire_dir =
         crate::cache::ensure_cache_dir(&repo_path).context("Failed to create cache directory")?;
 
-    // 1-3. Load baseline, head, and scores
+    // 1-3. Load baseline, head, and scores (auto-analyze if no cache)
     let (baseline, head, score_before, score_after) =
-        load_baseline_and_head(&repotoire_dir, &repo_path, base_ref.as_deref())?;
+        match load_baseline_and_head(&repotoire_dir, &repo_path, base_ref.as_deref()) {
+            Ok(result) => result,
+            Err(_) => {
+                eprintln!("No cached analysis found, running analysis...");
+                run_inline_analysis(&repo_path, &repotoire_dir)?;
+                load_baseline_and_head(&repotoire_dir, &repo_path, base_ref.as_deref())
+                    .context("Analysis completed but could not load findings")?
+            }
+        };
 
     // 4. Compute raw diff (existing function, unchanged)
     let base_label = base_ref.as_deref().unwrap_or("cached");
