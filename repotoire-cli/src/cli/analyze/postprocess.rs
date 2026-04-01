@@ -3,6 +3,7 @@
 //! Applied after detection and before scoring:
 //! 0.5. Assign default confidence by category (preserves detector-set values)
 //! 0.6. Confidence enrichment with contextual signals (bundled, non-prod, multi-detector, test)
+//! 0.65. Apply user FP/TP labels from feedback command
 //! 0.7. Confidence threshold filter (--min-confidence, skipped with --show-all)
 //! 1. Incremental cache update
 //! 2. Detector overrides from project config
@@ -21,7 +22,7 @@ use crate::config::ProjectConfig;
 use crate::detectors::IncrementalCache;
 use crate::models::{Finding, Severity};
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 // ── Functions moved from detect.rs ───────────────────────────────────────────
@@ -90,6 +91,68 @@ pub(super) fn update_incremental_cache(
     }
 }
 
+/// Core label-application logic. Separated from I/O for testability.
+/// - FP-labeled findings are removed (or kept with low confidence if show_all).
+/// - TP-labeled findings get confidence 0.95 + deterministic = true.
+fn apply_labels_to_findings(
+    findings: &mut Vec<Finding>,
+    labels: &HashMap<String, bool>,
+    show_all: bool,
+) {
+    if labels.is_empty() {
+        return;
+    }
+
+    let mut fp_findings: Vec<Finding> = Vec::new();
+    let mut applied = 0u32;
+
+    findings.retain_mut(|f| {
+        match labels.get(&f.id) {
+            Some(false) => {
+                // FP label: remove from findings
+                applied += 1;
+                if show_all {
+                    f.confidence = Some(0.05);
+                    f.threshold_metadata
+                        .insert("user_label".to_string(), "false_positive".to_string());
+                    fp_findings.push(f.clone());
+                }
+                false // remove from main vec
+            }
+            Some(true) => {
+                // TP label: pin with high confidence
+                applied += 1;
+                f.confidence = Some(0.95);
+                f.deterministic = true;
+                f.threshold_metadata
+                    .insert("user_label".to_string(), "true_positive".to_string());
+                true // keep
+            }
+            None => true, // no label
+        }
+    });
+
+    // Re-insert FP findings for --show-all visibility
+    if show_all {
+        findings.extend(fp_findings);
+    }
+
+    if applied > 0 {
+        tracing::info!(
+            "Applied {} user feedback labels ({} in training data)",
+            applied,
+            labels.len()
+        );
+    }
+}
+
+/// Load user FP/TP labels from training_data.jsonl and apply them.
+/// Called after Step 0.6 (enrichment), before Step 0.7 (min-confidence filter).
+fn apply_user_labels(findings: &mut Vec<Finding>, show_all: bool) {
+    let labels = crate::classifier::FeedbackCollector::default().load_label_map();
+    apply_labels_to_findings(findings, &labels, show_all);
+}
+
 /// Run the full post-processing pipeline on findings.
 pub fn postprocess_findings(
     findings: &mut Vec<Finding>,
@@ -129,6 +192,11 @@ pub fn postprocess_findings(
     // files, non-production paths) and multi-detector agreement.  Only fires
     // when signals match; unmatched findings are left untouched.
     crate::detectors::confidence_enrichment::enrich_all(findings);
+
+    // Step 0.65: Apply user FP/TP labels from feedback command.
+    // FP-labeled findings are removed; TP-labeled findings are pinned.
+    // Runs after enrichment so user labels override enrichment adjustments.
+    apply_user_labels(findings, show_all);
 
     // Step 0.7: Confidence threshold filter (--min-confidence).
     // Removes findings whose effective confidence is below the threshold.
@@ -1193,5 +1261,95 @@ mod tests {
         // 0.70 (effective default) < 0.8 threshold => removed
         filter_by_min_confidence(&mut findings, Some(0.8), false);
         assert_eq!(findings.len(), 0);
+    }
+}
+
+#[cfg(test)]
+mod label_tests {
+    use super::*;
+    use crate::models::{Finding, Severity};
+    use std::collections::HashMap;
+
+    fn make_finding(id: &str, detector: &str) -> Finding {
+        Finding {
+            id: id.into(),
+            detector: detector.into(),
+            severity: Severity::Medium,
+            title: format!("Finding {}", id),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_fp_label_removes_finding() {
+        let mut findings = vec![make_finding("aaa", "Det1"), make_finding("bbb", "Det2")];
+        let labels = HashMap::from([("aaa".to_string(), false)]);
+
+        apply_labels_to_findings(&mut findings, &labels, false);
+
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].id, "bbb");
+    }
+
+    #[test]
+    fn test_fp_label_show_all_reinserts_with_low_confidence() {
+        let mut findings = vec![make_finding("aaa", "Det1"), make_finding("bbb", "Det2")];
+        let labels = HashMap::from([("aaa".to_string(), false)]);
+
+        apply_labels_to_findings(&mut findings, &labels, true);
+
+        assert_eq!(findings.len(), 2, "show_all should keep FP finding");
+        let fp = findings
+            .iter()
+            .find(|f| f.id == "aaa")
+            .expect("FP finding should exist");
+        assert_eq!(fp.confidence, Some(0.05));
+        assert_eq!(
+            fp.threshold_metadata
+                .get("user_label")
+                .map(|s| s.as_str()),
+            Some("false_positive")
+        );
+    }
+
+    #[test]
+    fn test_tp_label_pins_finding() {
+        let mut findings = vec![make_finding("aaa", "Det1")];
+        let labels = HashMap::from([("aaa".to_string(), true)]);
+
+        apply_labels_to_findings(&mut findings, &labels, false);
+
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].confidence, Some(0.95));
+        assert!(findings[0].deterministic);
+        assert_eq!(
+            findings[0]
+                .threshold_metadata
+                .get("user_label")
+                .map(|s| s.as_str()),
+            Some("true_positive")
+        );
+    }
+
+    #[test]
+    fn test_unlabeled_findings_unchanged() {
+        let mut findings = vec![make_finding("aaa", "Det1")];
+        let labels = HashMap::from([("zzz".to_string(), false)]); // no match
+
+        apply_labels_to_findings(&mut findings, &labels, false);
+
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].id, "aaa");
+        assert!(findings[0].confidence.is_none()); // unchanged
+    }
+
+    #[test]
+    fn test_empty_labels_is_noop() {
+        let mut findings = vec![make_finding("aaa", "Det1")];
+        let labels = HashMap::new();
+
+        apply_labels_to_findings(&mut findings, &labels, false);
+
+        assert_eq!(findings.len(), 1);
     }
 }
