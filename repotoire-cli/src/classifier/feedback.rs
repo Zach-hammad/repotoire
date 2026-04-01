@@ -5,6 +5,7 @@
 
 use crate::models::{Finding, Severity};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -136,6 +137,25 @@ impl FeedbackCollector {
         Ok(examples)
     }
 
+    /// Build a label map: finding_id → is_true_positive.
+    /// Last entry wins (supports re-labeling). Unparseable lines are
+    /// silently skipped (matching `load_all()` behavior).
+    pub fn load_label_map(&self) -> HashMap<String, bool> {
+        let entries = match self.load_all() {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!("Failed to load feedback labels: {}", e);
+                return HashMap::new();
+            }
+        };
+
+        let mut map = HashMap::new();
+        for entry in entries {
+            map.insert(entry.finding_id, entry.is_true_positive);
+        }
+        map
+    }
+
     /// Get training statistics
     pub fn stats(&self) -> std::io::Result<TrainingStats> {
         let examples = self.load_all()?;
@@ -261,5 +281,44 @@ mod tests {
         assert_eq!(loaded.len(), 2);
         assert!(loaded[0].is_true_positive);
         assert!(!loaded[1].is_true_positive);
+    }
+
+    #[test]
+    fn test_load_label_map_last_writer_wins() {
+        let dir = TempDir::new().expect("create temp dir");
+        let path = dir.path().join("test_labels.jsonl");
+        let collector = FeedbackCollector::with_path(&path);
+
+        let finding = Finding {
+            id: "abc-123".into(),
+            detector: "TestDetector".into(),
+            severity: crate::models::Severity::High,
+            title: "Test".into(),
+            ..Default::default()
+        };
+
+        // Label as TP first, then re-label as FP
+        collector.record(&finding, true, None).unwrap();
+        collector
+            .record(&finding, false, Some("Actually not a bug".into()))
+            .unwrap();
+
+        let map = collector.load_label_map();
+        assert_eq!(map.len(), 1);
+        assert_eq!(
+            map.get("abc-123"),
+            Some(&false),
+            "Last entry (FP) should win"
+        );
+    }
+
+    #[test]
+    fn test_load_label_map_empty_file() {
+        let dir = TempDir::new().expect("create temp dir");
+        let path = dir.path().join("nonexistent.jsonl");
+        let collector = FeedbackCollector::with_path(&path);
+
+        let map = collector.load_label_map();
+        assert!(map.is_empty());
     }
 }
