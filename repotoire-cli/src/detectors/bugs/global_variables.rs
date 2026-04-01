@@ -324,8 +324,7 @@ impl Detector for GlobalVariablesDetector {
                         is_true_global && trimmed.contains('=') && !trimmed.contains("==")
                     } else {
                         // Script mode: current behavior
-                        let at_module_scope =
-                            !line.starts_with(' ') && !line.starts_with('\t');
+                        let at_module_scope = !line.starts_with(' ') && !line.starts_with('\t');
                         let is_require = trimmed.contains("require(");
                         at_module_scope
                             && (trimmed.starts_with("var ") || trimmed.starts_with("let "))
@@ -621,8 +620,10 @@ mod tests {
             )],
         );
         let findings = detector.detect(&ctx).unwrap();
-        assert!(findings.is_empty(),
+        assert!(
+            findings.is_empty(),
             "FP #6: module-scoped let in .ts with imports should NOT be flagged, got: {:?}",
-            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
     }
 }

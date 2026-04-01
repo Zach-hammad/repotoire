@@ -46,7 +46,11 @@ pub fn postprocess_stage(input: PostprocessInput) -> Result<PostprocessOutput> {
     // Create a temporary no-op IncrementalCache (required by the existing function
     // but not used since we pass is_incremental_mode: false)
     let cache_dir = std::env::temp_dir().join("repotoire-stage-noop-cache");
-    let mut dummy_cache = crate::detectors::IncrementalCache::new(&cache_dir, &crate::config::ProjectConfig::default(), false);
+    let mut dummy_cache = crate::detectors::IncrementalCache::new(
+        &cache_dir,
+        &crate::config::ProjectConfig::default(),
+        false,
+    );
 
     // Delegate to the existing postprocess_findings function with dummy/no-op
     // values for params that are being deprecated in the new engine

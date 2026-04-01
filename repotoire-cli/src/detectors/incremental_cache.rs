@@ -163,9 +163,7 @@ pub fn compute_fingerprint(
 ) -> u64 {
     let mut buf = Vec::with_capacity(256);
     buf.extend_from_slice(&binary_hash.to_le_bytes());
-    match serde_json::to_value(config)
-        .and_then(|v| serde_json::to_string(&sort_json_keys(v)))
-    {
+    match serde_json::to_value(config).and_then(|v| serde_json::to_string(&sort_json_keys(v))) {
         Ok(json) => buf.extend_from_slice(json.as_bytes()),
         Err(_) => buf.extend_from_slice(b"__config_serialize_error__"),
     }
@@ -192,7 +190,11 @@ pub struct IncrementalCache {
 
 impl IncrementalCache {
     /// Create a new cache
-    pub fn new(cache_dir: &Path, config: &crate::config::ProjectConfig, all_detectors: bool) -> Self {
+    pub fn new(
+        cache_dir: &Path,
+        config: &crate::config::ProjectConfig,
+        all_detectors: bool,
+    ) -> Self {
         let cache_dir = cache_dir.to_path_buf();
         let cache_file = cache_dir.join("findings_cache.bin");
 
@@ -316,7 +318,11 @@ impl IncrementalCache {
                 return Ok(());
             }
         };
-        let current_fp = compute_fingerprint(binary_hash, &self.fingerprint_config, self.fingerprint_all_detectors);
+        let current_fp = compute_fingerprint(
+            binary_hash,
+            &self.fingerprint_config,
+            self.fingerprint_all_detectors,
+        );
         if data.fingerprint != Some(current_fp) {
             info!("Cache fingerprint mismatch, rebuilding");
             self.invalidate_all();
@@ -679,7 +685,9 @@ pub fn prune_stale_caches(max_age: std::time::Duration) {
         None => return,
     };
 
-    let Ok(entries) = fs::read_dir(&cache_base) else { return };
+    let Ok(entries) = fs::read_dir(&cache_base) else {
+        return;
+    };
     let cutoff = std::time::SystemTime::now() - max_age;
 
     for entry in entries.flatten() {
@@ -825,7 +833,8 @@ mod tests {
     #[test]
     fn test_cache_creation() {
         let tmp = TempDir::new().expect("should create temp dir");
-        let cache = IncrementalCache::new(tmp.path(), &crate::config::ProjectConfig::default(), false);
+        let cache =
+            IncrementalCache::new(tmp.path(), &crate::config::ProjectConfig::default(), false);
         let stats = cache.stats();
         assert_eq!(stats.cached_files, 0);
         assert_eq!(stats.cache_version, CACHE_VERSION);
@@ -837,7 +846,8 @@ mod tests {
         let file_path = tmp.path().join("test.txt");
         fs::write(&file_path, "hello world").expect("should write test file");
 
-        let cache = IncrementalCache::new(tmp.path(), &crate::config::ProjectConfig::default(), false);
+        let cache =
+            IncrementalCache::new(tmp.path(), &crate::config::ProjectConfig::default(), false);
         let hash1 = cache.file_hash(&file_path);
         let hash2 = cache.file_hash(&file_path);
 
@@ -856,7 +866,8 @@ mod tests {
         let file_path = tmp.path().join("test.py");
         fs::write(&file_path, "def test(): pass").expect("should write test file");
 
-        let mut cache = IncrementalCache::new(tmp.path(), &crate::config::ProjectConfig::default(), false);
+        let mut cache =
+            IncrementalCache::new(tmp.path(), &crate::config::ProjectConfig::default(), false);
         let finding = create_test_finding(&file_path.to_string_lossy());
 
         // Cache findings
@@ -876,7 +887,8 @@ mod tests {
         fs::write(&file1, "content1").expect("should write test file");
         fs::write(&file2, "content2").expect("should write test file");
 
-        let mut cache = IncrementalCache::new(tmp.path(), &crate::config::ProjectConfig::default(), false);
+        let mut cache =
+            IncrementalCache::new(tmp.path(), &crate::config::ProjectConfig::default(), false);
 
         // Cache file1
         cache.cache_findings(&file1, &[]);
@@ -893,7 +905,8 @@ mod tests {
     #[test]
     fn test_graph_cache() {
         let tmp = TempDir::new().expect("should create temp dir");
-        let mut cache = IncrementalCache::new(tmp.path(), &crate::config::ProjectConfig::default(), false);
+        let mut cache =
+            IncrementalCache::new(tmp.path(), &crate::config::ProjectConfig::default(), false);
 
         // Cache graph findings
         let finding = create_test_finding("test.py");
@@ -914,7 +927,8 @@ mod tests {
         let file_path = tmp.path().join("test.py");
         fs::write(&file_path, "content").expect("should write test file");
 
-        let mut cache = IncrementalCache::new(tmp.path(), &crate::config::ProjectConfig::default(), false);
+        let mut cache =
+            IncrementalCache::new(tmp.path(), &crate::config::ProjectConfig::default(), false);
         cache.cache_findings(&file_path, &[create_test_finding("test.py")]);
 
         assert_eq!(cache.stats().cached_files, 1);
@@ -932,7 +946,8 @@ mod tests {
         use crate::cache::CacheLayer;
 
         let tmp = TempDir::new().expect("should create temp dir");
-        let mut cache = IncrementalCache::new(tmp.path(), &crate::config::ProjectConfig::default(), false);
+        let mut cache =
+            IncrementalCache::new(tmp.path(), &crate::config::ProjectConfig::default(), false);
 
         // Verify trait name
         assert_eq!(cache.name(), "incremental-findings");
@@ -1012,7 +1027,8 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let cache_dir = dir.path().join("cache");
         std::fs::create_dir_all(&cache_dir).unwrap();
-        let mut cache = IncrementalCache::new(&cache_dir, &crate::config::ProjectConfig::default(), false);
+        let mut cache =
+            IncrementalCache::new(&cache_dir, &crate::config::ProjectConfig::default(), false);
 
         let file = dir.path().join("handler.py");
         fs::write(&file, "import config").unwrap();
@@ -1037,7 +1053,8 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let cache_dir = dir.path().join("cache");
         std::fs::create_dir_all(&cache_dir).unwrap();
-        let mut cache = IncrementalCache::new(&cache_dir, &crate::config::ProjectConfig::default(), false);
+        let mut cache =
+            IncrementalCache::new(&cache_dir, &crate::config::ProjectConfig::default(), false);
 
         let file = dir.path().join("handler.py");
         fs::write(&file, "import config").unwrap();
@@ -1060,7 +1077,8 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let cache_dir = dir.path().join("cache");
         std::fs::create_dir_all(&cache_dir).unwrap();
-        let mut cache = IncrementalCache::new(&cache_dir, &crate::config::ProjectConfig::default(), false);
+        let mut cache =
+            IncrementalCache::new(&cache_dir, &crate::config::ProjectConfig::default(), false);
 
         let file = dir.path().join("simple.py");
         fs::write(&file, "x = 1").unwrap();
@@ -1077,7 +1095,8 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let cache_dir = dir.path().join("cache");
         std::fs::create_dir_all(&cache_dir).unwrap();
-        let mut cache = IncrementalCache::new(&cache_dir, &crate::config::ProjectConfig::default(), false);
+        let mut cache =
+            IncrementalCache::new(&cache_dir, &crate::config::ProjectConfig::default(), false);
 
         let file = dir.path().join("handler.py");
         fs::write(&file, "import config").unwrap();
@@ -1120,7 +1139,10 @@ mod fingerprint_tests {
         let config = crate::config::ProjectConfig::default();
         let fp1 = compute_fingerprint(12345, &config, false);
         let fp2 = compute_fingerprint(12345, &config, true);
-        assert_ne!(fp1, fp2, "Different all_detectors should change fingerprint");
+        assert_ne!(
+            fp1, fp2,
+            "Different all_detectors should change fingerprint"
+        );
     }
 
     #[test]
@@ -1129,6 +1151,9 @@ mod fingerprint_tests {
         let json2 = serde_json::json!({"c": {"y": 4, "z": 3}, "a": 1, "b": 2});
         let s1 = serde_json::to_string(&sort_json_keys(json1)).unwrap();
         let s2 = serde_json::to_string(&sort_json_keys(json2)).unwrap();
-        assert_eq!(s1, s2, "Same data with different key order should produce same output");
+        assert_eq!(
+            s1, s2,
+            "Same data with different key order should produce same output"
+        );
     }
 }

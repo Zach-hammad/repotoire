@@ -106,3 +106,4 @@ repotoire-vscode/
 .worktrees/
 benchmark-output/
 seed-results/
+repotoire-cli/dhat-heap.json

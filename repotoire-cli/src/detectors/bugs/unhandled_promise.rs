@@ -105,8 +105,7 @@ fn contains_word(haystack: &str, word: &str) -> bool {
     }
     for i in 0..=h.len() - w.len() {
         if &h[i..i + w.len()] == w {
-            let before_ok =
-                i == 0 || !(h[i - 1].is_ascii_alphanumeric() || h[i - 1] == b'_');
+            let before_ok = i == 0 || !(h[i - 1].is_ascii_alphanumeric() || h[i - 1] == b'_');
             let after_ok = i + w.len() >= h.len()
                 || !(h[i + w.len()].is_ascii_alphanumeric() || h[i + w.len()] == b'_');
             if before_ok && after_ok {
@@ -216,9 +215,7 @@ impl Detector for UnhandledPromiseDetector {
                     // or deals with promises. Don't flag sync code.
                     if !has_promise && !line.contains("await ") && !line.contains(".then(") {
                         // Check if calling a known async function (not declaring one)
-                        let calls_async_fn = async_funcs
-                            .iter()
-                            .any(|f| is_async_call(line, f));
+                        let calls_async_fn = async_funcs.iter().any(|f| is_async_call(line, f));
                         if !calls_async_fn {
                             continue;
                         }
@@ -267,9 +264,7 @@ impl Detector for UnhandledPromiseDetector {
                     // Also check calls to known async functions without await.
                     // Only flag if the current function context is itself async — calling
                     // an async function from sync code is expected (you can't await there).
-                    let calls_async = async_funcs
-                        .iter()
-                        .any(|f| is_async_call(line, f));
+                    let calls_async = async_funcs.iter().any(|f| is_async_call(line, f));
 
                     // Skip returned promises — caller handles errors (no-floating-promises #4)
                     if (has_promise || calls_async)
@@ -306,27 +301,26 @@ impl Detector for UnhandledPromiseDetector {
                         // Check for two-arg .then(success, error) — handles rejections.
                         // Scope to the current line only so a two-arg .then() on a
                         // different promise chain in the context window can't suppress this.
-                        let has_two_arg_then =
-                            if let Some(then_idx) = trimmed.find(".then(") {
-                                let after = &trimmed[then_idx + 6..];
-                                let mut found_comma = false;
-                                let mut depth = 0i32;
-                                for ch in after.chars() {
-                                    match ch {
-                                        '(' => depth += 1,
-                                        ')' if depth == 0 => break,
-                                        ')' => depth -= 1,
-                                        ',' if depth == 0 => {
-                                            found_comma = true;
-                                            break;
-                                        }
-                                        _ => {}
+                        let has_two_arg_then = if let Some(then_idx) = trimmed.find(".then(") {
+                            let after = &trimmed[then_idx + 6..];
+                            let mut found_comma = false;
+                            let mut depth = 0i32;
+                            for ch in after.chars() {
+                                match ch {
+                                    '(' => depth += 1,
+                                    ')' if depth == 0 => break,
+                                    ')' => depth -= 1,
+                                    ',' if depth == 0 => {
+                                        found_comma = true;
+                                        break;
                                     }
+                                    _ => {}
                                 }
-                                found_comma
-                            } else {
-                                false
-                            };
+                            }
+                            found_comma
+                        } else {
+                            false
+                        };
 
                         if has_catch || in_try || has_two_arg_then {
                             continue;
@@ -645,9 +639,14 @@ mod tests {
             )],
         );
         let findings = detector.detect(&ctx).unwrap();
-        assert!(findings.is_empty(),
+        assert!(
+            findings.is_empty(),
             "export async function declarations should NOT be flagged, got: {:?}",
-            findings.iter().map(|f| format!("{} (line {})", f.title, f.line_start.unwrap_or(0))).collect::<Vec<_>>());
+            findings
+                .iter()
+                .map(|f| format!("{} (line {})", f.title, f.line_start.unwrap_or(0)))
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -664,8 +663,13 @@ mod tests {
             )],
         );
         let findings = detector.detect(&ctx).unwrap();
-        assert!(findings.is_empty(),
+        assert!(
+            findings.is_empty(),
             "return new Promise() should NOT be flagged, got: {:?}",
-            findings.iter().map(|f| format!("{} (line {})", f.title, f.line_start.unwrap_or(0))).collect::<Vec<_>>());
+            findings
+                .iter()
+                .map(|f| format!("{} (line {})", f.title, f.line_start.unwrap_or(0)))
+                .collect::<Vec<_>>()
+        );
     }
 }
