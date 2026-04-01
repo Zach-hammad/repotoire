@@ -80,14 +80,30 @@ fn extract_assignment_target(line: &str) -> Option<&str> {
     None
 }
 
+/// Check if `haystack` contains `word` delimited by non-word characters (or string boundaries).
+/// Equivalent to regex `\bword\b` but with zero allocation.
+fn contains_word(haystack: &str, word: &str) -> bool {
+    let h = haystack.as_bytes();
+    let w = word.as_bytes();
+    if w.is_empty() || w.len() > h.len() {
+        return false;
+    }
+    for i in 0..=h.len() - w.len() {
+        if &h[i..i + w.len()] == w {
+            let before_ok =
+                i == 0 || !(h[i - 1].is_ascii_alphanumeric() || h[i - 1] == b'_');
+            let after_ok = i + w.len() >= h.len()
+                || !(h[i + w.len()].is_ascii_alphanumeric() || h[i + w.len()] == b'_');
+            if before_ok && after_ok {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 /// Check if a variable is returned later in the same function scope.
 fn is_returned_in_scope(lines: &[&str], from: usize, var_name: &str) -> bool {
-    // Use word-boundary regex to avoid substring matches (e.g., var "p" matching "promise")
-    let pattern = format!(r"\b{}\b", regex::escape(var_name));
-    let re = match Regex::new(&pattern) {
-        Ok(r) => r,
-        Err(_) => return false,
-    };
     let mut depth = 0i32;
     for line in &lines[from + 1..] {
         let t = line.trim();
@@ -96,7 +112,7 @@ fn is_returned_in_scope(lines: &[&str], from: usize, var_name: &str) -> bool {
         if depth < 0 {
             break;
         }
-        if t.starts_with("return ") && re.is_match(t) {
+        if t.starts_with("return ") && contains_word(t, var_name) {
             return true;
         }
     }
@@ -272,11 +288,12 @@ impl Detector for UnhandledPromiseDetector {
                             .any(|l| l.contains("try {") || l.contains("try{"));
                         let has_finally = context.contains(".finally");
 
-                        // Check for two-arg .then(success, error) — handles rejections
-                        let has_two_arg_then = if context.contains(".then(") {
-                            // Find .then( and check if there's a comma at depth 0 before closing paren
-                            if let Some(then_idx) = context.find(".then(") {
-                                let after = &context[then_idx + 6..];
+                        // Check for two-arg .then(success, error) — handles rejections.
+                        // Scope to the current line only so a two-arg .then() on a
+                        // different promise chain in the context window can't suppress this.
+                        let has_two_arg_then =
+                            if let Some(then_idx) = trimmed.find(".then(") {
+                                let after = &trimmed[then_idx + 6..];
                                 let mut found_comma = false;
                                 let mut depth = 0i32;
                                 for ch in after.chars() {
@@ -294,10 +311,7 @@ impl Detector for UnhandledPromiseDetector {
                                 found_comma
                             } else {
                                 false
-                            }
-                        } else {
-                            false
-                        };
+                            };
 
                         if has_catch || in_try || has_two_arg_then {
                             continue;
