@@ -8,7 +8,8 @@
 //! # Example
 //!
 //! ```ignore
-//! let cache = IncrementalCache::new(Path::new("/repo/.repotoire/cache"));
+//! let config = repotoire::config::ProjectConfig::default();
+//! let cache = IncrementalCache::new(Path::new("/repo/.repotoire/cache"), &config, false);
 //! let changed = cache.changed_files(&all_files);
 //! for f in changed {
 //!     let findings = run_detector(&f);
@@ -95,6 +96,10 @@ struct CacheData {
     graph: GraphCache,
     #[serde(default)]
     parse_cache: HashMap<String, CachedParseResult>,
+    /// Cache fingerprint — hash of binary + config + analysis mode + schema version.
+    /// Old caches without this field deserialize as None and auto-invalidate.
+    #[serde(default)]
+    fingerprint: Option<u64>,
 }
 
 impl Default for CacheData {
@@ -106,6 +111,7 @@ impl Default for CacheData {
             files: HashMap::new(),
             graph: GraphCache::default(),
             parse_cache: HashMap::new(),
+            fingerprint: None,
         }
     }
 }
@@ -121,23 +127,72 @@ pub struct CacheStats {
     pub cache_version: u32,
 }
 
+/// Hash the repotoire binary itself for dev-rebuild detection.
+/// Returns None if the binary can't be read (deleted, permissions, etc).
+pub fn binary_file_hash() -> Option<u64> {
+    let exe = std::env::current_exe().ok()?;
+    let bytes = fs::read(&exe).ok()?;
+    Some(xxhash_rust::xxh3::xxh3_64(&bytes))
+}
+
+/// Recursively sort JSON object keys for deterministic serialization.
+/// HashMap iteration order is non-deterministic; this normalizes it.
+fn sort_json_keys(value: serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::Object(map) => {
+            let sorted: serde_json::Map<String, serde_json::Value> = map
+                .into_iter()
+                .map(|(k, v)| (k, sort_json_keys(v)))
+                .collect::<std::collections::BTreeMap<_, _>>()
+                .into_iter()
+                .collect();
+            serde_json::Value::Object(sorted)
+        }
+        serde_json::Value::Array(arr) => {
+            serde_json::Value::Array(arr.into_iter().map(sort_json_keys).collect())
+        }
+        other => other,
+    }
+}
+
+/// Compute cache fingerprint from all analysis inputs.
+pub fn compute_fingerprint(
+    binary_hash: u64,
+    config: &crate::config::ProjectConfig,
+    all_detectors: bool,
+) -> u64 {
+    let mut buf = Vec::with_capacity(256);
+    buf.extend_from_slice(&binary_hash.to_le_bytes());
+    match serde_json::to_value(config)
+        .and_then(|v| serde_json::to_string(&sort_json_keys(v)))
+    {
+        Ok(json) => buf.extend_from_slice(json.as_bytes()),
+        Err(_) => buf.extend_from_slice(b"__config_serialize_error__"),
+    }
+    buf.push(all_detectors as u8);
+    buf.extend_from_slice(&CACHE_VERSION.to_le_bytes());
+    xxhash_rust::xxh3::xxh3_64(&buf)
+}
+
 /// File fingerprinting and findings cache for incremental analysis
 ///
 /// Stores file hashes and associated findings to avoid re-running detectors
 /// on unchanged files. Cache is persisted to disk as bincode.
 pub struct IncrementalCache {
-    #[allow(dead_code)] // Part of cache structure
     cache_dir: PathBuf,
     cache_file: PathBuf,
     cache: CacheData,
     dirty: bool,
     /// Memoized all-files hash to avoid re-hashing on every call
     memoized_files_hash: Option<(usize, String)>, // (file_count, hash)
+    /// Stored for fingerprint computation in save_cache
+    fingerprint_config: crate::config::ProjectConfig,
+    fingerprint_all_detectors: bool,
 }
 
 impl IncrementalCache {
     /// Create a new cache
-    pub fn new(cache_dir: &Path) -> Self {
+    pub fn new(cache_dir: &Path, config: &crate::config::ProjectConfig, all_detectors: bool) -> Self {
         let cache_dir = cache_dir.to_path_buf();
         let cache_file = cache_dir.join("findings_cache.bin");
 
@@ -152,6 +207,8 @@ impl IncrementalCache {
             cache: CacheData::default(),
             dirty: false,
             memoized_files_hash: None,
+            fingerprint_config: config.clone(),
+            fingerprint_all_detectors: all_detectors,
         };
 
         // Load existing cache
@@ -249,6 +306,23 @@ impl IncrementalCache {
             return Ok(());
         }
 
+        // Fingerprint check — catches config changes, dev rebuilds, mode changes.
+        // Binary hash is only computed when version string matches (lazy — saves ~3ms for release users).
+        let binary_hash = match binary_file_hash() {
+            Some(h) => h,
+            None => {
+                info!("Cannot hash binary, forcing cache invalidation");
+                self.invalidate_all();
+                return Ok(());
+            }
+        };
+        let current_fp = compute_fingerprint(binary_hash, &self.fingerprint_config, self.fingerprint_all_detectors);
+        if data.fingerprint != Some(current_fp) {
+            info!("Cache fingerprint mismatch, rebuilding");
+            self.invalidate_all();
+            return Ok(());
+        }
+
         self.cache = data;
         debug!("Loaded cache with {} files", self.cache.files.len());
 
@@ -259,6 +333,15 @@ impl IncrementalCache {
     pub fn save_cache(&mut self) -> Result<()> {
         if !self.dirty {
             return Ok(());
+        }
+
+        // Compute and store fingerprint before serialization
+        if let Some(binary_hash) = binary_file_hash() {
+            self.cache.fingerprint = Some(compute_fingerprint(
+                binary_hash,
+                &self.fingerprint_config,
+                self.fingerprint_all_detectors,
+            ));
         }
 
         // Write to temp file first, then rename (atomic on POSIX)
@@ -573,12 +656,42 @@ impl IncrementalCache {
         }
     }
 
+    /// Write a last_used marker for stale cache pruning.
+    pub fn touch_last_used(&self) {
+        let marker = self.cache_dir.join(".last_used");
+        let _ = fs::write(&marker, chrono::Utc::now().to_rfc3339().as_bytes());
+    }
+
     /// Convert path to cache key
     fn path_key(&self, path: &Path) -> String {
         path.canonicalize()
             .unwrap_or_else(|_| path.to_path_buf())
             .to_string_lossy()
             .to_string()
+    }
+}
+
+/// Delete cache directories not used in the given duration.
+/// Called once at startup. Errors silently ignored.
+pub fn prune_stale_caches(max_age: std::time::Duration) {
+    let cache_base = match dirs::cache_dir() {
+        Some(d) => d.join("repotoire"),
+        None => return,
+    };
+
+    let Ok(entries) = fs::read_dir(&cache_base) else { return };
+    let cutoff = std::time::SystemTime::now() - max_age;
+
+    for entry in entries.flatten() {
+        let marker = entry.path().join(".last_used");
+        let last_used = fs::metadata(&marker)
+            .and_then(|m| m.modified())
+            .unwrap_or(std::time::UNIX_EPOCH);
+
+        if last_used < cutoff {
+            let _ = fs::remove_dir_all(entry.path());
+            debug!("Pruned stale cache: {}", entry.path().display());
+        }
     }
 }
 
@@ -712,7 +825,7 @@ mod tests {
     #[test]
     fn test_cache_creation() {
         let tmp = TempDir::new().expect("should create temp dir");
-        let cache = IncrementalCache::new(tmp.path());
+        let cache = IncrementalCache::new(tmp.path(), &crate::config::ProjectConfig::default(), false);
         let stats = cache.stats();
         assert_eq!(stats.cached_files, 0);
         assert_eq!(stats.cache_version, CACHE_VERSION);
@@ -724,7 +837,7 @@ mod tests {
         let file_path = tmp.path().join("test.txt");
         fs::write(&file_path, "hello world").expect("should write test file");
 
-        let cache = IncrementalCache::new(tmp.path());
+        let cache = IncrementalCache::new(tmp.path(), &crate::config::ProjectConfig::default(), false);
         let hash1 = cache.file_hash(&file_path);
         let hash2 = cache.file_hash(&file_path);
 
@@ -743,7 +856,7 @@ mod tests {
         let file_path = tmp.path().join("test.py");
         fs::write(&file_path, "def test(): pass").expect("should write test file");
 
-        let mut cache = IncrementalCache::new(tmp.path());
+        let mut cache = IncrementalCache::new(tmp.path(), &crate::config::ProjectConfig::default(), false);
         let finding = create_test_finding(&file_path.to_string_lossy());
 
         // Cache findings
@@ -763,7 +876,7 @@ mod tests {
         fs::write(&file1, "content1").expect("should write test file");
         fs::write(&file2, "content2").expect("should write test file");
 
-        let mut cache = IncrementalCache::new(tmp.path());
+        let mut cache = IncrementalCache::new(tmp.path(), &crate::config::ProjectConfig::default(), false);
 
         // Cache file1
         cache.cache_findings(&file1, &[]);
@@ -780,7 +893,7 @@ mod tests {
     #[test]
     fn test_graph_cache() {
         let tmp = TempDir::new().expect("should create temp dir");
-        let mut cache = IncrementalCache::new(tmp.path());
+        let mut cache = IncrementalCache::new(tmp.path(), &crate::config::ProjectConfig::default(), false);
 
         // Cache graph findings
         let finding = create_test_finding("test.py");
@@ -801,7 +914,7 @@ mod tests {
         let file_path = tmp.path().join("test.py");
         fs::write(&file_path, "content").expect("should write test file");
 
-        let mut cache = IncrementalCache::new(tmp.path());
+        let mut cache = IncrementalCache::new(tmp.path(), &crate::config::ProjectConfig::default(), false);
         cache.cache_findings(&file_path, &[create_test_finding("test.py")]);
 
         assert_eq!(cache.stats().cached_files, 1);
@@ -819,7 +932,7 @@ mod tests {
         use crate::cache::CacheLayer;
 
         let tmp = TempDir::new().expect("should create temp dir");
-        let mut cache = IncrementalCache::new(tmp.path());
+        let mut cache = IncrementalCache::new(tmp.path(), &crate::config::ProjectConfig::default(), false);
 
         // Verify trait name
         assert_eq!(cache.name(), "incremental-findings");
@@ -899,7 +1012,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let cache_dir = dir.path().join("cache");
         std::fs::create_dir_all(&cache_dir).unwrap();
-        let mut cache = IncrementalCache::new(&cache_dir);
+        let mut cache = IncrementalCache::new(&cache_dir, &crate::config::ProjectConfig::default(), false);
 
         let file = dir.path().join("handler.py");
         fs::write(&file, "import config").unwrap();
@@ -924,7 +1037,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let cache_dir = dir.path().join("cache");
         std::fs::create_dir_all(&cache_dir).unwrap();
-        let mut cache = IncrementalCache::new(&cache_dir);
+        let mut cache = IncrementalCache::new(&cache_dir, &crate::config::ProjectConfig::default(), false);
 
         let file = dir.path().join("handler.py");
         fs::write(&file, "import config").unwrap();
@@ -947,7 +1060,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let cache_dir = dir.path().join("cache");
         std::fs::create_dir_all(&cache_dir).unwrap();
-        let mut cache = IncrementalCache::new(&cache_dir);
+        let mut cache = IncrementalCache::new(&cache_dir, &crate::config::ProjectConfig::default(), false);
 
         let file = dir.path().join("simple.py");
         fs::write(&file, "x = 1").unwrap();
@@ -964,7 +1077,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let cache_dir = dir.path().join("cache");
         std::fs::create_dir_all(&cache_dir).unwrap();
-        let mut cache = IncrementalCache::new(&cache_dir);
+        let mut cache = IncrementalCache::new(&cache_dir, &crate::config::ProjectConfig::default(), false);
 
         let file = dir.path().join("handler.py");
         fs::write(&file, "import config").unwrap();
@@ -979,5 +1092,43 @@ mod tests {
         // Dependency no longer in current hashes (e.g., constant was removed)
         let current = HashMap::new();
         assert!(!cache.value_deps_valid(&file, &current));
+    }
+}
+
+#[cfg(test)]
+mod fingerprint_tests {
+    use super::*;
+
+    #[test]
+    fn test_compute_fingerprint_deterministic() {
+        let config = crate::config::ProjectConfig::default();
+        let fp1 = compute_fingerprint(12345, &config, false);
+        let fp2 = compute_fingerprint(12345, &config, false);
+        assert_eq!(fp1, fp2, "Same inputs should produce same fingerprint");
+    }
+
+    #[test]
+    fn test_compute_fingerprint_changes_on_binary_hash() {
+        let config = crate::config::ProjectConfig::default();
+        let fp1 = compute_fingerprint(12345, &config, false);
+        let fp2 = compute_fingerprint(99999, &config, false);
+        assert_ne!(fp1, fp2, "Different binary hash should change fingerprint");
+    }
+
+    #[test]
+    fn test_compute_fingerprint_changes_on_mode() {
+        let config = crate::config::ProjectConfig::default();
+        let fp1 = compute_fingerprint(12345, &config, false);
+        let fp2 = compute_fingerprint(12345, &config, true);
+        assert_ne!(fp1, fp2, "Different all_detectors should change fingerprint");
+    }
+
+    #[test]
+    fn test_sort_json_keys_deterministic() {
+        let json1 = serde_json::json!({"b": 2, "a": 1, "c": {"z": 3, "y": 4}});
+        let json2 = serde_json::json!({"c": {"y": 4, "z": 3}, "a": 1, "b": 2});
+        let s1 = serde_json::to_string(&sort_json_keys(json1)).unwrap();
+        let s2 = serde_json::to_string(&sort_json_keys(json2)).unwrap();
+        assert_eq!(s1, s2, "Same data with different key order should produce same output");
     }
 }

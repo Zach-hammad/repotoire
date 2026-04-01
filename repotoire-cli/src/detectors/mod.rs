@@ -420,7 +420,10 @@ pub use health_delta::{
     estimate_batch_fix_impact, estimate_fix_impact, BatchHealthScoreDelta, HealthScoreDelta,
     HealthScoreDeltaCalculator, ImpactLevel, MetricsBreakdown,
 };
-pub use incremental_cache::{CacheStats, CachedScoreResult, ConcurrentCacheView, IncrementalCache};
+pub use incremental_cache::{
+    binary_file_hash, compute_fingerprint, prune_stale_caches, CacheStats, CachedScoreResult,
+    ConcurrentCacheView, IncrementalCache,
+};
 pub use risk_analyzer::{analyze_compound_risks, RiskAnalyzer, RiskAssessment, RiskFactor};
 pub use root_cause_analyzer::{RootCauseAnalysis, RootCauseAnalyzer, RootCauseSummary};
 pub use voting_engine::{
