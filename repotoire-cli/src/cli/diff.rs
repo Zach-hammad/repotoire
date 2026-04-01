@@ -177,7 +177,22 @@ pub fn format_text(result: &SmartDiffResult, no_emoji: bool) -> String {
         .filter(|af| af.attribution == Attribution::InUnchangedFile)
         .collect();
 
-    if result.new_findings.is_empty() {
+    if result.new_findings.is_empty() && result.all_new_count > 0 {
+        // Hunk-only mode filtered everything, but findings exist elsewhere
+        let check = if no_emoji { "[ok]" } else { "\u{2705}" };
+        out.push_str(&format!(
+            "  {} {}\n",
+            check,
+            style("No new findings in your changes").green()
+        ));
+        let info = if no_emoji { "i" } else { "\u{2139}\u{fe0f}" };
+        out.push_str(&format!(
+            "  {} {} finding{} in other files (use --all to see)\n\n",
+            style(info).dim(),
+            result.all_new_count,
+            if result.all_new_count == 1 { "" } else { "s" }
+        ));
+    } else if result.new_findings.is_empty() {
         let check = if no_emoji { "[ok]" } else { "\u{2705}" };
         out.push_str(&format!(
             "  {} {}\n\n",
@@ -313,6 +328,7 @@ pub fn format_json(result: &SmartDiffResult) -> String {
         "base_ref": result.base_ref,
         "head_ref": result.head_ref,
         "files_changed": result.files_changed,
+        "total_new_findings": result.all_new_count,
         "new_findings": new_findings_json,
         "fixed_findings": fixed_findings_json,
         "score_before": result.score_before,
@@ -749,5 +765,43 @@ mod tests {
 
         let text = format_text(&result, true);
         assert!(text.contains("No new findings"));
+        assert!(!text.contains("--all"));
+    }
+
+    #[test]
+    fn test_format_text_filtered_hint() {
+        let result = SmartDiffResult {
+            base_ref: "main".to_string(),
+            head_ref: "HEAD".to_string(),
+            files_changed: 1,
+            new_findings: vec![],
+            all_new_count: 5,
+            fixed_findings: vec![],
+            score_before: Some(90.0),
+            score_after: Some(88.0),
+        };
+
+        let text = format_text(&result, true);
+        assert!(text.contains("No new findings in your changes"));
+        assert!(text.contains("5 findings in other files"));
+        assert!(text.contains("--all"));
+    }
+
+    #[test]
+    fn test_format_json_total_new_findings() {
+        let result = SmartDiffResult {
+            base_ref: "main".to_string(),
+            head_ref: "HEAD".to_string(),
+            files_changed: 1,
+            new_findings: vec![],
+            all_new_count: 3,
+            fixed_findings: vec![],
+            score_before: Some(90.0),
+            score_after: Some(90.0),
+        };
+
+        let json_str = format_json(&result);
+        let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(parsed["total_new_findings"], 3);
     }
 }
