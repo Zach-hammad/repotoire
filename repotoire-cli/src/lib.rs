@@ -35,4 +35,5 @@ pub mod quantize;
 pub mod reporters;
 pub mod scoring;
 pub mod telemetry;
+pub mod tui;
 pub mod values;
