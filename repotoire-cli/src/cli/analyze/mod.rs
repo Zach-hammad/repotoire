@@ -70,12 +70,6 @@ impl Default for OutputOptions {
     }
 }
 
-/// Cache directory for a repository (legacy .repotoire path).
-///
-/// Used by the `feedback` command to locate cached findings.
-pub fn cache_path(repo_path: &Path) -> PathBuf {
-    repo_path.join(".repotoire")
-}
 
 /// Run analysis via the `AnalysisEngine` pipeline.
 ///

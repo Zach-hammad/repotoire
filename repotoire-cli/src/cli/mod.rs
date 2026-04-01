@@ -759,8 +759,8 @@ pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> {
             use crate::classifier::FeedbackCollector;
 
             // Load findings from last analysis
-            let cache_path = crate::cli::analyze::cache_path(&cli.path);
-            let findings_path = cache_path.join("last_findings.json");
+            let repo_path = cli.path.canonicalize().unwrap_or_else(|_| cli.path.clone());
+            let findings_path = crate::cache::paths::findings_cache_path(&repo_path);
 
             if !findings_path.exists() {
                 anyhow::bail!("No analysis results found. Run 'repotoire analyze' first.");
