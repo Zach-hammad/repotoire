@@ -205,10 +205,6 @@ Examples:
         #[arg(long)]
         rank: bool,
 
-        /// Export training data (features + bootstrap labels) to a JSON file
-        #[arg(long, value_name = "PATH")]
-        export_training: Option<PathBuf>,
-
         /// Print per-phase pipeline timing breakdown
         #[arg(long)]
         timings: bool,
@@ -564,7 +560,6 @@ pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> {
             verify,
             since,
             rank,
-            export_training,
             timings,
             min_confidence,
             show_all,
@@ -635,7 +630,6 @@ pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> {
                 no_emoji,
                 explain_score,
                 rank,
-                export_training,
                 timings,
                 fail_on,
                 json_sidecar,

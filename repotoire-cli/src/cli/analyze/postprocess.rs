@@ -429,217 +429,79 @@ fn downgrade_non_production_security(findings: &mut [Finding]) {
 
 /// Rank findings by actionability score (0-100).
 ///
-/// Uses the GBDT classifier if a trained model is available, otherwise falls
-/// back to the heuristic classifier. Findings are sorted in descending order
+/// Uses the heuristic classifier to score findings. Sorted in descending order
 /// so the most actionable findings appear first.
-pub(crate) fn rank_findings(findings: &mut Vec<Finding>, graph: &dyn crate::graph::GraphQuery) {
-    // Try user model, then seed model
-    let model_path = dirs::data_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("repotoire")
-        .join("gbdt_model.json");
-
-    let gbdt = crate::classifier::GbdtClassifier::load(&model_path)
-        .ok()
-        .or_else(|| crate::classifier::GbdtClassifier::seed().ok());
-
-    if let Some(gbdt) = gbdt {
-        let extractor = crate::classifier::FeatureExtractorV2::new();
-        let mut scored: Vec<(f64, usize)> = findings
-            .iter()
-            .enumerate()
-            .map(|(i, f)| {
-                let features = extractor.extract(f, Some(graph), None, None);
-                let pred = gbdt.predict(&features);
-                (pred.actionability_score, i)
-            })
-            .collect();
-        scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
-        let reordered: Vec<Finding> = scored
-            .into_iter()
-            .map(|(_, i)| findings[i].clone())
-            .collect();
-        *findings = reordered;
-    } else {
-        // Heuristic fallback: original 51-feature extractor + linear classifier
-        let extractor = crate::classifier::FeatureExtractor::new();
-        let classifier = crate::classifier::HeuristicClassifier;
-        let mut scored: Vec<(f32, usize)> = findings
-            .iter()
-            .enumerate()
-            .map(|(i, f)| {
-                let features = extractor.extract(f);
-                (classifier.score(&features), i)
-            })
-            .collect();
-        scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
-        let reordered: Vec<Finding> = scored
-            .into_iter()
-            .map(|(_, i)| findings[i].clone())
-            .collect();
-        *findings = reordered;
-    }
+pub(crate) fn rank_findings(findings: &mut Vec<Finding>, _graph: &dyn crate::graph::GraphQuery) {
+    let extractor = crate::classifier::FeatureExtractor::new();
+    let classifier = crate::classifier::HeuristicClassifier;
+    let mut scored: Vec<(f32, usize)> = findings
+        .iter()
+        .enumerate()
+        .map(|(i, f)| {
+            let features = extractor.extract(f);
+            (classifier.score(&features), i)
+        })
+        .collect();
+    scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    let reordered: Vec<Finding> = scored
+        .into_iter()
+        .map(|(_, i)| findings[i].clone())
+        .collect();
+    *findings = reordered;
 }
 
 /// FP filtering with category-aware thresholds.
 ///
-/// Tries to load a trained GBDT model from `$XDG_DATA_HOME/repotoire/gbdt_model.json`.
-/// If found, uses `FeatureExtractorV2` + `GbdtClassifier` for higher-accuracy filtering.
-/// Otherwise falls back to the heuristic classifier with the original 51-feature extractor.
-///
-/// Both paths use `CategoryThresholds::default()` for per-category filter decisions:
+/// Uses the heuristic classifier with per-category filter thresholds:
 /// - Security: conservative (0.35) — don't miss real vulnerabilities
 /// - Code Quality: aggressive (0.52) — filter noisy complexity warnings
 /// - ML/AI: moderate (0.45) — domain-specific accuracy
 fn filter_false_positives(
     findings: &mut Vec<Finding>,
-    graph: &dyn crate::graph::GraphQuery,
+    _graph: &dyn crate::graph::GraphQuery,
     bypass_set: &HashSet<String>,
 ) {
-    use crate::classifier::{CategoryThresholds, DetectorCategory};
-
-    let thresholds = CategoryThresholds::default();
-
-    // Try loading a trained GBDT model
-    let gbdt_path = dirs::data_dir().map(|d| d.join("repotoire").join("gbdt_model.json"));
-
-    let use_gbdt = gbdt_path.as_ref().map(|p| p.exists()).unwrap_or(false);
-
-    // Try GBDT: user-trained model > embedded seed model > heuristic fallback
-    let gbdt_classifier = if use_gbdt {
-        let Some(model_path) = gbdt_path else { return };
-        match crate::classifier::GbdtClassifier::load(&model_path) {
-            Ok(c) => {
-                tracing::info!(
-                    "Using user-trained GBDT model from {}",
-                    model_path.display()
-                );
-                Some(c)
-            }
-            Err(e) => {
-                tracing::warn!(
-                    "Failed to load GBDT model from {}: {}. Trying seed model.",
-                    model_path.display(),
-                    e
-                );
-                None
-            }
-        }
-    } else {
-        None
+    use crate::classifier::{
+        model::HeuristicClassifier, CategoryThresholds, DetectorCategory, FeatureExtractor,
     };
 
-    // Fall back to embedded seed model if no user model
-    let gbdt_classifier =
-        gbdt_classifier.or_else(|| match crate::classifier::GbdtClassifier::seed() {
-            Ok(c) => {
-                tracing::info!("Using embedded seed GBDT model");
-                Some(c)
-            }
-            Err(e) => {
-                tracing::debug!(
-                    "Seed model failed to load: {}. Falling back to heuristic.",
-                    e
-                );
-                None
-            }
-        });
+    let thresholds = CategoryThresholds::default();
+    let extractor = FeatureExtractor::new();
+    let classifier = HeuristicClassifier;
 
-    if let Some(classifier) = gbdt_classifier {
-        use crate::classifier::FeatureExtractorV2;
-        use rayon::prelude::*;
+    let before_count = findings.len();
+    let mut filtered_by_category: std::collections::HashMap<DetectorCategory, usize> =
+        std::collections::HashMap::new();
 
-        let extractor = FeatureExtractorV2::new();
-        let before_count = findings.len();
-
-        // Parallel: compute keep/discard mask for all findings at once
-        let keep_mask: Vec<bool> = findings
-            .par_iter()
-            .map(|f| {
-                // Deterministic detectors use provable graph algorithms
-                // (dominator trees, SCCs, articulation points). Their findings
-                // should not be filtered by a statistical model.
-                // Detectors that opt out via bypass_postprocessor() are also skipped.
-                if f.deterministic || bypass_set.contains(&f.detector) {
-                    return true;
-                }
-                let features = extractor.extract(f, Some(graph), None, None);
-                let prediction = classifier.predict(&features);
-                let category = DetectorCategory::from_detector(&f.detector);
-                let config = thresholds.get_category(category);
-                // Round to 4 decimal places to eliminate floating-point
-                // jitter from parallel feature extraction (#determinism)
-                let rounded = (prediction.tp_probability * 10_000.0).round() / 10_000.0;
-                rounded >= config.filter_threshold as f64
-            })
-            .collect();
-
-        // Sequential: apply mask and count filtered categories
-        let mut filtered_by_category: std::collections::HashMap<DetectorCategory, usize> =
-            std::collections::HashMap::new();
-        let mut idx = 0;
-        findings.retain(|f| {
-            let keep = keep_mask[idx];
-            if !keep {
-                let category = DetectorCategory::from_detector(&f.detector);
-                *filtered_by_category.entry(category).or_insert(0) += 1;
-            }
-            idx += 1;
-            keep
-        });
-
-        let total_filtered = before_count - findings.len();
-        if total_filtered > 0 {
-            tracing::info!(
-                "GBDT classifier filtered {} findings (Security: {}, Quality: {}, ML: {}, Perf: {}, Other: {})",
-                total_filtered,
-                filtered_by_category.get(&DetectorCategory::Security).unwrap_or(&0),
-                filtered_by_category.get(&DetectorCategory::CodeQuality).unwrap_or(&0),
-                filtered_by_category.get(&DetectorCategory::MachineLearning).unwrap_or(&0),
-                filtered_by_category.get(&DetectorCategory::Performance).unwrap_or(&0),
-                filtered_by_category.get(&DetectorCategory::Other).unwrap_or(&0),
-            );
+    findings.retain(|f| {
+        if f.deterministic || bypass_set.contains(&f.detector) {
+            return true;
         }
-        return;
-    }
 
-    // Heuristic fallback: original 51-feature extractor + linear classifier
-    {
-        use crate::classifier::{model::HeuristicClassifier, FeatureExtractor};
+        let features = extractor.extract(f);
+        let tp_prob = classifier.score(&features);
+        let category = DetectorCategory::from_detector(&f.detector);
+        let config = thresholds.get_category(category);
 
-        let extractor = FeatureExtractor::new();
-        let classifier = HeuristicClassifier;
-
-        let before_count = findings.len();
-        let mut filtered_by_category: std::collections::HashMap<DetectorCategory, usize> =
-            std::collections::HashMap::new();
-
-        findings.retain(|f| {
-            let features = extractor.extract(f);
-            let tp_prob = classifier.score(&features);
-            let category = DetectorCategory::from_detector(&f.detector);
-            let config = thresholds.get_category(category);
-
-            if tp_prob >= config.filter_threshold {
-                true
-            } else {
-                *filtered_by_category.entry(category).or_insert(0) += 1;
-                false
-            }
-        });
-
-        let total_filtered = before_count - findings.len();
-        if total_filtered > 0 {
-            tracing::info!(
-                "FP classifier filtered {} findings (Security: {}, Quality: {}, ML: {}, Perf: {}, Other: {})",
-                total_filtered,
-                filtered_by_category.get(&DetectorCategory::Security).unwrap_or(&0),
-                filtered_by_category.get(&DetectorCategory::CodeQuality).unwrap_or(&0),
-                filtered_by_category.get(&DetectorCategory::MachineLearning).unwrap_or(&0),
-                filtered_by_category.get(&DetectorCategory::Performance).unwrap_or(&0),
-                filtered_by_category.get(&DetectorCategory::Other).unwrap_or(&0),
-            );
+        if tp_prob >= config.filter_threshold {
+            true
+        } else {
+            *filtered_by_category.entry(category).or_insert(0) += 1;
+            false
         }
+    });
+
+    let total_filtered = before_count - findings.len();
+    if total_filtered > 0 {
+        tracing::info!(
+            "FP classifier filtered {} findings (Security: {}, Quality: {}, ML: {}, Perf: {}, Other: {})",
+            total_filtered,
+            filtered_by_category.get(&DetectorCategory::Security).unwrap_or(&0),
+            filtered_by_category.get(&DetectorCategory::CodeQuality).unwrap_or(&0),
+            filtered_by_category.get(&DetectorCategory::MachineLearning).unwrap_or(&0),
+            filtered_by_category.get(&DetectorCategory::Performance).unwrap_or(&0),
+            filtered_by_category.get(&DetectorCategory::Other).unwrap_or(&0),
+        );
     }
 }
 

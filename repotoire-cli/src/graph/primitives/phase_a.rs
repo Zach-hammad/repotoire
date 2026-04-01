@@ -3,7 +3,7 @@
 //! Contains 8 algorithms computed on the raw call/import graph:
 //! SCCs, PageRank, dominators, articulation points, call depths, betweenness.
 
-use foldhash::{HashMap, HashMapExt};
+use std::collections::HashMap;
 use petgraph::algo::{dominators, tarjan_scc};
 use petgraph::stable_graph::{NodeIndex, StableGraph};
 use rayon::prelude::*;
@@ -33,8 +33,8 @@ pub(super) fn compute_call_cycles(
 
     // Build filtered subgraph with idx_map/reverse_map pattern
     let mut filtered_graph: StableGraph<NodeIndex, ()> = StableGraph::new();
-    let mut idx_map: HashMap<NodeIndex, NodeIndex> = HashMap::new();
-    let mut reverse_map: HashMap<NodeIndex, NodeIndex> = HashMap::new();
+    let mut idx_map: HashMap<NodeIndex, NodeIndex> = HashMap::default();
+    let mut reverse_map: HashMap<NodeIndex, NodeIndex> = HashMap::default();
 
     // Sort by NodeIndex for deterministic construction
     let mut sorted_nodes: Vec<NodeIndex> = relevant_nodes.into_iter().collect();
@@ -119,7 +119,7 @@ pub(super) fn compute_page_rank(
 ) -> HashMap<NodeIndex, f64> {
     let n = functions.len();
     if n == 0 {
-        return HashMap::new();
+        return HashMap::default();
     }
 
     let inv_n = 1.0 / n as f64;
@@ -221,8 +221,8 @@ pub(super) fn compute_dominators(
 
     // Build a temporary directed graph for dominator computation
     let mut dom_graph: StableGraph<(), ()> = StableGraph::new();
-    let mut idx_map: HashMap<NodeIndex, NodeIndex> = HashMap::new();
-    let mut reverse_map: HashMap<NodeIndex, NodeIndex> = HashMap::new();
+    let mut idx_map: HashMap<NodeIndex, NodeIndex> = HashMap::default();
+    let mut reverse_map: HashMap<NodeIndex, NodeIndex> = HashMap::default();
 
     // Sort functions for deterministic node insertion
     let mut sorted_functions: Vec<NodeIndex> = functions.to_vec();
@@ -331,7 +331,7 @@ pub(super) fn compute_dominators(
     let dom_result = dominators::simple_fast(&dom_graph, virtual_root);
 
     // Build idom map (skip virtual root)
-    let mut idom: HashMap<NodeIndex, NodeIndex> = HashMap::new();
+    let mut idom: HashMap<NodeIndex, NodeIndex> = HashMap::default();
     for &orig in &sorted_functions {
         if let Some(&mapped) = idx_map.get(&orig) {
             if let Some(dom_node) = dom_result.immediate_dominator(mapped) {
@@ -347,7 +347,7 @@ pub(super) fn compute_dominators(
     }
 
     // Build dominated sets (transitive: node -> all nodes it dominates)
-    let mut dominated: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::new();
+    let mut dominated: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::default();
     for (&node, &dominator) in &idom {
         // Walk up the dominator tree, adding `node` to each ancestor's dominated set
         let mut current = Some(dominator);
@@ -377,7 +377,7 @@ pub(super) fn compute_dominators(
     }
 
     // Build call-graph predecessors map (for frontier computation)
-    let mut call_predecessors: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::new();
+    let mut call_predecessors: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::default();
     for &(src, tgt) in all_call_edges {
         if func_set.contains(&src) && func_set.contains(&tgt) {
             call_predecessors.entry(tgt).or_default().push(src);
@@ -385,7 +385,7 @@ pub(super) fn compute_dominators(
     }
 
     // Compute domination frontiers (Cooper et al. standard algorithm)
-    let mut frontier: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::new();
+    let mut frontier: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::default();
     for &b in &sorted_functions {
         let preds = match call_predecessors.get(&b) {
             Some(p) if p.len() >= 2 => p,
@@ -424,7 +424,7 @@ pub(super) fn compute_dominators(
     }
 
     // Compute dominator tree depths
-    let mut dom_depth: HashMap<NodeIndex, usize> = HashMap::new();
+    let mut dom_depth: HashMap<NodeIndex, usize> = HashMap::default();
     // Entry points (not in idom) have depth 0
     for &f in &sorted_functions {
         if !idom.contains_key(&f) {
@@ -434,7 +434,7 @@ pub(super) fn compute_dominators(
     // BFS through dominator tree to assign depths
     let mut queue: VecDeque<NodeIndex> = dom_depth.keys().copied().collect();
     // Build children map from idom
-    let mut dom_children: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::new();
+    let mut dom_children: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::default();
     for (&child, &parent) in &idom {
         dom_children.entry(parent).or_default().push(child);
     }
@@ -471,7 +471,7 @@ pub(super) fn compute_articulation_points(
 ) {
     // Build undirected adjacency list from Calls + Imports
     let mut all_nodes: HashSet<NodeIndex> = HashSet::new();
-    let mut adj: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::new();
+    let mut adj: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::default();
 
     for &f in functions {
         all_nodes.insert(f);
@@ -496,7 +496,7 @@ pub(super) fn compute_articulation_points(
 
     let n = all_nodes.len();
     if n == 0 {
-        return (Vec::new(), HashSet::new(), Vec::new(), HashMap::new());
+        return (Vec::new(), HashSet::new(), Vec::new(), HashMap::default());
     }
 
     // Sort all nodes for deterministic traversal
@@ -632,7 +632,7 @@ pub(super) fn compute_ap_component_sizes(
     node_to_idx: &HashMap<NodeIndex, usize>,
     sorted_nodes: &[NodeIndex],
 ) -> HashMap<NodeIndex, Vec<usize>> {
-    let mut component_sizes: HashMap<NodeIndex, Vec<usize>> = HashMap::new();
+    let mut component_sizes: HashMap<NodeIndex, Vec<usize>> = HashMap::default();
     for &ap in ap_set {
         let ap_idx = node_to_idx[&ap];
         let mut sizes: Vec<usize> = Vec::new();
@@ -704,7 +704,7 @@ pub(super) fn compute_call_depths(
     call_callers: &HashMap<NodeIndex, Vec<NodeIndex>>,
 ) -> HashMap<NodeIndex, usize> {
     let func_set: HashSet<NodeIndex> = functions.iter().copied().collect();
-    let mut depth: HashMap<NodeIndex, usize> = HashMap::new();
+    let mut depth: HashMap<NodeIndex, usize> = HashMap::default();
     let mut queue: VecDeque<NodeIndex> = VecDeque::new();
 
     // Entry points: functions with no callers (among functions)
@@ -748,7 +748,7 @@ pub(super) fn compute_betweenness(
 ) -> HashMap<NodeIndex, f64> {
     let n = functions.len();
     if n == 0 {
-        return HashMap::new();
+        return HashMap::default();
     }
 
     let func_set: HashSet<NodeIndex> = functions.iter().copied().collect();

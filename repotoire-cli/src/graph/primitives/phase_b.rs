@@ -4,7 +4,7 @@
 //! weighted phase orchestrator, overlay builder, weighted PageRank, weighted betweenness,
 //! Louvain community detection, modularity.
 
-use foldhash::{HashMap, HashMapExt};
+use std::collections::HashMap;
 use petgraph::stable_graph::{NodeIndex, StableGraph};
 use petgraph::visit::EdgeRef;
 use rayon::prelude::*;
@@ -46,9 +46,9 @@ pub(super) fn compute_weighted_phase(
 
     if overlay.node_count() == 0 {
         return (
-            HashMap::new(),
-            HashMap::new(),
-            HashMap::new(),
+            HashMap::default(),
+            HashMap::default(),
+            HashMap::default(),
             0.0,
             hidden_coupling,
         );
@@ -98,7 +98,7 @@ pub(super) fn build_weighted_overlay(
 ) {
     // 1. Build idx_map: original NodeIndex → overlay NodeIndex
     let mut overlay: StableGraph<NodeIndex, f32> = StableGraph::new();
-    let mut idx_map: HashMap<NodeIndex, NodeIndex> = HashMap::new();
+    let mut idx_map: HashMap<NodeIndex, NodeIndex> = HashMap::default();
 
     for &func_idx in functions {
         let overlay_idx = overlay.add_node(func_idx);
@@ -106,7 +106,7 @@ pub(super) fn build_weighted_overlay(
     }
 
     // 2. Build file_to_functions: StrKey(file_path) → Vec<NodeIndex> (original)
-    let mut file_to_functions: HashMap<StrKey, Vec<NodeIndex>> = HashMap::new();
+    let mut file_to_functions: HashMap<StrKey, Vec<NodeIndex>> = HashMap::default();
     for &func_idx in functions {
         let node = &graph[func_idx];
         let file_key = node.file_path;
@@ -122,7 +122,7 @@ pub(super) fn build_weighted_overlay(
     let import_set: HashSet<(NodeIndex, NodeIndex)> = all_import_edges.iter().copied().collect();
 
     // Collect all unique function pairs that have at least one structural edge
-    let mut structural_pairs: HashMap<(NodeIndex, NodeIndex), f32> = HashMap::new();
+    let mut structural_pairs: HashMap<(NodeIndex, NodeIndex), f32> = HashMap::default();
 
     for &(src, tgt) in all_call_edges {
         // Only include pairs where both endpoints are in our function set
@@ -182,7 +182,7 @@ pub(super) fn build_weighted_overlay(
     {
         // Group files by parent directory (StrKey of dir path)
         let si = crate::graph::interner::global_interner();
-        let mut dir_to_files: HashMap<String, Vec<StrKey>> = HashMap::new();
+        let mut dir_to_files: HashMap<String, Vec<StrKey>> = HashMap::default();
         for &file_idx in files {
             let node = &graph[file_idx];
             let path = si.resolve(node.file_path);
@@ -238,7 +238,7 @@ pub(super) fn build_weighted_overlay(
     //     then A and B are transitively connected — not "hidden" coupling.
     {
         // Build adjacency: file_key → set of connected file_keys
-        let mut adjacency: HashMap<StrKey, HashSet<StrKey>> = HashMap::new();
+        let mut adjacency: HashMap<StrKey, HashSet<StrKey>> = HashMap::default();
         for &(lo, hi) in &structurally_connected_files {
             adjacency.entry(lo).or_default().insert(hi);
             adjacency.entry(hi).or_default().insert(lo);
@@ -292,7 +292,7 @@ pub(super) fn build_weighted_overlay(
     };
 
     // Build a lookup from StrKey → File-level NodeIndex
-    let mut file_key_to_node: HashMap<StrKey, NodeIndex> = HashMap::new();
+    let mut file_key_to_node: HashMap<StrKey, NodeIndex> = HashMap::default();
     for &file_idx in files {
         let node = &graph[file_idx];
         file_key_to_node.insert(node.file_path, file_idx);
@@ -375,7 +375,7 @@ pub(super) fn compute_weighted_page_rank(
     let _span = tracing::info_span!("weighted_page_rank").entered();
     let node_count = overlay.node_count();
     if node_count == 0 {
-        return HashMap::new();
+        return HashMap::default();
     }
 
     let init = 1.0 / node_count as f64;
@@ -426,7 +426,7 @@ pub(super) fn compute_weighted_page_rank(
     }
 
     // Map overlay NodeIndex → original NodeIndex stored as node weight
-    let mut result = HashMap::new();
+    let mut result = HashMap::default();
     for n in overlay.node_indices() {
         let original_idx = overlay[n]; // node weight is the original NodeIndex
         result.insert(original_idx, rank[&n]);
@@ -451,7 +451,7 @@ pub(super) fn compute_weighted_betweenness(
 
     let node_count = overlay.node_count();
     if node_count == 0 {
-        return HashMap::new();
+        return HashMap::default();
     }
 
     // Collect overlay node indices sorted for deterministic sampling
@@ -607,16 +607,16 @@ pub(super) fn compute_communities(
     };
 
     if node_indices.is_empty() {
-        return (HashMap::new(), 0.0);
+        return (HashMap::default(), 0.0);
     }
 
     // Treat as undirected: for each directed edge (u->v, w), both u and v get
     // weight w contributed. We pre-compute symmetric neighbor weights.
     // neighbor_weights[n] = map of neighbor overlay NodeIndex → sum of weights
     // between n and that neighbor (both directions).
-    let mut neighbor_weights: HashMap<NodeIndex, HashMap<NodeIndex, f64>> = HashMap::new();
+    let mut neighbor_weights: HashMap<NodeIndex, HashMap<NodeIndex, f64>> = HashMap::default();
     for n in &node_indices {
-        neighbor_weights.insert(*n, HashMap::new());
+        neighbor_weights.insert(*n, HashMap::default());
     }
     for edge_id in overlay.edge_indices() {
         let (u, v) = overlay
@@ -639,7 +639,7 @@ pub(super) fn compute_communities(
 
     // node strength k_i = sum of all incident edge weights (undirected treatment).
     // k_i = sum of neighbor_weights[i] values.
-    let mut strength: HashMap<NodeIndex, f64> = HashMap::new();
+    let mut strength: HashMap<NodeIndex, f64> = HashMap::default();
     for &n in &node_indices {
         let k: f64 = neighbor_weights
             .get(&n)
@@ -655,7 +655,7 @@ pub(super) fn compute_communities(
 
     if total_2m <= 0.0 {
         // No edges: each node is its own community, modularity 0
-        let mut community_map = HashMap::new();
+        let mut community_map = HashMap::default();
         for (i, &n) in node_indices.iter().enumerate() {
             community_map.insert(overlay[n], i);
         }
@@ -665,13 +665,13 @@ pub(super) fn compute_communities(
     let m = total_2m / 2.0;
 
     // Community assignment: overlay NodeIndex → community ID
-    let mut community: HashMap<NodeIndex, usize> = HashMap::new();
+    let mut community: HashMap<NodeIndex, usize> = HashMap::default();
     for (i, &n) in node_indices.iter().enumerate() {
         community.insert(n, i);
     }
 
     // sigma_tot[c] = sum of strengths of all nodes in community c
-    let mut sigma_tot: HashMap<usize, f64> = HashMap::new();
+    let mut sigma_tot: HashMap<usize, f64> = HashMap::default();
     for &n in &node_indices {
         let c = community[&n];
         *sigma_tot.entry(c).or_insert(0.0) += strength[&n];
@@ -743,9 +743,9 @@ pub(super) fn compute_communities(
 
     // Map from overlay NodeIndex → original NodeIndex (stored as node weight),
     // and renumber communities to be contiguous 0..k
-    let mut comm_renumber: HashMap<usize, usize> = HashMap::new();
+    let mut comm_renumber: HashMap<usize, usize> = HashMap::default();
     let mut next_id = 0usize;
-    let mut result: HashMap<NodeIndex, usize> = HashMap::new();
+    let mut result: HashMap<NodeIndex, usize> = HashMap::default();
     // Process in sorted order for deterministic renumbering
     for &n in &node_indices {
         let c = community[&n];
@@ -776,7 +776,7 @@ pub(super) fn compute_modularity(
     // Sum of (k_i * k_j / 2m) for all pairs in same community
     // = Σ_c (Σ_{i in c} k_i)^2 / (2m)
     let mut sigma_sq_sum = 0.0;
-    let mut comm_sigma: HashMap<usize, f64> = HashMap::new();
+    let mut comm_sigma: HashMap<usize, f64> = HashMap::default();
     for (&n, &c) in community {
         *comm_sigma.entry(c).or_insert(0.0) += strength[&n];
     }

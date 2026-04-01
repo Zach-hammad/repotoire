@@ -5,7 +5,7 @@
 //! centrality, and call-graph SCCs. All fields are immutable after construction.
 //! Detectors read them at O(1) — zero graph traversal at detection time.
 
-use foldhash::{HashMap, HashMapExt};
+use std::collections::HashMap;
 use petgraph::stable_graph::{NodeIndex, StableGraph};
 use std::collections::HashSet;
 
@@ -136,18 +136,18 @@ impl GraphPrimitives {
                     )
                 } else {
                     (
-                        HashMap::new(),
-                        HashMap::new(),
-                        HashMap::new(),
+                        HashMap::default(),
+                        HashMap::default(),
+                        HashMap::default(),
                         0.0,
                         Vec::new(),
                     )
                 }
             } else {
                 (
-                    HashMap::new(),
-                    HashMap::new(),
-                    HashMap::new(),
+                    HashMap::default(),
+                    HashMap::default(),
+                    HashMap::default(),
                     0.0,
                     Vec::new(),
                 )
@@ -199,8 +199,8 @@ mod tests {
             &[],
             &[],
             &[],
-            &HashMap::new(),
-            &HashMap::new(),
+            &HashMap::default(),
+            &HashMap::default(),
             0,
             None,
         );
@@ -250,8 +250,8 @@ mod tests {
         let leaf = graph.add_node(CodeNode::function("leaf", "a.py"));
 
         let functions = vec![f1, f2, f3, hub, leaf];
-        let mut call_callees: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::new();
-        let mut call_callers: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::new();
+        let mut call_callees: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::default();
+        let mut call_callers: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::default();
 
         // f1->hub, f2->hub, f3->hub, hub->leaf
         call_callees.insert(f1, vec![hub]);
@@ -289,8 +289,8 @@ mod tests {
         let f3 = graph.add_node(CodeNode::function("f3", "a.py"));
 
         let functions = vec![f1, f2, f3];
-        let mut call_callees: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::new();
-        let mut call_callers: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::new();
+        let mut call_callees: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::default();
+        let mut call_callers: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::default();
 
         call_callees.insert(f1, vec![f2]);
         call_callees.insert(f2, vec![f3]);
@@ -322,8 +322,8 @@ mod tests {
         let call_edges = vec![(entry, a), (a, b), (b, c)];
         let functions = vec![entry, a, b, c];
 
-        let mut call_callees: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::new();
-        let mut call_callers: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::new();
+        let mut call_callees: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::default();
+        let mut call_callers: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::default();
         call_callees.insert(entry, vec![a]);
         call_callees.insert(a, vec![b]);
         call_callees.insert(b, vec![c]);
@@ -370,8 +370,8 @@ mod tests {
         let call_edges = vec![(entry, a), (entry, b), (a, join), (b, join)];
         let functions = vec![entry, a, b, join];
 
-        let mut call_callees: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::new();
-        let mut call_callers: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::new();
+        let mut call_callees: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::default();
+        let mut call_callers: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::default();
         call_callees.insert(entry, vec![a, b]);
         call_callees.insert(a, vec![join]);
         call_callees.insert(b, vec![join]);
@@ -493,8 +493,8 @@ mod tests {
         let leaf = graph.add_node(CodeNode::function("leaf", "a.py"));
 
         let functions = vec![entry, mid, leaf];
-        let mut call_callees: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::new();
-        let mut call_callers: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::new();
+        let mut call_callees: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::default();
+        let mut call_callers: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::default();
 
         call_callees.insert(entry, vec![mid]);
         call_callees.insert(mid, vec![leaf]);
@@ -516,8 +516,8 @@ mod tests {
         let shared = graph.add_node(CodeNode::function("shared", "a.py"));
 
         let functions = vec![e1, e2, shared];
-        let mut call_callees: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::new();
-        let mut call_callers: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::new();
+        let mut call_callees: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::default();
+        let mut call_callers: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::default();
 
         call_callees.insert(e1, vec![shared]);
         call_callees.insert(e2, vec![shared]);
@@ -546,7 +546,7 @@ mod tests {
         let t3 = graph.add_node(CodeNode::function("t3", "a.py"));
 
         let functions = vec![s1, s2, s3, bridge, t1, t2, t3];
-        let mut call_callees: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::new();
+        let mut call_callees: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::default();
 
         call_callees.insert(s1, vec![bridge]);
         call_callees.insert(s2, vec![bridge]);
@@ -589,8 +589,8 @@ mod tests {
         let all_call_edges = vec![(f1, f2), (f2, f3)];
         let all_import_edges = vec![(file_a, file_b)];
 
-        let mut call_callees: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::new();
-        let mut call_callers: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::new();
+        let mut call_callees: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::default();
+        let mut call_callers: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::default();
         call_callees.insert(f1, vec![f2]);
         call_callees.insert(f2, vec![f3]);
         call_callers.insert(f2, vec![f1]);
@@ -706,8 +706,8 @@ mod tests {
         ];
         let all_import_edges = vec![(file_app, file_lib), (file_lib, file_util)];
 
-        let mut call_callees: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::new();
-        let mut call_callers: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::new();
+        let mut call_callees: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::default();
+        let mut call_callers: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::default();
         for &(src, tgt) in &all_call_edges {
             call_callees.entry(src).or_default().push(tgt);
             call_callers.entry(tgt).or_default().push(src);
@@ -1303,11 +1303,11 @@ mod tests {
         let call_edges = vec![(f1, f2), (f2, f3)];
         let import_edges: Vec<(NodeIndex, NodeIndex)> = vec![];
 
-        let mut call_callers: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::new();
+        let mut call_callers: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::default();
         call_callers.entry(f2).or_default().push(f1);
         call_callers.entry(f3).or_default().push(f2);
 
-        let mut call_callees: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::new();
+        let mut call_callees: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::default();
         call_callees.entry(f1).or_default().push(f2);
         call_callees.entry(f2).or_default().push(f3);
 

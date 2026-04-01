@@ -5,7 +5,7 @@
 //! analyses (import cycles, edge fingerprint). All subsequent queries are O(1)
 //! lookups instead of O(N) or O(E) graph scans.
 
-use foldhash::HashMap as FoldHashMap;
+use std::collections::HashMap as FoldHashMap;
 use petgraph::algo::tarjan_scc;
 use petgraph::stable_graph::{NodeIndex, StableGraph};
 use petgraph::visit::{EdgeRef, IntoEdgeReferences};
@@ -275,8 +275,8 @@ fn compute_import_cycles(graph: &StableGraph<CodeNode, CodeEdge>) -> Vec<Vec<Nod
 
     // Build a filtered subgraph with only non-type-only Import edges
     let mut filtered_graph: StableGraph<NodeIndex, ()> = StableGraph::new();
-    let mut idx_map: HashMap<NodeIndex, NodeIndex> = HashMap::new();
-    let mut reverse_map: HashMap<NodeIndex, NodeIndex> = HashMap::new();
+    let mut idx_map: HashMap<NodeIndex, NodeIndex> = HashMap::default();
+    let mut reverse_map: HashMap<NodeIndex, NodeIndex> = HashMap::default();
 
     // Collect nodes that have at least one non-type-only import edge
     let relevant_nodes: HashSet<NodeIndex> = graph
@@ -412,7 +412,7 @@ mod tests {
     #[test]
     fn test_build_empty_graph() {
         let graph = StableGraph::new();
-        let node_index = HashMap::new();
+        let node_index = HashMap::default();
         let indexes = GraphIndexes::build(&graph, &node_index, None);
         assert!(indexes.functions.is_empty());
         assert!(indexes.classes.is_empty());
@@ -431,7 +431,7 @@ mod tests {
         let file = graph.add_node(CodeNode::file("a.py"));
 
         let si = global_interner();
-        let mut node_index = HashMap::new();
+        let mut node_index = HashMap::default();
         node_index.insert(si.intern("a.py::foo"), f1);
         node_index.insert(si.intern("a.py::bar"), f2);
         node_index.insert(si.intern("a.py::MyClass"), c1);
@@ -450,7 +450,7 @@ mod tests {
         let f2 = graph.add_node(CodeNode::function("bar", "a.py"));
         graph.add_edge(f1, f2, CodeEdge::calls());
 
-        let node_index = HashMap::new();
+        let node_index = HashMap::default();
         let indexes = GraphIndexes::build(&graph, &node_index, None);
 
         // f1 calls f2
@@ -478,7 +478,7 @@ mod tests {
         graph.add_edge(b, c, CodeEdge::imports());
         graph.add_edge(c, a, CodeEdge::imports());
 
-        let node_index = HashMap::new();
+        let node_index = HashMap::default();
         let indexes = GraphIndexes::build(&graph, &node_index, None);
 
         assert_eq!(indexes.import_cycles.len(), 1);
@@ -496,7 +496,7 @@ mod tests {
         let f1 = graph.add_node(CodeNode::function("foo", "test.py").with_lines(1, 10));
         let _ = (f1, f2);
 
-        let node_index = HashMap::new();
+        let node_index = HashMap::default();
         let indexes = GraphIndexes::build(&graph, &node_index, None);
 
         let spatial = indexes.function_spatial.get(&fp).unwrap();

@@ -12,7 +12,6 @@
 //! - `postprocess` — finding deduplication, suppression, and filtering
 //! - `output` — report formatting and caching
 
-mod export;
 pub(crate) mod files;
 pub(crate) mod graph;
 pub(crate) mod output;
@@ -42,7 +41,6 @@ pub struct OutputOptions {
     pub no_emoji: bool,
     pub explain_score: bool,
     pub rank: bool,
-    pub export_training: Option<PathBuf>,
     pub timings: bool,
     pub fail_on: Option<crate::models::Severity>,
     pub json_sidecar: Option<PathBuf>,
@@ -62,7 +60,6 @@ impl Default for OutputOptions {
             no_emoji: false,
             explain_score: false,
             rank: false,
-            export_training: None,
             timings: false,
             fail_on: None,
             json_sidecar: None,
@@ -424,7 +421,7 @@ fn prepare_report(
     mut findings: Vec<crate::models::Finding>,
     path: &Path,
     output: &crate::engine::OutputOptions,
-    quiet_mode: bool,
+    _quiet_mode: bool,
 ) -> Result<PreparedReport> {
     // Consumer-side filtering: min_confidence (engine postprocess skips this)
     postprocess::filter_by_min_confidence(&mut findings, output.min_confidence, output.show_all);
@@ -433,29 +430,6 @@ fn prepare_report(
     if output.rank {
         if let Some(graph) = engine.graph() {
             postprocess::rank_findings(&mut findings, graph);
-        }
-    }
-
-    // Export training data (if requested) — needs graph access
-    if let Some(ref export_path) = output.export_training {
-        if let Some(graph) = engine.graph() {
-            let repo_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-            match export::export_training_data(&findings, graph, &repo_path, export_path) {
-                Ok(count) => {
-                    if !quiet_mode {
-                        let icon = if output.no_emoji { "" } else { "\u{1f4ca} " };
-                        println!(
-                            "{}Exported {} training samples to {}",
-                            icon,
-                            count,
-                            export_path.display()
-                        );
-                    }
-                }
-                Err(e) => {
-                    eprintln!("Warning: failed to export training data: {}", e);
-                }
-            }
         }
     }
 
