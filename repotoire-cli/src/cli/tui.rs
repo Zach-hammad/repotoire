@@ -122,8 +122,11 @@ fn read_code_snippet(
     let full_path = repo_path.join(file_path);
     let content = fs::read_to_string(&full_path).ok()?;
     let lines: Vec<&str> = content.lines().collect();
-    let start = (line_start as usize).saturating_sub(context + 1);
+    let start = (line_start as usize).saturating_sub(context + 1).min(lines.len());
     let end = (line_end as usize + context).min(lines.len());
+    if start >= end {
+        return None;
+    }
     Some(
         lines[start..end]
             .iter()
