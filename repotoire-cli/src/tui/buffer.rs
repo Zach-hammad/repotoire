@@ -207,7 +207,12 @@ impl Buffer {
         if !title.is_empty() && rect.width > 4 {
             let max_title = (rect.width - 4) as usize;
             let display_title = if title.len() > max_title {
-                &title[..max_title]
+                // Find a valid UTF-8 boundary at or before max_title bytes
+                let mut end = max_title;
+                while end > 0 && !title.is_char_boundary(end) {
+                    end -= 1;
+                }
+                &title[..end]
             } else {
                 title
             };
@@ -229,7 +234,7 @@ impl Buffer {
 // ============================================================================
 
 /// A rectangle on screen.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Rect {
     pub x: u16,
     pub y: u16,
@@ -359,12 +364,16 @@ impl Screen {
         Rect::new(0, 0, self.width, self.height)
     }
 
-    /// Resize both buffers. Forces full redraw on next flush.
+    /// Resize both buffers. Clears the physical terminal to avoid stale artifacts.
     pub fn resize(&mut self, width: u16, height: u16) {
         self.width = width;
         self.height = height;
         self.current.resize(width, height);
         self.previous.resize(width, height);
+        // Clear the physical terminal — the diff engine only writes changed cells,
+        // so old content at the previous dimensions would persist without this.
+        let _ = io::stdout().write_all(b"\x1b[2J");
+        let _ = io::stdout().flush();
     }
 
     /// Clear the current buffer for a new frame.
@@ -501,12 +510,4 @@ mod tests {
         assert_eq!(buf.cells[9].ch, '\u{2510}'); // ┐
     }
 
-    impl PartialEq for Rect {
-        fn eq(&self, other: &Self) -> bool {
-            self.x == other.x
-                && self.y == other.y
-                && self.width == other.width
-                && self.height == other.height
-        }
-    }
 }

@@ -1,13 +1,17 @@
 //! Terminal control: raw mode, alternate screen, cursor, terminal size.
-//! Uses libc directly — no crossterm dependency.
+//! Uses libc directly (Unix/POSIX) — no crossterm dependency.
 
 use std::io::{self, Write};
 use std::os::unix::io::AsRawFd;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{atomic::AtomicBool, atomic::Ordering, OnceLock};
 
 static RAW_MODE_ACTIVE: AtomicBool = AtomicBool::new(false);
+/// Saved original termios for full restoration in panic hook.
+static ORIGINAL_TERMIOS: OnceLock<libc::termios> = OnceLock::new();
 
 /// RAII guard that enters raw mode and restores original termios on drop.
+/// Drop order matters: drop AltScreenGuard before this (Rust drops in reverse declaration order).
+#[must_use = "raw mode is exited when the guard is dropped"]
 pub struct RawModeGuard {
     fd: i32,
     original: libc::termios,
@@ -18,10 +22,13 @@ impl RawModeGuard {
         let fd = io::stdin().as_raw_fd();
         // SAFETY: zeroed termios is valid for tcgetattr to populate.
         let mut original: libc::termios = unsafe { std::mem::zeroed() };
-        // SAFETY: fd is a valid file descriptor from stdin; original is a valid termios pointer.
+        // SAFETY: fd is a valid file descriptor (stdin fd 0, always open for process lifetime).
         if unsafe { libc::tcgetattr(fd, &mut original) } != 0 {
             return Err(io::Error::last_os_error());
         }
+        // Save original for panic hook to fully restore
+        ORIGINAL_TERMIOS.set(original).ok();
+
         let mut raw = original;
         // SAFETY: raw is a valid termios struct copied from the original.
         unsafe { libc::cfmakeraw(&mut raw) };
@@ -39,13 +46,17 @@ impl RawModeGuard {
 
 impl Drop for RawModeGuard {
     fn drop(&mut self) {
-        // SAFETY: fd and original were saved in enter() and are still valid.
-        unsafe { libc::tcsetattr(self.fd, libc::TCSAFLUSH, &self.original) };
-        RAW_MODE_ACTIVE.store(false, Ordering::SeqCst);
+        // SAFETY: fd 0 (stdin) remains valid for process lifetime; original was saved in enter().
+        let ret = unsafe { libc::tcsetattr(self.fd, libc::TCSAFLUSH, &self.original) };
+        // Only clear the flag if restoration succeeded
+        if ret == 0 {
+            RAW_MODE_ACTIVE.store(false, Ordering::SeqCst);
+        }
     }
 }
 
 /// RAII guard that enters the alternate screen buffer and restores on drop.
+#[must_use = "alternate screen is exited when the guard is dropped"]
 pub struct AltScreenGuard;
 
 impl AltScreenGuard {
@@ -73,17 +84,12 @@ pub fn install_panic_hook() {
         // Restore alternate screen, show cursor, reset style
         let _ = out.write_all(b"\x1b[?1049l\x1b[?25h\x1b[0m");
         let _ = out.flush();
-        // Restore terminal mode if still in raw mode
+        // Fully restore original termios if available
         if RAW_MODE_ACTIVE.load(Ordering::SeqCst) {
-            let fd = io::stdin().as_raw_fd();
-            // SAFETY: zeroed termios is valid for tcgetattr to populate.
-            let mut termios: libc::termios = unsafe { std::mem::zeroed() };
-            // SAFETY: fd is valid stdin fd; termios is a valid pointer.
-            if unsafe { libc::tcgetattr(fd, &mut termios) } == 0 {
-                // Re-enable canonical mode, echo, signals
-                termios.c_lflag |= libc::ECHO | libc::ICANON | libc::ISIG;
-                // SAFETY: fd is valid; termios has been read and modified safely.
-                unsafe { libc::tcsetattr(fd, libc::TCSAFLUSH, &termios) };
+            if let Some(original) = ORIGINAL_TERMIOS.get() {
+                let fd = io::stdin().as_raw_fd();
+                // SAFETY: fd 0 is valid; original is the saved pre-raw-mode termios.
+                unsafe { libc::tcsetattr(fd, libc::TCSAFLUSH, original) };
             }
         }
         default_hook(info);
@@ -99,17 +105,22 @@ pub fn terminal_size() -> io::Result<(u16, u16)> {
     if unsafe { libc::ioctl(fd, libc::TIOCGWINSZ, &mut ws) } != 0 {
         return Err(io::Error::last_os_error());
     }
+    if ws.ws_col == 0 || ws.ws_row == 0 {
+        return Err(io::Error::other("terminal reported 0x0 dimensions"));
+    }
     Ok((ws.ws_col, ws.ws_row))
 }
 
 /// Hide the terminal cursor.
 pub fn hide_cursor() -> io::Result<()> {
-    io::stdout().write_all(b"\x1b[?25l")?;
-    io::stdout().flush()
+    let mut out = io::stdout();
+    out.write_all(b"\x1b[?25l")?;
+    out.flush()
 }
 
 /// Show the terminal cursor.
 pub fn show_cursor() -> io::Result<()> {
-    io::stdout().write_all(b"\x1b[?25h")?;
-    io::stdout().flush()
+    let mut out = io::stdout();
+    out.write_all(b"\x1b[?25h")?;
+    out.flush()
 }

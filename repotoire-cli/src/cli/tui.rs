@@ -83,9 +83,21 @@ impl AgentTask {
         if child.kill().is_err() {
             return false;
         }
+        // Reap the zombie process
+        let _ = child.wait();
         self.status = AgentStatus::Failed("Cancelled by user".to_string());
         self.child = None;
         true
+    }
+}
+
+impl Drop for AgentTask {
+    fn drop(&mut self) {
+        // Kill and reap any still-running child process
+        if let Some(ref mut child) = self.child {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
     }
 }
 
@@ -136,10 +148,23 @@ fn read_code_snippet(
     )
 }
 
-fn get_agent_log_dir(repo_path: &Path) -> PathBuf {
+/// Truncate a string to at most `max_bytes` bytes, respecting UTF-8 char boundaries.
+fn truncate_str(s: &str, max_bytes: usize) -> &str {
+    if s.len() <= max_bytes {
+        return s;
+    }
+    let mut end = max_bytes;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
+
+fn get_agent_log_dir(repo_path: &Path) -> Result<PathBuf, String> {
     let dir = repo_path.join(".repotoire").join("agents");
-    fs::create_dir_all(&dir).ok();
-    dir
+    fs::create_dir_all(&dir)
+        .map_err(|e| format!("Failed to create agent log directory: {}", e))?;
+    Ok(dir)
 }
 
 fn tail_file(path: &Path, n: usize) -> Vec<String> {
@@ -259,7 +284,10 @@ impl App {
             }
         };
 
-        let log_dir = get_agent_log_dir(&self.repo_path);
+        let log_dir = match get_agent_log_dir(&self.repo_path) {
+            Ok(d) => d,
+            Err(e) => return Some(e),
+        };
         let log_file = log_dir.join(format!("agent_{}.log", index));
 
         let log_handle = OpenOptions::new()
@@ -451,6 +479,9 @@ pub fn run(findings: Vec<Finding>, repo_path: PathBuf) -> Result<()> {
             continue;
         }
         let key = read_key()?;
+        if key == Key::None {
+            continue; // EOF or timeout — not a real keypress
+        }
         if handle_key_event(&mut app, key) {
             break;
         }
@@ -598,7 +629,13 @@ fn render_list(screen: &mut Screen, area: Rect, app: &mut App) {
             .unwrap_or_default();
         let max_len = 40;
         let file_display = if file.len() > max_len {
-            format!("...{}", &file[file.len() - max_len + 3..])
+            // Find a valid UTF-8 boundary for the suffix
+            let start = file.len() - max_len + 3;
+            let mut safe_start = start;
+            while safe_start < file.len() && !file.is_char_boundary(safe_start) {
+                safe_start += 1;
+            }
+            format!("...{}", &file[safe_start..])
         } else {
             file
         };
@@ -762,7 +799,7 @@ fn render_detail(
 
             let max_code_width = (inner.width as usize).saturating_sub(7);
             let display_code = if code.len() > max_code_width {
-                format!("{}...", &code[..max_code_width.saturating_sub(3)])
+                format!("{}...", truncate_str(code, max_code_width.saturating_sub(3)))
             } else {
                 code.clone()
             };
