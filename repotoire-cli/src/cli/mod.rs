@@ -11,7 +11,6 @@ mod findings;
 mod fix;
 mod graph;
 mod init;
-pub mod lsp;
 mod status;
 mod tui;
 pub mod watch;
@@ -463,9 +462,6 @@ Examples:
         top: usize,
     },
 
-    /// Start the LSP server (stdio transport, for editor integration)
-    Lsp,
-
     /// Internal: analysis worker process (not user-facing)
     #[command(name = "__worker", hide = true)]
     Worker,
@@ -516,7 +512,6 @@ fn extract_command_name(cmd: &Option<Commands>) -> (String, Option<String>) {
             ConfigAction::Show => ("config".into(), Some("show".into())),
             ConfigAction::Set { .. } => ("config".into(), Some("set".into())),
         },
-        Some(Commands::Lsp) => ("lsp".into(), None),
         Some(Commands::Worker) => ("worker".into(), None),
         None => ("analyze".into(), None),
     }
@@ -874,15 +869,6 @@ pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> {
         Some(Commands::Benchmark { format }) => benchmark::run(&cli.path, format, &telemetry),
 
         Some(Commands::Debt { filter, top }) => debt::run(&cli.path, filter.as_deref(), top),
-
-        Some(Commands::Lsp) => {
-            let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(crate::cli::lsp::run(
-                cli.path.clone(),
-                cli.workers,
-                false, // all_detectors default
-            ))
-        }
 
         Some(Commands::Worker) => crate::cli::worker::run(),
 
