@@ -67,7 +67,6 @@ rustc-hash = "2"
 foldhash = "0.1"
 petgraph = { version = "0.7", features = ["serde-1"] }
 bitcode = { version = "0.6", features = ["serde"] }
-redb = "2.4"
 
 # Parallel pipeline channels
 crossbeam-channel = "0.5"
@@ -104,8 +103,6 @@ chrono = { version = "0.4", features = ["serde"] }
 ratatui = "0.30.0"
 crossterm = "0.29.0"
 dirs = "6.0.0"
-uuid = { version = "1", features = ["v4"] }
-sha2 = "0.10"
 lasso = { version = "0.7.3", features = ["multi-threaded", "serialize"] }
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 nalgebra = "0.33"

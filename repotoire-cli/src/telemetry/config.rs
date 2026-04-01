@@ -1,9 +1,7 @@
 //! Telemetry state resolution and distinct ID management
 
 use anyhow::Result;
-use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
-use uuid::Uuid;
 
 use crate::config::UserConfig;
 
@@ -96,9 +94,11 @@ fn is_truthy(val: &str) -> bool {
     )
 }
 
-/// Generate a new UUID v4 distinct ID
+/// Generate a random distinct ID (hex string, same format as UUID v4 without dashes)
 pub fn generate_distinct_id() -> String {
-    Uuid::new_v4().to_string()
+    use rand::Rng;
+    let bytes: [u8; 16] = rand::rng().random();
+    bytes.iter().map(|b| format!("{:02x}", b)).collect()
 }
 
 /// Returns the path to the telemetry ID file
@@ -144,12 +144,10 @@ pub fn compute_repo_id(path: &Path) -> Option<String> {
     Some(compute_repo_id_from_hash(&hash))
 }
 
-/// SHA-256 hash of a string, returned as lowercase hex
+/// Hash of a string, returned as lowercase hex (for telemetry repo ID — not crypto-sensitive)
 pub fn compute_repo_id_from_hash(commit_hash: &str) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(commit_hash.as_bytes());
-    let result = hasher.finalize();
-    format!("{:x}", result)
+    let hash = xxhash_rust::xxh3::xxh3_128(commit_hash.as_bytes());
+    format!("{:032x}", hash)
 }
 
 /// Check if we should show the opt-in prompt
@@ -246,19 +244,21 @@ mod tests {
     #[test]
     fn test_distinct_id_generation() {
         let id = generate_distinct_id();
-        // UUID v4: 8-4-4-4-12 hex chars separated by dashes = 36 chars total
-        assert_eq!(id.len(), 36);
-        // Verify it parses as a valid UUID
-        let uuid = Uuid::parse_str(&id).expect("generated ID should be a valid UUID");
-        assert_eq!(uuid.get_version_num(), 4);
+        // 16 random bytes as hex = 32 chars
+        assert_eq!(id.len(), 32);
+        // Should be valid hex
+        assert!(id.chars().all(|c| c.is_ascii_hexdigit()));
+        // Two generated IDs should differ
+        let id2 = generate_distinct_id();
+        assert_ne!(id, id2);
     }
 
     #[test]
     fn test_repo_id_from_root_commit() {
         let hash = "abc123def456abc123def456abc123def456abc1";
         let repo_id = compute_repo_id_from_hash(hash);
-        // SHA-256 produces 64 hex characters
-        assert_eq!(repo_id.len(), 64);
+        // XXH3-128 produces 32 hex characters
+        assert_eq!(repo_id.len(), 32);
         // Verify it's valid hex
         assert!(repo_id.chars().all(|c| c.is_ascii_hexdigit()));
     }
