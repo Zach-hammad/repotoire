@@ -6,7 +6,8 @@
 //! - SARIF output format is valid and compliant
 //! - Scoring system produces reasonable scores
 //!
-//! Each test uses its own isolated temp directory to avoid cache conflicts.
+//! Analysis results are cached per unique arg set so that nextest processes
+//! sharing the same invocation (e.g. `--format json`) don't re-run the engine.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -74,6 +75,77 @@ fn run_analyze(path: &std::path::Path, args: &[&str]) -> (String, String, i32) {
     (stdout, stderr, exit_code)
 }
 
+/// Run analysis on fixtures with cross-process caching.
+///
+/// Multiple nextest processes calling this with the same `args` will share a
+/// single analysis run. Uses atomic file creation for leader election: the
+/// first process to create the lock file runs the analysis, others poll for
+/// the "done" marker.
+fn run_analyze_fixtures_cached(args: &[&str]) -> (String, String, i32) {
+    use std::fs::{self, File};
+
+    let cache_dir = std::env::temp_dir().join("repotoire-integ-cache");
+    fs::create_dir_all(&cache_dir).ok();
+
+    let key: String = args
+        .iter()
+        .map(|a| a.replace(['/', ' ', '-', '.'], "_"))
+        .collect::<Vec<_>>()
+        .join("__");
+    let stdout_p = cache_dir.join(format!("{key}.stdout"));
+    let stderr_p = cache_dir.join(format!("{key}.stderr"));
+    let code_p = cache_dir.join(format!("{key}.code"));
+    let done_p = cache_dir.join(format!("{key}.done"));
+    let lock_p = cache_dir.join(format!("{key}.lock"));
+
+    // Fast path: already computed by another nextest process
+    if done_p.exists() {
+        let stdout = fs::read_to_string(&stdout_p).unwrap_or_default();
+        let stderr = fs::read_to_string(&stderr_p).unwrap_or_default();
+        let code: i32 = fs::read_to_string(&code_p)
+            .unwrap_or("0".into())
+            .trim()
+            .parse()
+            .unwrap_or(-1);
+        return (stdout, stderr, code);
+    }
+
+    // Leader election via atomic file create
+    match File::create_new(&lock_p) {
+        Ok(_) => {
+            // We are the leader — run the analysis
+            let workspace = create_test_workspace();
+            let (stdout, stderr, code) = run_analyze(workspace.path(), args);
+
+            fs::write(&stdout_p, &stdout).ok();
+            fs::write(&stderr_p, &stderr).ok();
+            fs::write(&code_p, code.to_string()).ok();
+            fs::write(&done_p, "done").ok(); // signal last
+
+            (stdout, stderr, code)
+        }
+        Err(_) => {
+            // Another process is the leader — wait for result
+            for _ in 0..1200 {
+                if done_p.exists() {
+                    let stdout = fs::read_to_string(&stdout_p).unwrap_or_default();
+                    let stderr = fs::read_to_string(&stderr_p).unwrap_or_default();
+                    let code: i32 = fs::read_to_string(&code_p)
+                        .unwrap_or("0".into())
+                        .trim()
+                        .parse()
+                        .unwrap_or(-1);
+                    return (stdout, stderr, code);
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            // Timeout after 120s — fall back to running it ourselves
+            let workspace = create_test_workspace();
+            run_analyze(workspace.path(), args)
+        }
+    }
+}
+
 /// Extract JSON from output (handles any prefix text before the JSON)
 fn extract_json(output: &str) -> Option<&str> {
     // Find the first '{' which starts the JSON object
@@ -112,10 +184,7 @@ fn parse_json(output: &str) -> Result<serde_json::Value, String> {
 
 #[test]
 fn test_analyze_fixtures_produces_findings() {
-    let workspace = create_test_workspace();
-
-    // Run analysis on fixtures with JSON output
-    let (stdout, stderr, exit_code) = run_analyze(workspace.path(), &["--format", "json"]);
+    let (stdout, stderr, exit_code) = run_analyze_fixtures_cached(&["--format", "json"]);
 
     // Should exit successfully
     assert_eq!(
@@ -149,9 +218,7 @@ fn test_analyze_fixtures_produces_findings() {
 
 #[test]
 fn test_analyze_fixtures_finds_code_smells() {
-    let workspace = create_test_workspace();
-
-    let (stdout, stderr, exit_code) = run_analyze(workspace.path(), &["--format", "json"]);
+    let (stdout, stderr, exit_code) = run_analyze_fixtures_cached(&["--format", "json"]);
 
     assert_eq!(exit_code, 0, "stderr: {}", stderr);
 
@@ -184,9 +251,7 @@ fn test_analyze_fixtures_finds_code_smells() {
 
 #[test]
 fn test_json_output_is_valid() {
-    let workspace = create_test_workspace();
-
-    let (stdout, stderr, exit_code) = run_analyze(workspace.path(), &["--format", "json"]);
+    let (stdout, stderr, exit_code) = run_analyze_fixtures_cached(&["--format", "json"]);
 
     assert_eq!(exit_code, 0, "stderr: {}", stderr);
 
@@ -226,9 +291,7 @@ fn test_json_output_is_valid() {
 
 #[test]
 fn test_json_findings_have_required_fields() {
-    let workspace = create_test_workspace();
-
-    let (stdout, stderr, exit_code) = run_analyze(workspace.path(), &["--format", "json"]);
+    let (stdout, stderr, exit_code) = run_analyze_fixtures_cached(&["--format", "json"]);
 
     assert_eq!(exit_code, 0, "stderr: {}", stderr);
 
@@ -271,9 +334,7 @@ fn test_json_findings_have_required_fields() {
 
 #[test]
 fn test_json_findings_summary_counts() {
-    let workspace = create_test_workspace();
-
-    let (stdout, stderr, exit_code) = run_analyze(workspace.path(), &["--format", "json"]);
+    let (stdout, stderr, exit_code) = run_analyze_fixtures_cached(&["--format", "json"]);
 
     assert_eq!(exit_code, 0, "stderr: {}", stderr);
 
@@ -513,9 +574,7 @@ fn test_sarif_rules_are_defined() {
 
 #[test]
 fn test_scoring_produces_valid_scores() {
-    let workspace = create_test_workspace();
-
-    let (stdout, stderr, exit_code) = run_analyze(workspace.path(), &["--format", "json"]);
+    let (stdout, stderr, exit_code) = run_analyze_fixtures_cached(&["--format", "json"]);
 
     assert_eq!(exit_code, 0, "stderr: {}", stderr);
 
@@ -562,9 +621,7 @@ fn test_scoring_produces_valid_scores() {
 
 #[test]
 fn test_scoring_produces_valid_grades() {
-    let workspace = create_test_workspace();
-
-    let (stdout, stderr, exit_code) = run_analyze(workspace.path(), &["--format", "json"]);
+    let (stdout, stderr, exit_code) = run_analyze_fixtures_cached(&["--format", "json"]);
 
     assert_eq!(exit_code, 0, "stderr: {}", stderr);
 
@@ -582,9 +639,7 @@ fn test_scoring_produces_valid_grades() {
 
 #[test]
 fn test_scoring_grade_matches_score() {
-    let workspace = create_test_workspace();
-
-    let (stdout, stderr, exit_code) = run_analyze(workspace.path(), &["--format", "json"]);
+    let (stdout, stderr, exit_code) = run_analyze_fixtures_cached(&["--format", "json"]);
 
     assert_eq!(exit_code, 0, "stderr: {}", stderr);
 
@@ -685,13 +740,9 @@ fn test_bad_code_has_lower_score_than_good_code() {
 
 #[test]
 fn test_fail_on_critical() {
-    let workspace = create_test_workspace();
-
     // This might not trigger depending on findings, but we test the flag works
-    let (_stdout, _stderr, _exit_code) = run_analyze(
-        workspace.path(),
-        &["--format", "json", "--fail-on", "critical"],
-    );
+    let (_stdout, _stderr, _exit_code) =
+        run_analyze_fixtures_cached(&["--format", "json", "--fail-on", "critical"]);
 
     // Exit code should be 0 (no critical) or 1 (has critical)
     // We just verify it doesn't crash
@@ -699,15 +750,11 @@ fn test_fail_on_critical() {
 
 #[test]
 fn test_severity_filter() {
-    let workspace = create_test_workspace();
-
     // Note: For JSON format, --severity acts as a display filter but the full report
     // may include all findings for machine consumption. This is by design.
     // We verify the command runs successfully.
-    let (stdout, stderr, exit_code) = run_analyze(
-        workspace.path(),
-        &["--format", "json", "--severity", "high"],
-    );
+    let (stdout, stderr, exit_code) =
+        run_analyze_fixtures_cached(&["--format", "json", "--severity", "high"]);
 
     assert_eq!(exit_code, 0, "stderr: {}", stderr);
 
@@ -732,10 +779,8 @@ fn test_severity_filter() {
 
 #[test]
 fn test_top_limit() {
-    let workspace = create_test_workspace();
-
     let (stdout, stderr, exit_code) =
-        run_analyze(workspace.path(), &["--format", "json", "--top", "3"]);
+        run_analyze_fixtures_cached(&["--format", "json", "--top", "3"]);
 
     assert_eq!(exit_code, 0, "stderr: {}", stderr);
 
@@ -750,10 +795,8 @@ fn test_top_limit() {
 
 #[test]
 fn test_text_format_output() {
-    let workspace = create_test_workspace();
-
     let (stdout, stderr, exit_code) =
-        run_analyze(workspace.path(), &["--format", "text", "--no-emoji"]);
+        run_analyze_fixtures_cached(&["--format", "text", "--no-emoji"]);
 
     assert_eq!(exit_code, 0, "stderr: {}", stderr);
 
@@ -799,9 +842,7 @@ fn test_empty_directory() {
 
 #[test]
 fn test_file_counts_are_accurate() {
-    let workspace = create_test_workspace();
-
-    let (stdout, stderr, exit_code) = run_analyze(workspace.path(), &["--format", "json"]);
+    let (stdout, stderr, exit_code) = run_analyze_fixtures_cached(&["--format", "json"]);
 
     assert_eq!(exit_code, 0, "stderr: {}", stderr);
 
@@ -844,9 +885,7 @@ fn test_file_counts_are_accurate() {
 
 #[test]
 fn test_detects_long_parameter_list() {
-    let workspace = create_test_workspace();
-
-    let (stdout, stderr, exit_code) = run_analyze(workspace.path(), &["--format", "json"]);
+    let (stdout, stderr, exit_code) = run_analyze_fixtures_cached(&["--format", "json"]);
 
     assert_eq!(exit_code, 0, "stderr: {}", stderr);
 
@@ -867,9 +906,7 @@ fn test_detects_long_parameter_list() {
 
 #[test]
 fn test_detects_complexity_issues() {
-    let workspace = create_test_workspace();
-
-    let (stdout, stderr, exit_code) = run_analyze(workspace.path(), &["--format", "json"]);
+    let (stdout, stderr, exit_code) = run_analyze_fixtures_cached(&["--format", "json"]);
 
     assert_eq!(exit_code, 0, "stderr: {}", stderr);
 
@@ -892,4 +929,210 @@ fn test_detects_complexity_issues() {
         has_complexity_finding
     );
     // This is informational - may or may not find depending on detector config
+}
+
+// ---------------------------------------------------------------------------
+// Diff integration tests
+// ---------------------------------------------------------------------------
+
+/// Create a minimal git repo in a temp dir with fixture files, committed.
+fn create_git_test_repo() -> TempDir {
+    let temp = create_test_workspace();
+    let path = temp.path();
+
+    Command::new("git")
+        .args(["init"])
+        .current_dir(path)
+        .output()
+        .expect("git init failed");
+    Command::new("git")
+        .args(["config", "user.email", "test@test.com"])
+        .current_dir(path)
+        .output()
+        .unwrap();
+    Command::new("git")
+        .args(["config", "user.name", "Test"])
+        .current_dir(path)
+        .output()
+        .unwrap();
+    Command::new("git")
+        .args(["add", "."])
+        .current_dir(path)
+        .output()
+        .expect("git add failed");
+    Command::new("git")
+        .args(["commit", "-m", "initial"])
+        .current_dir(path)
+        .output()
+        .expect("git commit failed");
+
+    temp
+}
+
+/// Run repotoire diff on a path and return (stdout, stderr, exit_code).
+fn run_diff(path: &std::path::Path, args: &[&str]) -> (String, String, i32) {
+    let binary = binary_path();
+    let mut cmd_args = vec![path.to_str().unwrap(), "diff"];
+    cmd_args.extend(args);
+
+    let output = Command::new(&binary)
+        .args(&cmd_args)
+        .output()
+        .expect("Failed to execute repotoire binary");
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let exit_code = output.status.code().unwrap_or(-1);
+
+    (stdout, stderr, exit_code)
+}
+
+#[test]
+fn test_diff_text_output() {
+    let repo = create_git_test_repo();
+    let path = repo.path();
+
+    // Run initial analysis
+    run_analyze(path, &[]);
+
+    // Make a change and commit
+    std::fs::write(path.join("new_file.py"), "x = 1\n").unwrap();
+    Command::new("git")
+        .args(["add", "."])
+        .current_dir(path)
+        .output()
+        .unwrap();
+    Command::new("git")
+        .args(["commit", "-m", "add file"])
+        .current_dir(path)
+        .output()
+        .unwrap();
+
+    // Run second analysis
+    run_analyze(path, &[]);
+
+    // Diff
+    let (stdout, _stderr, code) = run_diff(path, &["HEAD~1"]);
+    assert_eq!(code, 0, "diff should exit 0");
+    assert!(
+        stdout.contains("Repotoire Diff"),
+        "should contain header, got: {}",
+        &stdout[..stdout.len().min(200)]
+    );
+}
+
+#[test]
+fn test_diff_json_output() {
+    let repo = create_git_test_repo();
+    let path = repo.path();
+    run_analyze(path, &[]);
+
+    std::fs::write(path.join("new_file.py"), "x = 1\n").unwrap();
+    Command::new("git")
+        .args(["add", "."])
+        .current_dir(path)
+        .output()
+        .unwrap();
+    Command::new("git")
+        .args(["commit", "-m", "add file"])
+        .current_dir(path)
+        .output()
+        .unwrap();
+    run_analyze(path, &[]);
+
+    let (stdout, _stderr, code) = run_diff(path, &["HEAD~1", "--format", "json"]);
+    assert_eq!(code, 0, "diff json should exit 0");
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).expect("diff json output should be valid JSON");
+    assert!(
+        parsed.get("new_findings").is_some(),
+        "should have new_findings"
+    );
+    assert!(
+        parsed.get("score_before").is_some(),
+        "should have score_before"
+    );
+    assert!(
+        parsed.get("total_new_findings").is_some(),
+        "should have total_new_findings"
+    );
+}
+
+#[test]
+fn test_diff_sarif_output() {
+    let repo = create_git_test_repo();
+    let path = repo.path();
+    run_analyze(path, &[]);
+
+    std::fs::write(path.join("new_file.py"), "x = 1\n").unwrap();
+    Command::new("git")
+        .args(["add", "."])
+        .current_dir(path)
+        .output()
+        .unwrap();
+    Command::new("git")
+        .args(["commit", "-m", "add file"])
+        .current_dir(path)
+        .output()
+        .unwrap();
+    run_analyze(path, &[]);
+
+    let (stdout, _stderr, code) = run_diff(path, &["HEAD~1", "--format", "sarif"]);
+    assert_eq!(code, 0, "diff sarif should exit 0");
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).expect("diff sarif output should be valid JSON");
+    assert!(
+        parsed.get("$schema").is_some() || parsed.get("runs").is_some(),
+        "should be valid SARIF"
+    );
+}
+
+#[test]
+fn test_diff_all_flag_shows_more_or_equal() {
+    let repo = create_git_test_repo();
+    let path = repo.path();
+    run_analyze(path, &[]);
+
+    std::fs::write(path.join("new_file.py"), "x = 1\n").unwrap();
+    Command::new("git")
+        .args(["add", "."])
+        .current_dir(path)
+        .output()
+        .unwrap();
+    Command::new("git")
+        .args(["commit", "-m", "add file"])
+        .current_dir(path)
+        .output()
+        .unwrap();
+    run_analyze(path, &[]);
+
+    let (default_out, _, _) = run_diff(path, &["HEAD~1", "--format", "json"]);
+    let (all_out, _, _) = run_diff(path, &["HEAD~1", "--format", "json", "--all"]);
+
+    let default_json: serde_json::Value = serde_json::from_str(&default_out).unwrap();
+    let all_json: serde_json::Value = serde_json::from_str(&all_out).unwrap();
+
+    let default_count = default_json["new_findings"].as_array().unwrap().len();
+    let all_count = all_json["new_findings"].as_array().unwrap().len();
+    assert!(
+        all_count >= default_count,
+        "--all ({}) should show >= default ({})",
+        all_count,
+        default_count
+    );
+}
+
+#[test]
+fn test_diff_auto_analyze() {
+    let repo = create_git_test_repo();
+    let path = repo.path();
+
+    // Don't run analyze first — diff should auto-analyze
+    let (_stdout, stderr, code) = run_diff(path, &["HEAD~1"]);
+    assert_eq!(code, 0, "diff should auto-analyze: stderr={}", stderr);
+    assert!(
+        stderr.contains("running analysis") || stderr.contains("No cached"),
+        "should indicate auto-analysis, stderr={}",
+        stderr
+    );
 }

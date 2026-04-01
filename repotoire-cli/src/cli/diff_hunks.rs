@@ -107,11 +107,7 @@ impl DiffHunks {
     /// Attribute a finding based on its file and line.
     pub fn attribute(&self, file: &Path, line: Option<u32>) -> Attribution {
         // Resolve old->new rename if this finding uses the pre-rename path
-        let effective = self
-            .renames
-            .get(file)
-            .map(|p| p.as_path())
-            .unwrap_or(file);
+        let effective = self.renames.get(file).map(|p| p.as_path()).unwrap_or(file);
 
         if !self.changed_files.contains(effective) {
             return Attribution::InUnchangedFile;
