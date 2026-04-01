@@ -32,7 +32,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, info, warn};
 
 /// Cache format version - bump when schema changes
-const CACHE_VERSION: u32 = 4;
+const CACHE_VERSION: u32 = 5;
 
 /// Buffer size for hashing large files (64KB chunks)
 const HASH_BUFFER_SIZE: usize = 65536;
@@ -285,7 +285,7 @@ impl IncrementalCache {
         }
 
         let bytes = fs::read(&self.cache_file).context("Failed to read cache file")?;
-        let data: CacheData = bincode::deserialize(&bytes).context("Failed to parse cache")?;
+        let data: CacheData = bitcode::deserialize(&bytes).context("Failed to parse cache")?;
 
         // Version check - rebuild if schema changed
         if data.version != CACHE_VERSION {
@@ -353,7 +353,7 @@ impl IncrementalCache {
         // Write to temp file first, then rename (atomic on POSIX)
         let tmp_file = self.cache_file.with_extension("tmp");
 
-        let bytes = bincode::serialize(&self.cache).context("Failed to serialize cache")?;
+        let bytes = bitcode::serialize(&self.cache).context("Failed to serialize cache")?;
         fs::write(&tmp_file, &bytes).context("Failed to write temp cache file")?;
 
         // Atomic rename
@@ -1002,8 +1002,8 @@ mod tests {
         };
 
         // Round-trip through bincode (simulates cache write/read)
-        let bytes = bincode::serialize(&finding).expect("serialize");
-        let restored: Finding = bincode::deserialize(&bytes).expect("deserialize");
+        let bytes = bitcode::serialize(&finding).expect("serialize");
+        let restored: Finding = bitcode::deserialize(&bytes).expect("deserialize");
         assert_eq!(restored.id, "rt-1");
         assert_eq!(restored.confidence, Some(0.85));
         assert_eq!(

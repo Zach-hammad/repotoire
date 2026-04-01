@@ -440,8 +440,8 @@ mod tests {
             ..Default::default()
         };
 
-        let bytes = bincode::serialize(&finding).expect("serialize finding");
-        let back: Finding = bincode::deserialize(&bytes).expect("deserialize finding");
+        let bytes = bitcode::serialize(&finding).expect("serialize finding");
+        let back: Finding = bitcode::deserialize(&bytes).expect("deserialize finding");
 
         assert_eq!(back.id, "test-bin");
         assert_eq!(back.confidence, Some(0.85));

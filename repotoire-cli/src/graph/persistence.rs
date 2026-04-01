@@ -105,7 +105,7 @@ impl CodeGraph {
             extra_props: extra_props_ser,
         };
 
-        let bytes = bincode::serialize(&cache).context("Failed to serialize CodeGraph cache")?;
+        let bytes = bitcode::serialize(&cache).context("Failed to serialize CodeGraph cache")?;
 
         if let Some(parent) = cache_path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -124,7 +124,7 @@ impl CodeGraph {
     /// Returns None if cache is missing, corrupt, or version-mismatched.
     pub fn load_cache(cache_path: &Path) -> Option<Self> {
         let bytes = std::fs::read(cache_path).ok()?;
-        let cache: CodeGraphCache = bincode::deserialize(&bytes).ok()?;
+        let cache: CodeGraphCache = bitcode::deserialize(&bytes).ok()?;
 
         // Version check
         if cache.version != CODEGRAPH_CACHE_VERSION

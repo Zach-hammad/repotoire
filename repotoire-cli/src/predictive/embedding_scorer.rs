@@ -114,7 +114,7 @@ const EMBEDDINGS_FILE: &str = "embeddings.bin";
 pub fn load_embeddings(session_path: &Path, current_fingerprint: u64) -> Option<CachedEmbeddings> {
     let path = session_path.join(EMBEDDINGS_FILE);
     let data = std::fs::read(&path).ok()?;
-    let cached: CachedEmbeddings = bincode::deserialize(&data).ok()?;
+    let cached: CachedEmbeddings = bitcode::deserialize(&data).ok()?;
     if cached.edge_fingerprint != current_fingerprint {
         tracing::debug!("Embedding cache invalidated: fingerprint mismatch");
         return None;
@@ -128,7 +128,7 @@ pub fn save_embeddings(session_path: &Path, cached: &CachedEmbeddings) -> anyhow
     std::fs::create_dir_all(session_path)?;
     let path = session_path.join(EMBEDDINGS_FILE);
     let tmp_path = session_path.join(".embeddings.bin.tmp");
-    let data = bincode::serialize(cached)?;
+    let data = bitcode::serialize(cached)?;
     std::fs::write(&tmp_path, &data)?;
     std::fs::rename(&tmp_path, &path)?;
     tracing::debug!(
