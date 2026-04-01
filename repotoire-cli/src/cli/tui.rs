@@ -148,18 +148,6 @@ fn read_code_snippet(
     )
 }
 
-/// Truncate a string to at most `max_bytes` bytes, respecting UTF-8 char boundaries.
-fn truncate_str(s: &str, max_bytes: usize) -> &str {
-    if s.len() <= max_bytes {
-        return s;
-    }
-    let mut end = max_bytes;
-    while end > 0 && !s.is_char_boundary(end) {
-        end -= 1;
-    }
-    &s[..end]
-}
-
 fn get_agent_log_dir(repo_path: &Path) -> Result<PathBuf, String> {
     let dir = repo_path.join(".repotoire").join("agents");
     fs::create_dir_all(&dir)
@@ -725,14 +713,15 @@ fn render_detail(
 ) {
     let inner = screen.current.draw_border(area, " Details ", Style::default());
     let mut y = inner.y;
+    let right = inner.x + inner.width; // clip boundary for all text
 
     let bold = Style::default().bold();
 
     // Title
-    screen.current.set_str(inner.x, y, "Title: ", bold);
+    screen.current.set_str_max(inner.x, y, "Title: ", bold, right);
     screen
         .current
-        .set_str(inner.x + 7, y, &finding.title, Style::default());
+        .set_str_max(inner.x + 7, y, &finding.title, Style::default(), right);
     y += 1;
 
     // Severity
@@ -749,12 +738,13 @@ fn render_detail(
         Severity::Medium => Color::Blue,
         _ => Color::DarkGray,
     };
-    screen.current.set_str(inner.x, y, "Severity: ", bold);
-    screen.current.set_str(
+    screen.current.set_str_max(inner.x, y, "Severity: ", bold, right);
+    screen.current.set_str_max(
         inner.x + 10,
         y,
         severity_str,
         Style::default().fg(sev_color),
+        right,
     );
     y += 1;
 
@@ -769,12 +759,13 @@ fn render_detail(
         (Some(start), _) => format!(":{}", start),
         _ => String::new(),
     };
-    screen.current.set_str(inner.x, y, "File: ", bold);
-    screen.current.set_str(
+    screen.current.set_str_max(inner.x, y, "File: ", bold, right);
+    screen.current.set_str_max(
         inner.x + 6,
         y,
         &format!("{}{}", file, line_info),
         Style::default(),
+        right,
     );
     y += 2;
 
@@ -783,7 +774,7 @@ fn render_detail(
         let line_start = finding.line_start.unwrap_or(0);
         let line_end = finding.line_end.unwrap_or(line_start);
 
-        screen.current.set_str(inner.x, y, "Code:", bold);
+        screen.current.set_str_max(inner.x, y, "Code:", bold, right);
         y += 1;
 
         for (line_num, code) in lines {
@@ -797,23 +788,21 @@ fn render_detail(
                 Style::default().fg(Color::DarkGray)
             };
 
-            let max_code_width = (inner.width as usize).saturating_sub(7);
-            let display_code = if code.len() > max_code_width {
-                format!("{}...", truncate_str(code, max_code_width.saturating_sub(3)))
-            } else {
-                code.clone()
-            };
-
             let prefix = format!("{:>4} | ", line_num);
-            screen.current.set_str(
+            screen.current.set_str_max(
                 inner.x,
                 y,
                 &prefix,
                 Style::default().fg(Color::DarkGray),
+                right,
             );
-            screen
-                .current
-                .set_str(inner.x + prefix.len() as u16, y, &display_code, line_style);
+            screen.current.set_str_max(
+                inner.x + prefix.len() as u16,
+                y,
+                code,
+                line_style,
+                right,
+            );
             y += 1;
         }
         y += 1;
@@ -821,7 +810,7 @@ fn render_detail(
 
     // Description
     if y < inner.y + inner.height {
-        screen.current.set_str(inner.x, y, "Description:", bold);
+        screen.current.set_str_max(inner.x, y, "Description:", bold, right);
         y += 1;
         for line in finding.description.lines().take(3) {
             if y >= inner.y + inner.height {
@@ -830,7 +819,7 @@ fn render_detail(
             let desc = format!("  {}", line);
             screen
                 .current
-                .set_str(inner.x, y, &desc, Style::default());
+                .set_str_max(inner.x, y, &desc, Style::default(), right);
             y += 1;
         }
     }
@@ -839,7 +828,7 @@ fn render_detail(
     if let Some(fix) = &finding.suggested_fix {
         if y + 1 < inner.y + inner.height {
             y += 1;
-            screen.current.set_str(inner.x, y, "Fix:", bold);
+            screen.current.set_str_max(inner.x, y, "Fix:", bold, right);
             y += 1;
             for line in fix.lines().take(2) {
                 if y >= inner.y + inner.height {
@@ -848,7 +837,7 @@ fn render_detail(
                 let fix_line = format!("  {}", line);
                 screen
                     .current
-                    .set_str(inner.x, y, &fix_line, Style::default());
+                    .set_str_max(inner.x, y, &fix_line, Style::default(), right);
                 y += 1;
             }
         }

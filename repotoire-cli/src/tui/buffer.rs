@@ -151,9 +151,16 @@ impl Buffer {
 
     /// Write a string at (x, y) with the given style. Truncates at buffer width.
     pub fn set_str(&mut self, x: u16, y: u16, s: &str, style: Style) {
+        self.set_str_max(x, y, s, style, self.width);
+    }
+
+    /// Write a string at (x, y), truncating at `max_x` (exclusive).
+    /// Use this when rendering inside a bordered rect to avoid overwriting borders.
+    pub fn set_str_max(&mut self, x: u16, y: u16, s: &str, style: Style, max_x: u16) {
+        let limit = max_x.min(self.width);
         let mut col = x;
         for ch in s.chars() {
-            if col >= self.width {
+            if col >= limit {
                 break;
             }
             if y < self.height {
