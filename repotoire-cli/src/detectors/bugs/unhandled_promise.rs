@@ -64,6 +64,21 @@ impl UnhandledPromiseDetector {
     }
 }
 
+/// Check if `line` contains a CALL to async function `name` (not a declaration).
+/// `export async function putLocalEnvelopes(` contains `putLocalEnvelopes(` but is
+/// a declaration — the text before the match ends with `function`. Actual calls like
+/// `putLocalEnvelopes(data)` or `await putLocalEnvelopes(data)` do not.
+fn is_async_call(line: &str, name: &str) -> bool {
+    let call = format!("{}(", name);
+    if let Some(idx) = line.find(&call) {
+        // Check the text before the match doesn't end with "function" (declaration)
+        let before = line[..idx].trim_end();
+        !before.ends_with("function") && !line.contains("await")
+    } else {
+        false
+    }
+}
+
 /// Extract variable name from an assignment: `const x = ...` -> Some("x")
 fn extract_assignment_target(line: &str) -> Option<&str> {
     let trimmed = line.trim();
@@ -200,10 +215,10 @@ impl Detector for UnhandledPromiseDetector {
                     // Verify that this line is actually inside an async function
                     // or deals with promises. Don't flag sync code.
                     if !has_promise && !line.contains("await ") && !line.contains(".then(") {
-                        // Check if calling a known async function
+                        // Check if calling a known async function (not declaring one)
                         let calls_async_fn = async_funcs
                             .iter()
-                            .any(|f| line.contains(&format!("{}(", f)) && !line.contains("await"));
+                            .any(|f| is_async_call(line, f));
                         if !calls_async_fn {
                             continue;
                         }
@@ -254,7 +269,7 @@ impl Detector for UnhandledPromiseDetector {
                     // an async function from sync code is expected (you can't await there).
                     let calls_async = async_funcs
                         .iter()
-                        .any(|f| line.contains(&format!("{}(", f)) && !line.contains("await"));
+                        .any(|f| is_async_call(line, f));
 
                     // Skip returned promises — caller handles errors (no-floating-promises #4)
                     if (has_promise || calls_async)
@@ -612,5 +627,45 @@ mod tests {
             "Should not flag promise with .catch(), got: {:?}",
             findings
         );
+    }
+
+    #[test]
+    fn repro_fp7_export_async_function_declaration() {
+        // Real FP: export async function putLocalEnvelopes(...) flagged as
+        // "async function called without error handling" because declaration
+        // skip missed `export async function` and the function name matched
+        // the async_funcs call check.
+        let store = GraphBuilder::new().freeze();
+        let detector = UnhandledPromiseDetector::new("/mock/repo");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "lib/db.ts",
+                "export async function putLocalEnvelopes(\n  recordId: string,\n  envelopes: Array<{ user_id: string; sealed_key: Uint8Array }>\n): Promise<void> {\n  const db = await openDatabase();\n  await db.put(\"envelopes\", { recordId, envelopes });\n}\n\nexport async function getLocalEnvelopes(\n  recordId: string\n): Promise<Array<{ user_id: string; sealed_key: Uint8Array }>> {\n  const db = await openDatabase();\n  const entry = await db.get(\"envelopes\", recordId);\n  return entry?.envelopes ?? [];\n}\n",
+            )],
+        );
+        let findings = detector.detect(&ctx).unwrap();
+        assert!(findings.is_empty(),
+            "export async function declarations should NOT be flagged, got: {:?}",
+            findings.iter().map(|f| format!("{} (line {})", f.title, f.line_start.unwrap_or(0))).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn repro_fp9_return_new_promise_in_sync_function() {
+        // Real FP: `return new Promise(...)` in a non-async function.
+        // Return exemption should still apply — caller handles the promise.
+        let store = GraphBuilder::new().freeze();
+        let detector = UnhandledPromiseDetector::new("/mock/repo");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "lib/db.ts",
+                "function awaitDeleteDatabase(name: string): Promise<void> {\n  return new Promise((resolve, reject) => {\n    const req = indexedDB.deleteDatabase(name);\n    req.onsuccess = () => resolve();\n    req.onerror = () => reject(req.error);\n    req.onblocked = () => resolve();\n  });\n}\n",
+            )],
+        );
+        let findings = detector.detect(&ctx).unwrap();
+        assert!(findings.is_empty(),
+            "return new Promise() should NOT be flagged, got: {:?}",
+            findings.iter().map(|f| format!("{} (line {})", f.title, f.line_start.unwrap_or(0))).collect::<Vec<_>>());
     }
 }

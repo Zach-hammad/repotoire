@@ -606,4 +606,23 @@ mod tests {
             ".mjs module-scoped let should not be flagged"
         );
     }
+
+    #[test]
+    fn repro_fp6_auth_ts_module_scoped_let() {
+        // Real FP: let currentAuth in auth.ts — module-scoped let in TS file
+        // with imports/exports. Should not be flagged.
+        let store = GraphBuilder::new().freeze();
+        let detector = GlobalVariablesDetector::new("/mock/repo");
+        let ctx = crate::detectors::analysis_context::AnalysisContext::test_with_mock_files(
+            &store,
+            vec![(
+                "lib/auth.ts",
+                "import { deriveDeviceKey } from \"./crypto\";\nimport { putKey, getKey } from \"./db\";\n\nexport interface AuthState {\n  deviceKey: Uint8Array;\n  userId: string;\n}\n\nlet currentAuth: AuthState | null = null;\n\nexport function getAuth(): AuthState | null {\n  return currentAuth;\n}\n\nexport function clearAuth(): void {\n  if (currentAuth) {\n    currentAuth = null;\n  }\n}\n\nexport async function login(password: string): Promise<AuthState> {\n  currentAuth = { deviceKey: new Uint8Array(32), userId: \"abc\" };\n  return currentAuth;\n}\n",
+            )],
+        );
+        let findings = detector.detect(&ctx).unwrap();
+        assert!(findings.is_empty(),
+            "FP #6: module-scoped let in .ts with imports should NOT be flagged, got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>());
+    }
 }
