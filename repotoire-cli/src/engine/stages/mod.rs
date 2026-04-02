@@ -6,6 +6,7 @@
 pub mod calibrate;
 pub mod collect;
 pub mod detect;
+pub mod filter;
 pub mod git_enrich;
 pub mod graph;
 pub mod graph_builder_patch;
