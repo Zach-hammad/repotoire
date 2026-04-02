@@ -5,6 +5,7 @@ pub mod object;
 pub mod oid;
 pub mod pack;
 pub mod pack_index;
+pub mod repo;
 pub mod sha1;
 pub mod tree;
 
