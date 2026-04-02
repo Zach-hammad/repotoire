@@ -28,6 +28,7 @@
 
 pub mod blame;
 pub mod co_change;
+pub mod raw;
 pub mod enrichment;
 pub mod history;
 pub mod ownership;
