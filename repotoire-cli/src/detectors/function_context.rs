@@ -187,11 +187,10 @@ impl<'a> FunctionContextBuilder<'a> {
                 self.graph
                     .node_by_name_idx(f.qn(i))
                     .map(|(idx, _)| {
-                        let pg_idx: petgraph::stable_graph::NodeIndex = idx.into();
                         self.graph
                             .primitives()
                             .betweenness
-                            .get(&pg_idx)
+                            .get(&idx)
                             .copied()
                             .unwrap_or(0.0)
                     })
@@ -228,11 +227,10 @@ impl<'a> FunctionContextBuilder<'a> {
                     .graph
                     .node_by_name_idx(qn)
                     .map(|(ni, _)| {
-                        let pg_ni: petgraph::stable_graph::NodeIndex = ni.into();
                         self.graph
                             .primitives()
                             .call_depth
-                            .get(&pg_ni)
+                            .get(&ni)
                             .copied()
                             .unwrap_or(0)
                     })
@@ -329,11 +327,10 @@ impl<'a> FunctionContextBuilder<'a> {
         let raw_betweenness: Vec<f64> = func_node_idxs
             .iter()
             .map(|&ni| {
-                let pg_ni: petgraph::stable_graph::NodeIndex = ni.into();
                 self.graph
                     .primitives()
                     .betweenness
-                    .get(&pg_ni)
+                    .get(&ni)
                     .copied()
                     .unwrap_or(0.0)
             })
@@ -376,12 +373,11 @@ impl<'a> FunctionContextBuilder<'a> {
                     .copied()
                     .unwrap_or(0.0);
 
-                let pg_ni: petgraph::stable_graph::NodeIndex = ni.into();
                 let call_depth = self
                     .graph
                     .primitives()
                     .call_depth
-                    .get(&pg_ni)
+                    .get(&ni)
                     .copied()
                     .unwrap_or(0);
 

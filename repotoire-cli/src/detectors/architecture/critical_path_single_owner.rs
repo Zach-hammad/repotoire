@@ -108,10 +108,9 @@ impl Detector for CriticalPathSingleOwnerDetector {
             };
             let file_path = gi.resolve(node.file_path).to_string();
 
-            let pg_idx: petgraph::stable_graph::NodeIndex = (*idx).into();
-            let pr = prims.page_rank.get(&pg_idx).copied().unwrap_or(0.0);
-            let bt = prims.betweenness.get(&pg_idx).copied().unwrap_or(0.0);
-            let is_ap = prims.articulation_point_set.contains(&pg_idx);
+            let pr = prims.page_rank.get(idx).copied().unwrap_or(0.0);
+            let bt = prims.betweenness.get(idx).copied().unwrap_or(0.0);
+            let is_ap = prims.articulation_point_set.contains(idx);
 
             let e = file_page_rank.entry(file_path.clone()).or_insert(0.0);
             if pr > *e {

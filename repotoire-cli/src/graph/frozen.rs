@@ -95,17 +95,36 @@ impl CodeGraph {
             .collect();
         let csr = CsrStorage::build(nodes.len(), &csr_edges);
 
-        // Step 5: Build indexes (uses shim StableGraph internally for now)
+        // Step 5: Build indexes (without primitives — those need &CodeGraph)
         let indexes = GraphIndexes::build_from_vecs(&nodes, &edges, &node_index, co_change);
 
-        Self {
+        // Step 6: Build CodeGraph struct (without primitives yet)
+        let mut result = Self {
             nodes,
             csr,
             node_index,
             edges,
             extra_props,
             indexes,
-        }
+        };
+
+        // Step 7: Compute primitives using &CodeGraph, then assign them.
+        // We extract the index data we need to avoid borrowing &result and &mut result.indexes
+        // simultaneously. GraphPrimitives::compute() reads from CodeGraph (nodes, CSR).
+        let primitives = super::primitives::GraphPrimitives::compute(
+            &result,
+            &result.indexes.functions.clone(),
+            &result.indexes.files.clone(),
+            &result.indexes.all_call_edges.clone(),
+            &result.indexes.all_import_edges.clone(),
+            &result.indexes.call_callers.clone(),
+            &result.indexes.call_callees.clone(),
+            result.indexes.edge_fingerprint,
+            co_change,
+        );
+        result.indexes.set_primitives(primitives);
+
+        result
     }
 
     /// Create a CodeGraph from pre-built parts (used by persistence load).
@@ -392,28 +411,32 @@ impl CodeGraph {
     }
 
     pub fn immediate_dominator(&self, idx: NodeIndex) -> Option<NodeIndex> {
-        let pg: petgraph::stable_graph::NodeIndex = idx.into();
-        self.indexes.primitives.idom.get(&pg).map(|&v| NodeIndex::from(v))
+        self.indexes.primitives.idom.get(&idx).copied()
     }
 
-    pub fn dominated_by(&self, _idx: NodeIndex) -> &[NodeIndex] {
-        // Note: primitives stores petgraph::NodeIndex, so we can't return &[NodeIndex] zero-copy.
-        // Callers use the primitives() accessor directly instead (with .into() conversion).
-        // This will be fixed in Task 7 when primitives migrates to our NodeIndex.
-        EMPTY_NODE_SLICE
+    pub fn dominated_by(&self, idx: NodeIndex) -> &[NodeIndex] {
+        self.indexes
+            .primitives
+            .dominated
+            .get(&idx)
+            .map(|v| v.as_slice())
+            .unwrap_or(EMPTY_NODE_SLICE)
     }
 
-    pub fn domination_frontier(&self, _idx: NodeIndex) -> &[NodeIndex] {
-        // Same as dominated_by — see comment above.
-        EMPTY_NODE_SLICE
+    pub fn domination_frontier(&self, idx: NodeIndex) -> &[NodeIndex] {
+        self.indexes
+            .primitives
+            .frontier
+            .get(&idx)
+            .map(|v| v.as_slice())
+            .unwrap_or(EMPTY_NODE_SLICE)
     }
 
     pub fn dominator_depth(&self, idx: NodeIndex) -> usize {
-        let pg: petgraph::stable_graph::NodeIndex = idx.into();
         self.indexes
             .primitives
             .dom_depth
-            .get(&pg)
+            .get(&idx)
             .copied()
             .unwrap_or(0)
     }
@@ -423,98 +446,90 @@ impl CodeGraph {
     }
 
     pub fn is_articulation_point(&self, idx: NodeIndex) -> bool {
-        let pg: petgraph::stable_graph::NodeIndex = idx.into();
         self.indexes
             .primitives
             .articulation_point_set
-            .contains(&pg)
+            .contains(&idx)
     }
 
-    /// Articulation points (returns petgraph NodeIndex — will be migrated in Task 7).
-    pub fn articulation_points(&self) -> &[petgraph::stable_graph::NodeIndex] {
+    /// Articulation points (our NodeIndex).
+    pub fn articulation_points(&self) -> &[NodeIndex] {
         &self.indexes.primitives.articulation_points
     }
 
-    /// Bridges (returns petgraph NodeIndex pairs — will be migrated in Task 7).
-    pub fn bridges(&self) -> &[(petgraph::stable_graph::NodeIndex, petgraph::stable_graph::NodeIndex)] {
+    /// Bridges (our NodeIndex pairs).
+    pub fn bridges(&self) -> &[(NodeIndex, NodeIndex)] {
         &self.indexes.primitives.bridges
     }
 
     pub fn separation_sizes(&self, idx: NodeIndex) -> Option<&[usize]> {
-        let pg: petgraph::stable_graph::NodeIndex = idx.into();
         self.indexes
             .primitives
             .component_sizes
-            .get(&pg)
+            .get(&idx)
             .map(|v| v.as_slice())
     }
 
-    /// Call cycles (returns petgraph NodeIndex — will be migrated in Task 7).
-    pub fn call_cycles(&self) -> &[Vec<petgraph::stable_graph::NodeIndex>] {
+    /// Call cycles (our NodeIndex).
+    pub fn call_cycles(&self) -> &[Vec<NodeIndex>] {
         &self.indexes.primitives.call_cycles
     }
 
     pub fn page_rank(&self, idx: NodeIndex) -> f64 {
-        let pg: petgraph::stable_graph::NodeIndex = idx.into();
         self.indexes
             .primitives
             .page_rank
-            .get(&pg)
+            .get(&idx)
             .copied()
             .unwrap_or(0.0)
     }
 
     pub fn betweenness(&self, idx: NodeIndex) -> f64 {
-        let pg: petgraph::stable_graph::NodeIndex = idx.into();
         self.indexes
             .primitives
             .betweenness
-            .get(&pg)
+            .get(&idx)
             .copied()
             .unwrap_or(0.0)
     }
 
     pub fn call_depth(&self, idx: NodeIndex) -> usize {
-        let pg: petgraph::stable_graph::NodeIndex = idx.into();
         self.indexes
             .primitives
             .call_depth
-            .get(&pg)
+            .get(&idx)
             .copied()
             .unwrap_or(0)
     }
 
     pub fn weighted_page_rank(&self, idx: NodeIndex) -> f64 {
-        let pg: petgraph::stable_graph::NodeIndex = idx.into();
         self.indexes
             .primitives
             .weighted_page_rank
-            .get(&pg)
+            .get(&idx)
             .copied()
             .unwrap_or(0.0)
     }
 
     pub fn weighted_betweenness(&self, idx: NodeIndex) -> f64 {
-        let pg: petgraph::stable_graph::NodeIndex = idx.into();
         self.indexes
             .primitives
             .weighted_betweenness
-            .get(&pg)
+            .get(&idx)
             .copied()
             .unwrap_or(0.0)
     }
 
     pub fn community(&self, idx: NodeIndex) -> Option<usize> {
-        let pg: petgraph::stable_graph::NodeIndex = idx.into();
-        self.indexes.primitives.community.get(&pg).copied()
+        self.indexes.primitives.community.get(&idx).copied()
     }
 
     pub fn graph_modularity(&self) -> f64 {
         self.indexes.primitives.modularity
     }
 
-    /// Hidden coupling (returns petgraph NodeIndex — will be migrated in Task 7).
-    pub fn hidden_coupling(&self) -> &[(petgraph::stable_graph::NodeIndex, petgraph::stable_graph::NodeIndex, f32, f32, f32)] {
+    /// Hidden coupling (our NodeIndex).
+    pub fn hidden_coupling(&self) -> &[(NodeIndex, NodeIndex, f32, f32, f32)] {
         &self.indexes.primitives.hidden_coupling
     }
 

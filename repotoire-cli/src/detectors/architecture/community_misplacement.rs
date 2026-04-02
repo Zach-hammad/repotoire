@@ -131,8 +131,7 @@ impl Detector for CommunityMisplacementDetector {
         let mut communities: HashMap<usize, Vec<crate::graph::node_index::NodeIndex>> = HashMap::new();
 
         for &idx in graph.functions_idx() {
-            let pg_idx: petgraph::stable_graph::NodeIndex = idx.into();
-            if let Some(community_id) = graph.primitives().community.get(&pg_idx).copied() {
+            if let Some(community_id) = graph.primitives().community.get(&idx).copied() {
                 communities.entry(community_id).or_default().push(idx);
             }
         }

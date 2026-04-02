@@ -98,11 +98,10 @@ impl Detector for TemporalBottleneckDetector {
         let entries: Vec<(crate::graph::node_index::NodeIndex, f64)> = functions
             .iter()
             .map(|&idx| {
-                let pg_idx: petgraph::stable_graph::NodeIndex = idx.into();
                 let wbw = graph
                     .primitives()
                     .weighted_betweenness
-                    .get(&pg_idx)
+                    .get(&idx)
                     .copied()
                     .unwrap_or(0.0);
                 (idx, wbw)
@@ -135,11 +134,10 @@ impl Detector for TemporalBottleneckDetector {
         let unweighted_entries: Vec<f64> = entries
             .iter()
             .map(|&(idx, _)| {
-                let pg_idx: petgraph::stable_graph::NodeIndex = idx.into();
                 graph
                     .primitives()
                     .betweenness
-                    .get(&pg_idx)
+                    .get(&idx)
                     .copied()
                     .unwrap_or(0.0)
             })

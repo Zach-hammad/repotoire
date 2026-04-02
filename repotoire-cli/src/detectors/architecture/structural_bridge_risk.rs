@@ -120,7 +120,7 @@ impl Detector for StructuralBridgeRiskDetector {
                 continue;
             }
 
-            let node = match graph.node_idx(crate::graph::node_index::NodeIndex::from(ap_idx)) {
+            let node = match graph.node_idx(ap_idx) {
                 Some(n) => n,
                 None => continue,
             };

@@ -98,11 +98,10 @@ impl Detector for SinglePointOfFailureDetector {
         let mut all_ranks: Vec<f64> = functions
             .iter()
             .map(|&idx| {
-                let pg_idx: petgraph::stable_graph::NodeIndex = idx.into();
                 graph
                     .primitives()
                     .page_rank
-                    .get(&pg_idx)
+                    .get(&idx)
                     .copied()
                     .unwrap_or(0.0)
             })
@@ -115,11 +114,10 @@ impl Detector for SinglePointOfFailureDetector {
         const ENTRY_POINT_NAMES: &[&str] = &["main", "run", "start", "init"];
 
         for &func_idx in functions {
-            let pg_func: petgraph::stable_graph::NodeIndex = func_idx.into();
             let dominated = graph
                 .primitives()
                 .dominated
-                .get(&pg_func)
+                .get(&func_idx)
                 .map(|v| v.as_slice())
                 .unwrap_or(&[]);
             let dom_count = dominated.len();
@@ -152,13 +150,13 @@ impl Detector for SinglePointOfFailureDetector {
             let page_rank = graph
                 .primitives()
                 .page_rank
-                .get(&pg_func)
+                .get(&func_idx)
                 .copied()
                 .unwrap_or(0.0);
             let frontier = graph
                 .primitives()
                 .frontier
-                .get(&pg_func)
+                .get(&func_idx)
                 .map(|v| v.as_slice())
                 .unwrap_or(&[]);
 
@@ -182,7 +180,7 @@ impl Detector for SinglePointOfFailureDetector {
             // Collect frontier names (up to 5 for the message).
             let frontier_names: Vec<&str> = frontier
                 .iter()
-                .filter_map(|&idx| graph.node_idx(crate::graph::node_index::NodeIndex::from(idx)).map(|n| n.qn(gi)))
+                .filter_map(|&idx| graph.node_idx(idx).map(|n| n.qn(gi)))
                 .take(5)
                 .collect();
 
@@ -203,7 +201,7 @@ impl Detector for SinglePointOfFailureDetector {
             // Include the function's own file.
             affected.insert(PathBuf::from(node.path(gi)));
             for &dom_idx in dominated {
-                if let Some(dom_node) = graph.node_idx(crate::graph::node_index::NodeIndex::from(dom_idx)) {
+                if let Some(dom_node) = graph.node_idx(dom_idx) {
                     affected.insert(PathBuf::from(dom_node.path(gi)));
                 }
             }

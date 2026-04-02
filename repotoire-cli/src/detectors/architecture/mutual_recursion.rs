@@ -112,7 +112,7 @@ impl Detector for MutualRecursionDetector {
             // Note: call_cycles uses petgraph::NodeIndex; convert to ours for node_idx lookups.
             let total_complexity: u32 = cycle
                 .iter()
-                .filter_map(|&idx| graph.node_idx(crate::graph::node_index::NodeIndex::from(idx)))
+                .filter_map(|&idx| graph.node_idx(idx))
                 .map(|n| n.complexity as u32)
                 .sum();
 
@@ -130,14 +130,14 @@ impl Detector for MutualRecursionDetector {
             // standard pattern for AST visitors, recursive parsers, and tree walkers.
             let cycle_files: HashSet<&str> = cycle
                 .iter()
-                .filter_map(|&idx| graph.node_idx(crate::graph::node_index::NodeIndex::from(idx)).map(|n| n.path(gi)))
+                .filter_map(|&idx| graph.node_idx(idx).map(|n| n.path(gi)))
                 .collect();
             if cycle_files.len() == 1 {
                 // All functions in same file — check for visitor/dispatcher names
                 let has_visitor_name =
                     cycle
                         .iter()
-                        .filter_map(|&idx| graph.node_idx(crate::graph::node_index::NodeIndex::from(idx)))
+                        .filter_map(|&idx| graph.node_idx(idx))
                         .any(|n| {
                             let name = n.qn(gi).to_lowercase();
                             let short = name.rsplit("::").next().unwrap_or(&name);
@@ -174,7 +174,7 @@ impl Detector for MutualRecursionDetector {
             let mut affected_files: HashSet<PathBuf> = HashSet::new();
 
             for &idx in cycle {
-                if let Some(node) = graph.node_idx(crate::graph::node_index::NodeIndex::from(idx)) {
+                if let Some(node) = graph.node_idx(idx) {
                     func_names.push(node.qn(gi).to_string());
                     affected_files.insert(PathBuf::from(node.path(gi)));
                 }
@@ -211,7 +211,7 @@ impl Detector for MutualRecursionDetector {
                 affected_files: affected_files.into_iter().collect(),
                 line_start: cycle
                     .first()
-                    .and_then(|&idx| graph.node_idx(crate::graph::node_index::NodeIndex::from(idx)))
+                    .and_then(|&idx| graph.node_idx(idx))
                     .map(|n| n.line_start),
                 line_end: None,
                 suggested_fix: Some(if cycle_size == 2 {

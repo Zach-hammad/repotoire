@@ -91,7 +91,7 @@ impl GraphIndexes {
     pub fn build(
         graph: &StableGraph<CodeNode, CodeEdge>,
         _node_index: &HashMap<StrKey, NodeIndex>,
-        co_change: Option<&CoChangeMatrix>,
+        _co_change: Option<&CoChangeMatrix>,
     ) -> Self {
         let mut indexes = Self::default();
 
@@ -104,31 +104,7 @@ impl GraphIndexes {
         indexes.import_cycles = compute_import_cycles(graph);
         indexes.edge_fingerprint = compute_edge_fingerprint(graph);
 
-        // Convert our NodeIndex to petgraph's for primitives computation
-        let pg_functions: Vec<petgraph::stable_graph::NodeIndex> =
-            indexes.functions.iter().map(|idx| to_pg(*idx)).collect();
-        let pg_files: Vec<petgraph::stable_graph::NodeIndex> =
-            indexes.files.iter().map(|idx| to_pg(*idx)).collect();
-        let pg_call_edges: Vec<(petgraph::stable_graph::NodeIndex, petgraph::stable_graph::NodeIndex)> =
-            indexes.all_call_edges.iter().map(|&(s, t)| (to_pg(s), to_pg(t))).collect();
-        let pg_import_edges: Vec<(petgraph::stable_graph::NodeIndex, petgraph::stable_graph::NodeIndex)> =
-            indexes.all_import_edges.iter().map(|&(s, t)| (to_pg(s), to_pg(t))).collect();
-        let pg_callers: HashMap<petgraph::stable_graph::NodeIndex, Vec<petgraph::stable_graph::NodeIndex>> =
-            indexes.call_callers.iter().map(|(k, v)| (to_pg(*k), v.iter().map(|idx| to_pg(*idx)).collect())).collect();
-        let pg_callees: HashMap<petgraph::stable_graph::NodeIndex, Vec<petgraph::stable_graph::NodeIndex>> =
-            indexes.call_callees.iter().map(|(k, v)| (to_pg(*k), v.iter().map(|idx| to_pg(*idx)).collect())).collect();
-
-        indexes.primitives = super::primitives::GraphPrimitives::compute(
-            graph,
-            &pg_functions,
-            &pg_files,
-            &pg_call_edges,
-            &pg_import_edges,
-            &pg_callers,
-            &pg_callees,
-            indexes.edge_fingerprint,
-            co_change,
-        );
+        // Primitives are computed later in CodeGraph::build() after the CSR is ready.
 
         indexes
     }
@@ -308,7 +284,7 @@ impl GraphIndexes {
         nodes: &[CodeNode],
         edges: &[(NodeIndex, NodeIndex, CodeEdge)],
         _node_index: &HashMap<StrKey, NodeIndex>,
-        co_change: Option<&CoChangeMatrix>,
+        _co_change: Option<&CoChangeMatrix>,
     ) -> Self {
         let mut indexes = Self::default();
         let si = global_interner();
@@ -446,62 +422,22 @@ impl GraphIndexes {
             spans.sort_unstable_by_key(|(start, _, _)| *start);
         }
 
-        // Step 4: Build shim StableGraph for primitives (uses petgraph's NodeIndex)
-        let shim = build_shim_stable_graph(nodes, edges);
-
-        // Step 5: Compute expensive analyses
+        // Step 4: Compute expensive analyses
         indexes.import_cycles = compute_import_cycles_from_vecs(nodes, edges);
         indexes.edge_fingerprint = compute_edge_fingerprint_from_vecs(nodes, edges);
 
-        // Convert our NodeIndex slices/maps to petgraph's NodeIndex for primitives
-        let pg_functions: Vec<petgraph::stable_graph::NodeIndex> =
-            indexes.functions.iter().map(|idx| petgraph::stable_graph::NodeIndex::new(idx.index())).collect();
-        let pg_files: Vec<petgraph::stable_graph::NodeIndex> =
-            indexes.files.iter().map(|idx| petgraph::stable_graph::NodeIndex::new(idx.index())).collect();
-        let pg_call_edges: Vec<(petgraph::stable_graph::NodeIndex, petgraph::stable_graph::NodeIndex)> =
-            indexes.all_call_edges.iter().map(|&(s, t)| (petgraph::stable_graph::NodeIndex::new(s.index()), petgraph::stable_graph::NodeIndex::new(t.index()))).collect();
-        let pg_import_edges: Vec<(petgraph::stable_graph::NodeIndex, petgraph::stable_graph::NodeIndex)> =
-            indexes.all_import_edges.iter().map(|&(s, t)| (petgraph::stable_graph::NodeIndex::new(s.index()), petgraph::stable_graph::NodeIndex::new(t.index()))).collect();
-        let pg_callers: HashMap<petgraph::stable_graph::NodeIndex, Vec<petgraph::stable_graph::NodeIndex>> =
-            indexes.call_callers.iter().map(|(k, v)| (petgraph::stable_graph::NodeIndex::new(k.index()), v.iter().map(|idx| petgraph::stable_graph::NodeIndex::new(idx.index())).collect())).collect();
-        let pg_callees: HashMap<petgraph::stable_graph::NodeIndex, Vec<petgraph::stable_graph::NodeIndex>> =
-            indexes.call_callees.iter().map(|(k, v)| (petgraph::stable_graph::NodeIndex::new(k.index()), v.iter().map(|idx| petgraph::stable_graph::NodeIndex::new(idx.index())).collect())).collect();
-
-        indexes.primitives = super::primitives::GraphPrimitives::compute(
-            &shim,
-            &pg_functions,
-            &pg_files,
-            &pg_call_edges,
-            &pg_import_edges,
-            &pg_callers,
-            &pg_callees,
-            indexes.edge_fingerprint,
-            co_change,
-        );
+        // Primitives are computed later in CodeGraph::build() after the CSR is ready,
+        // because they now require &CodeGraph (not a shim StableGraph).
+        // See CodeGraph::build() which calls compute_primitives_on_self().
 
         indexes
     }
-}
 
-/// Build a shim StableGraph from Vec-based data for use with petgraph algorithms
-/// that haven't been migrated yet (primitives, etc.).
-///
-/// The petgraph NodeIndex values will match our NodeIndex values (both are
-/// sequential from 0) since we add nodes in order.
-fn build_shim_stable_graph(
-    nodes: &[CodeNode],
-    edges: &[(NodeIndex, NodeIndex, CodeEdge)],
-) -> StableGraph<CodeNode, CodeEdge> {
-    let mut graph = StableGraph::with_capacity(nodes.len(), edges.len());
-    for node in nodes {
-        graph.add_node(*node);
+    /// Set the pre-computed GraphPrimitives.
+    /// Called by CodeGraph::build() after primitives are computed.
+    pub(crate) fn set_primitives(&mut self, primitives: super::primitives::GraphPrimitives) {
+        self.primitives = primitives;
     }
-    for &(src, tgt, ref edge) in edges {
-        let pg_src = petgraph::stable_graph::NodeIndex::new(src.index());
-        let pg_tgt = petgraph::stable_graph::NodeIndex::new(tgt.index());
-        graph.add_edge(pg_src, pg_tgt, *edge);
-    }
-    graph
 }
 
 /// Compute import cycles from Vec-based data using our hand-rolled Tarjan SCC.
