@@ -12,8 +12,18 @@ pub mod revwalk;
 pub mod sha1;
 pub mod tree;
 
+pub use blame::{blame_file, BlameHunk};
+pub use commit::RawCommit;
+pub use diff::{
+    compute_stats, diff_blobs, diff_trees, diff_trees_with_stats, DiffDelta, DiffHunk, DiffStats,
+    DiffStatus,
+};
 pub use error::GitError;
+pub use object::ObjectType;
 pub use oid::Oid;
+pub use repo::RawRepo;
+pub use revwalk::RevWalk;
+pub use tree::{parse_tree, TreeEntry};
 
 /// Shared test helpers for all raw git submodules.
 #[cfg(test)]
