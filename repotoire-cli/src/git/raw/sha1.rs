@@ -1,5 +1,5 @@
-/// RFC 3174 SHA-1 implementation (hash-only, not for cryptographic use).
-/// Used exclusively for git object ID computation.
+//! RFC 3174 SHA-1 implementation (hash-only, not for cryptographic use).
+//! Used exclusively for git object ID computation.
 
 const H0: u32 = 0x67452301;
 const H1: u32 = 0xEFCDAB89;
@@ -19,14 +19,20 @@ pub struct Sha1 {
     total_len: u64,
 }
 
-impl Sha1 {
-    pub fn new() -> Self {
+impl Default for Sha1 {
+    fn default() -> Self {
         Self {
             state: [H0, H1, H2, H3, H4],
             buffer: [0u8; 64],
             buf_len: 0,
             total_len: 0,
         }
+    }
+}
+
+impl Sha1 {
+    pub fn new() -> Self {
+        Self::default()
     }
 
     pub fn update(&mut self, data: &[u8]) {
@@ -50,7 +56,9 @@ impl Sha1 {
 
         // Process complete 64-byte blocks
         while offset + 64 <= data.len() {
-            let block: [u8; 64] = data[offset..offset + 64].try_into().unwrap();
+            let block: [u8; 64] = data[offset..offset + 64]
+                .try_into()
+                .expect("slice is exactly 64 bytes");
             self.transform(&block);
             offset += 64;
         }

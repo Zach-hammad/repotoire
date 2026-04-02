@@ -2,6 +2,7 @@ pub mod deflate;
 pub mod error;
 pub mod object;
 pub mod oid;
+pub mod pack;
 pub mod pack_index;
 pub mod sha1;
 

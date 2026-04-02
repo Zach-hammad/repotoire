@@ -1,5 +1,5 @@
-/// RFC 1951 DEFLATE decompressor + RFC 1950 zlib framing.
-/// Used exclusively for decompressing git loose objects and packfile entries.
+//! RFC 1951 DEFLATE decompressor + RFC 1950 zlib framing.
+//! Used exclusively for decompressing git loose objects and packfile entries.
 
 use super::error::GitError;
 
@@ -308,12 +308,12 @@ fn build_fixed_lit_len() -> HuffmanTable {
     for i in 280..=287 {
         lengths[i] = 8;
     }
-    HuffmanTable::build(&lengths).unwrap()
+    HuffmanTable::build(&lengths).expect("fixed lit/len table is valid")
 }
 
 fn build_fixed_dist() -> HuffmanTable {
     let lengths = [5u8; 32];
-    HuffmanTable::build(&lengths).unwrap()
+    HuffmanTable::build(&lengths).expect("fixed dist table is valid")
 }
 
 // ── Core inflate ────────────────────────────────────────────────────────────
