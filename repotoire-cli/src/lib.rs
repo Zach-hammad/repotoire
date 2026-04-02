@@ -17,6 +17,7 @@
 #![allow(clippy::type_complexity)]
 
 pub mod ai;
+pub mod baseline;
 pub mod cache;
 pub mod calibrate;
 pub mod classifier;
