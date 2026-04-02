@@ -1160,7 +1160,7 @@ mod tests {
 - [ ] **Step 4: Run tests**
 
 Run: `cargo test raw::repo -- --nocapture`
-Expected: all 7 tests pass
+Expected: all 10 tests pass
 
 - [ ] **Step 5: Commit**
 
