@@ -31,6 +31,92 @@ static SQL_EVIDENCE: LazyLock<Regex> = LazyLock::new(|| {
     .expect("valid regex")
 });
 
+/// Known message consumer patterns (Kafka, RabbitMQ, SQS, Celery, etc.).
+/// Loops processing messages from these consumers are exempt from N+1 detection
+/// because iterating over messages is their intended behavior, not a query-per-item problem.
+const CONSUMER_PATTERNS: &[&str] = &[
+    "consumer.poll",
+    "kafkaconsumer",
+    "@kafka_listener",
+    "consumerrecord",
+    "basic_consume",
+    "@queue_listener",
+    "channel.consume",
+    "receive_message",
+    "sqs.receive_message",
+    "@sqs_listener",
+    "@task",
+    "@celery",
+    // Common iterator patterns in message-processing loops (Python `for x in consumer:`,
+    // JS `for (const x of consumer)`)
+    "in consumer",
+    "of consumer",
+];
+
+/// Function name suffixes that indicate a message consumer context.
+const CONSUMER_FUNCTION_SUFFIXES: &[&str] = &["_handler", "_consumer", "_worker", "_processor"];
+
+/// Check if source text contains consumer/message-processing patterns.
+fn is_consumer_context(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    CONSUMER_PATTERNS.iter().any(|p| lower.contains(p))
+}
+
+/// Check if a function name suggests a message consumer context.
+fn is_consumer_function_name(name: &str) -> bool {
+    let lower = name.to_lowercase();
+    CONSUMER_FUNCTION_SUFFIXES.iter().any(|s| lower.ends_with(s))
+}
+
+/// Node kinds that represent function/method definitions, per language.
+fn function_node_kinds(lang: Language) -> &'static [&'static str] {
+    match lang {
+        Language::Python => &["function_definition"],
+        Language::JavaScript | Language::TypeScript => &[
+            "function_declaration",
+            "method_definition",
+            "arrow_function",
+        ],
+        Language::Rust => &["function_item"],
+        Language::Go => &["function_declaration", "method_declaration"],
+        Language::Java => &["method_declaration"],
+        Language::CSharp => &["method_declaration"],
+        _ => &[],
+    }
+}
+
+/// Walk tree-sitter parents to find the enclosing function/method name.
+fn enclosing_function_name<'a>(node: Node<'a>, source: &'a str, lang: Language) -> Option<&'a str> {
+    let func_kinds = function_node_kinds(lang);
+    let mut current = node;
+    loop {
+        let parent = current.parent()?;
+        if func_kinds.contains(&parent.kind()) {
+            let name_node = parent.child_by_field_name("name")?;
+            return Some(&source[name_node.start_byte()..name_node.end_byte()]);
+        }
+        current = parent;
+    }
+}
+
+/// Walk tree-sitter parents to get the source text of the enclosing function body.
+/// Falls back to the full source if no enclosing function is found.
+fn enclosing_function_text<'a>(node: Node<'a>, source: &'a str, lang: Language) -> &'a str {
+    let func_kinds = function_node_kinds(lang);
+    let mut current = node;
+    loop {
+        match current.parent() {
+            Some(parent) => {
+                if func_kinds.contains(&parent.kind()) {
+                    return &source[parent.start_byte()..parent.end_byte()];
+                }
+                current = parent;
+            }
+            None => return source,
+        }
+    }
+}
+
 /// Known SQL execution method names.
 /// A call must use one of these as its method/function name to be considered
 /// a raw SQL execution. This prevents false positives from calls like
@@ -492,6 +578,24 @@ impl NPlusOneDetector {
         let kind = node.kind();
 
         if Self::is_loop_node(kind, lang) {
+            // Phase 0.5: Consumer pattern exemption — skip loops in message consumer contexts.
+            // Check the enclosing function body (falls back to full file for top-level loops)
+            // for consumer API patterns (e.g. KafkaConsumer, basic_consume, receive_message).
+            let context_text = enclosing_function_text(node, source, lang);
+            if is_consumer_context(context_text) {
+                return;
+            }
+            // Also check the loop iterator text itself for consumer variable names.
+            let loop_text = &source[node.start_byte()..node.end_byte()];
+            if is_consumer_context(loop_text) {
+                return;
+            }
+            if let Some(func_name) = enclosing_function_name(node, source, lang) {
+                if is_consumer_function_name(func_name) {
+                    return;
+                }
+            }
+
             let mut cursor = node.walk();
             for child in node.named_children(&mut cursor) {
                 self.walk_for_n_plus_one(
@@ -576,6 +680,24 @@ impl NPlusOneDetector {
         let kind = node.kind();
 
         if Self::is_loop_node(kind, lang) {
+            // Phase 0.5: Consumer pattern exemption — skip loops in message consumer contexts.
+            // Check the enclosing function body (falls back to full file for top-level loops)
+            // for consumer API patterns (e.g. KafkaConsumer, basic_consume, receive_message).
+            let context_text = enclosing_function_text(node, source, lang);
+            if is_consumer_context(context_text) {
+                return;
+            }
+            // Also check the loop iterator text itself for consumer variable names.
+            let loop_text = &source[node.start_byte()..node.end_byte()];
+            if is_consumer_context(loop_text) {
+                return;
+            }
+            if let Some(func_name) = enclosing_function_name(node, source, lang) {
+                if is_consumer_function_name(func_name) {
+                    return;
+                }
+            }
+
             let mut cursor = node.walk();
             for child in node.named_children(&mut cursor) {
                 self.walk_for_n_plus_one_full(
@@ -1218,6 +1340,68 @@ mod tests {
             findings.len(),
             1,
             "GORM db.First in for range should be flagged"
+        );
+    }
+
+    #[test]
+    fn test_consumer_pattern_detection() {
+        assert!(is_consumer_context("consumer.poll()"));
+        assert!(is_consumer_context("@kafka_listener"));
+        assert!(is_consumer_context("basic_consume"));
+        assert!(is_consumer_context("sqs.receive_message"));
+        assert!(!is_consumer_context("users.find_all()"));
+    }
+
+    #[test]
+    fn test_consumer_function_name_detection() {
+        assert!(is_consumer_function_name("process_messages_handler"));
+        assert!(is_consumer_function_name("kafka_consumer"));
+        assert!(is_consumer_function_name("sqs_worker"));
+        assert!(is_consumer_function_name("event_processor"));
+        assert!(!is_consumer_function_name("get_users"));
+    }
+
+    #[test]
+    fn test_kafka_consumer_loop_exempted() {
+        let detector = NPlusOneDetector::new("/mock/repo");
+        let code = "\
+from kafka import KafkaConsumer
+import sqlite3
+
+consumer = KafkaConsumer('my-topic', bootstrap_servers='localhost:9092')
+
+def process_messages():
+    conn = sqlite3.connect('db.sqlite')
+    for message in consumer:
+        result = conn.execute(\"SELECT * FROM users WHERE id = ?\", (message.value,))
+        process(result)
+";
+        let frameworks: HashSet<Framework> = HashSet::new();
+        let findings =
+            detector.analyze_file(code, Path::new("worker.py"), Language::Python, &frameworks);
+        assert!(
+            findings.is_empty(),
+            "Kafka consumer loop should be exempted from N+1 detection, got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_consumer_function_name_exempted() {
+        let detector = NPlusOneDetector::new("/mock/repo");
+        let code = "\
+def event_processor(messages):
+    conn = sqlite3.connect('db.sqlite')
+    for msg in messages:
+        conn.execute(\"UPDATE status SET processed = 1 WHERE id = ?\", (msg.id,))
+";
+        let frameworks: HashSet<Framework> = HashSet::new();
+        let findings =
+            detector.analyze_file(code, Path::new("worker.py"), Language::Python, &frameworks);
+        assert!(
+            findings.is_empty(),
+            "Function named _processor should be exempted from N+1 detection, got: {:?}",
+            findings.iter().map(|f| &f.title).collect::<Vec<_>>()
         );
     }
 }
