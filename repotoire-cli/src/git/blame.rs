@@ -6,7 +6,6 @@
 use anyhow::{Context, Result};
 use chrono::{TimeZone, Utc};
 use dashmap::DashMap;
-use git2::{BlameOptions, Repository};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -14,6 +13,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;
+
+use crate::git::raw::{blame_file as raw_blame_file, RawRepo};
 
 /// Cached blame entry with file modification time.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -131,7 +132,7 @@ pub struct BlameInfo {
 
 /// Git blame analyzer with file-level caching.
 pub struct GitBlame {
-    repo: Repository,
+    repo: RawRepo,
     repo_path: PathBuf,
     /// In-memory cache of file blame results
     file_cache: Arc<DashMap<String, Vec<LineBlame>>>,
@@ -144,9 +145,9 @@ pub struct GitBlame {
 impl GitBlame {
     /// Open a repository for blame analysis.
     pub fn open(path: &Path) -> Result<Self> {
-        let repo = Repository::discover(path)
+        let repo = RawRepo::discover(path)
             .with_context(|| format!("Failed to open git repository at {:?}", path))?;
-        let repo_path = repo.workdir().unwrap_or(repo.path()).to_path_buf();
+        let repo_path = repo.workdir().to_path_buf();
 
         // Load disk cache from ~/.cache/repotoire/<repo>/git_cache.json
         let cache_path = crate::cache::git_cache_path(&repo_path);
@@ -200,8 +201,8 @@ impl GitBlame {
                 return;
             }
 
-            // Compute fresh blame
-            let Ok(repo) = Repository::discover(&repo_path) else {
+            // Compute fresh blame — each thread discovers its own repo (RawRepo is not Clone)
+            let Ok(repo) = RawRepo::discover(&repo_path) else {
                 return;
             };
             let Ok(entries) = blame_file_with_repo(&repo, file_path) else {
@@ -239,59 +240,13 @@ impl GitBlame {
             return Ok(vec![]);
         }
 
-        let mut opts = BlameOptions::new();
-        opts.min_line(line_start as usize);
-        opts.max_line(line_end as usize);
+        // Raw module doesn't support line range restriction, so blame the full file and filter
+        let all_entries = self.get_cached_file_blame(file_path)?;
 
-        let blame = self
-            .repo
-            .blame_file(Path::new(file_path), Some(&mut opts))
-            .with_context(|| {
-                format!("Failed to blame {}:{}-{}", file_path, line_start, line_end)
-            })?;
-
-        let mut entries = Vec::new();
-        let mut seen_commits: HashMap<String, LineBlame> = HashMap::new();
-
-        for hunk in blame.iter() {
-            let commit_id = hunk.final_commit_id();
-            let hash = commit_id.to_string();
-            let short_hash = hash[..hash.len().min(12)].to_string();
-
-            let sig = hunk.final_signature();
-            let author = sig.name().unwrap_or("Unknown").to_string();
-            let email = sig.email().unwrap_or("").to_string();
-
-            // Get commit time
-            let timestamp = if let Ok(commit) = self.repo.find_commit(commit_id) {
-                format_git_time(&commit.time())
-            } else {
-                "1970-01-01T00:00:00Z".to_string()
-            };
-
-            let line_no = hunk.final_start_line() as u32;
-            let line_count = hunk.lines_in_hunk() as u32;
-
-            // Merge consecutive hunks from same commit
-            if let Some(existing) = seen_commits.get_mut(&hash) {
-                existing.line_end = (line_no + line_count - 1).max(existing.line_end);
-                existing.line_count = existing.line_end - existing.line_start + 1;
-                continue;
-            }
-            let entry = LineBlame {
-                commit_hash: short_hash,
-                full_hash: hash.clone(),
-                author,
-                author_email: email,
-                timestamp,
-                line_start: line_no,
-                line_end: line_no + line_count - 1,
-                line_count,
-            };
-            seen_commits.insert(hash, entry);
-        }
-
-        entries.extend(seen_commits.into_values());
+        let mut entries: Vec<LineBlame> = all_entries
+            .into_iter()
+            .filter(|e| e.line_end >= line_start && e.line_start <= line_end)
+            .collect();
 
         // Sort by timestamp descending (most recent first)
         entries.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
@@ -301,67 +256,10 @@ impl GitBlame {
 
     /// Get blame information for entire file.
     pub fn blame_file(&self, file_path: &str) -> Result<Vec<LineBlame>> {
-        let blame = self
-            .repo
-            .blame_file(Path::new(file_path), None)
+        let hunks = raw_blame_file(&self.repo, file_path)
             .with_context(|| format!("Failed to blame {}", file_path))?;
 
-        let mut entries = Vec::new();
-        let mut current_hash: Option<String> = None;
-        let mut current_entry: Option<LineBlame> = None;
-
-        for hunk in blame.iter() {
-            let commit_id = hunk.final_commit_id();
-            let hash = commit_id.to_string();
-            let short_hash = hash[..hash.len().min(12)].to_string();
-
-            let sig = hunk.final_signature();
-            let author = sig.name().unwrap_or("Unknown").to_string();
-            let email = sig.email().unwrap_or("").to_string();
-
-            let timestamp = if let Ok(commit) = self.repo.find_commit(commit_id) {
-                format_git_time(&commit.time())
-            } else {
-                "1970-01-01T00:00:00Z".to_string()
-            };
-
-            let line_no = hunk.final_start_line() as u32;
-            let line_count = hunk.lines_in_hunk() as u32;
-
-            // Merge consecutive hunks from same commit
-            if current_hash.as_ref() == Some(&hash) {
-                if let Some(entry) = current_entry.as_mut() {
-                    entry.line_end = line_no + line_count - 1;
-                    entry.line_count = entry.line_end - entry.line_start + 1;
-                    continue;
-                }
-            }
-
-            // Save previous entry
-            if let Some(entry) = current_entry.take() {
-                entries.push(entry);
-            }
-
-            // Start new entry
-            current_hash = Some(hash.clone());
-            current_entry = Some(LineBlame {
-                commit_hash: short_hash,
-                full_hash: hash,
-                author,
-                author_email: email,
-                timestamp,
-                line_start: line_no,
-                line_end: line_no + line_count - 1,
-                line_count,
-            });
-        }
-
-        // Don't forget the last entry
-        if let Some(entry) = current_entry {
-            entries.push(entry);
-        }
-
-        Ok(entries)
+        Ok(hunks_to_line_blames(&hunks))
     }
 
     /// Get cached blame for entire file, or compute and cache it.
@@ -455,38 +353,23 @@ impl GitBlame {
     }
 }
 
-/// Blame a file using a provided repository (for parallel pre-warming).
-fn blame_file_with_repo(repo: &Repository, file_path: &str) -> Result<Vec<LineBlame>> {
-    let blame = repo
-        .blame_file(Path::new(file_path), None)
-        .with_context(|| format!("Failed to blame {}", file_path))?;
-
+/// Convert raw blame hunks to LineBlame entries, merging consecutive hunks from the same commit.
+fn hunks_to_line_blames(hunks: &[crate::git::raw::BlameHunk]) -> Vec<LineBlame> {
     let mut entries = Vec::new();
     let mut current_hash: Option<String> = None;
     let mut current_entry: Option<LineBlame> = None;
 
-    for hunk in blame.iter() {
-        let commit_id = hunk.final_commit_id();
-        let hash = commit_id.to_string();
-        let short_hash = hash[..hash.len().min(12)].to_string();
-
-        let sig = hunk.final_signature();
-        let author = sig.name().unwrap_or("Unknown").to_string();
-        let email = sig.email().unwrap_or("").to_string();
-
-        let timestamp = if let Ok(commit) = repo.find_commit(commit_id) {
-            format_git_time(&commit.time())
-        } else {
-            "1970-01-01T00:00:00Z".to_string()
-        };
-
-        let line_no = hunk.final_start_line() as u32;
-        let line_count = hunk.lines_in_hunk() as u32;
+    for hunk in hunks {
+        let hex = hunk.commit.to_hex();
+        let short_hash = hex[..hex.len().min(12)].to_string();
+        let timestamp = format_epoch_time(hunk.author_time);
+        let line_start = hunk.orig_start_line;
+        let num_lines = hunk.num_lines;
 
         // Merge consecutive hunks from same commit
-        if current_hash.as_ref() == Some(&hash) {
-            if let Some(ref mut entry) = current_entry {
-                entry.line_end = line_no + line_count - 1;
+        if current_hash.as_ref() == Some(&hex) {
+            if let Some(entry) = current_entry.as_mut() {
+                entry.line_end = line_start + num_lines - 1;
                 entry.line_count = entry.line_end - entry.line_start + 1;
                 continue;
             }
@@ -498,16 +381,16 @@ fn blame_file_with_repo(repo: &Repository, file_path: &str) -> Result<Vec<LineBl
         }
 
         // Start new entry
-        current_hash = Some(hash.clone());
+        current_hash = Some(hex.clone());
         current_entry = Some(LineBlame {
             commit_hash: short_hash,
-            full_hash: hash,
-            author,
-            author_email: email,
+            full_hash: hex,
+            author: hunk.author_name.clone(),
+            author_email: hunk.author_email.clone(),
             timestamp,
-            line_start: line_no,
-            line_end: line_no + line_count - 1,
-            line_count,
+            line_start,
+            line_end: line_start + num_lines - 1,
+            line_count: num_lines,
         });
     }
 
@@ -516,12 +399,20 @@ fn blame_file_with_repo(repo: &Repository, file_path: &str) -> Result<Vec<LineBl
         entries.push(entry);
     }
 
-    Ok(entries)
+    entries
 }
 
-/// Format a git timestamp as ISO 8601.
-fn format_git_time(time: &git2::Time) -> String {
-    match Utc.timestamp_opt(time.seconds(), 0).single() {
+/// Blame a file using a provided repository (for parallel pre-warming).
+fn blame_file_with_repo(repo: &RawRepo, file_path: &str) -> Result<Vec<LineBlame>> {
+    let hunks = raw_blame_file(repo, file_path)
+        .with_context(|| format!("Failed to blame {}", file_path))?;
+
+    Ok(hunks_to_line_blames(&hunks))
+}
+
+/// Format an epoch timestamp (seconds since Unix epoch) as ISO 8601.
+fn format_epoch_time(secs: i64) -> String {
+    match Utc.timestamp_opt(secs, 0).single() {
         Some(dt) => dt.to_rfc3339(),
         None => "1970-01-01T00:00:00Z".to_string(),
     }
@@ -531,40 +422,40 @@ fn format_git_time(time: &git2::Time) -> String {
 mod tests {
     use super::*;
     use std::fs;
+    use std::process::Command;
     use tempfile::tempdir;
 
-    fn create_test_repo_with_file() -> Result<(tempfile::TempDir, Repository)> {
+    fn create_test_repo_with_file() -> Result<tempfile::TempDir> {
         let dir = tempdir()?;
-        let repo = Repository::init(dir.path())?;
+        let run = |args: &[&str]| {
+            Command::new("git")
+                .args(args)
+                .current_dir(dir.path())
+                .env("GIT_AUTHOR_NAME", "Test User")
+                .env("GIT_AUTHOR_EMAIL", "test@example.com")
+                .env("GIT_COMMITTER_NAME", "Test User")
+                .env("GIT_COMMITTER_EMAIL", "test@example.com")
+                .output()
+                .expect("git command failed")
+        };
 
-        // Configure user
-        let mut config = repo.config()?;
-        config.set_str("user.name", "Test User")?;
-        config.set_str("user.email", "test@example.com")?;
+        run(&["init"]);
+        run(&["config", "user.name", "Test User"]);
+        run(&["config", "user.email", "test@example.com"]);
 
         // Create file with multiple lines
         let content = "line 1\nline 2\nline 3\nline 4\nline 5\n";
         fs::write(dir.path().join("test.py"), content)?;
 
-        // Commit
-        {
-            let sig = repo.signature()?;
-            let tree_id = {
-                let mut index = repo.index()?;
-                index.add_path(Path::new("test.py"))?;
-                index.write()?;
-                index.write_tree()?
-            };
-            let tree = repo.find_tree(tree_id)?;
-            repo.commit(Some("HEAD"), &sig, &sig, "Add test file", &tree, &[])?;
-        }
+        run(&["add", "test.py"]);
+        run(&["commit", "-m", "Add test file"]);
 
-        Ok((dir, repo))
+        Ok(dir)
     }
 
     #[test]
     fn test_blame_file() -> Result<()> {
-        let (dir, _repo) = create_test_repo_with_file()?;
+        let dir = create_test_repo_with_file()?;
         let blame = GitBlame::open(dir.path())?;
 
         let entries = blame.blame_file("test.py")?;
@@ -575,7 +466,7 @@ mod tests {
 
     #[test]
     fn test_blame_lines() -> Result<()> {
-        let (dir, _repo) = create_test_repo_with_file()?;
+        let dir = create_test_repo_with_file()?;
         let blame = GitBlame::open(dir.path())?;
 
         let entries = blame.blame_lines("test.py", 2, 4)?;
@@ -585,7 +476,7 @@ mod tests {
 
     #[test]
     fn test_entity_blame() -> Result<()> {
-        let (dir, _repo) = create_test_repo_with_file()?;
+        let dir = create_test_repo_with_file()?;
         let blame = GitBlame::open(dir.path())?;
 
         let info = blame.get_entity_blame("test.py", 1, 5)?;
@@ -597,7 +488,7 @@ mod tests {
 
     #[test]
     fn test_file_ownership() -> Result<()> {
-        let (dir, _repo) = create_test_repo_with_file()?;
+        let dir = create_test_repo_with_file()?;
         let blame = GitBlame::open(dir.path())?;
 
         let ownership = blame.get_file_ownership("test.py")?;

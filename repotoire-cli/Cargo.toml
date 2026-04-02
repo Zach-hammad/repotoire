@@ -84,9 +84,6 @@ thiserror = "2"
 tracing = "0.1"
 tracing-core = "0.1"
 
-# Git history
-git2 = { version = "0.20", default-features = false, features = ["vendored-libgit2"] }
-
 # Misc
 ignore = "0.4"  # .gitignore support
 dashmap = "6"   # Concurrent hashmap for file cache
