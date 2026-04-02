@@ -18,7 +18,7 @@ Replace the `git2` crate (libgit2 C bindings) with a hand-rolled pure Rust git r
 | Operation | Files | git2 API |
 |-----------|-------|----------|
 | Open repo | blame, history, bootstrap, telemetry | `Repository::discover()` |
-| Walk commits | history, bootstrap, telemetry | `repo.revwalk()`, `Sort::TIME`, `simplify_first_parent()` |
+| Walk commits | history, bootstrap, telemetry | `repo.revwalk()`, `Sort::TIME`, `Sort::REVERSE`, `simplify_first_parent()` |
 | Diff trees | history, bootstrap | `repo.diff_tree_to_tree()`, `diff.deltas()`, `diff.foreach()`, `diff.stats()` |
 | Blame file | blame | `repo.blame_file()`, `BlameOptions` |
 | Read tree | history | `repo.head().peel_to_tree()`, `tree.walk()` |
@@ -176,7 +176,7 @@ Delta chain depth limit: 50 (git default). Use iterative stack, not recursion.
 **Ref resolution** (for `push_head()`):
 1. Read `.git/HEAD` — either `ref: refs/heads/<branch>` or bare 40-hex OID
 2. If symbolic: read `.git/refs/heads/<branch>` file
-3. If not found: search `.git/packed-refs` (parse on first access, sort if `sorted` trait absent, cache in memory)
+3. If not found: search `.git/packed-refs` (parse on first access, sort lexicographically by ref name if `sorted` trait absent in header, cache in memory)
 4. Symbolic ref chains: follow up to 10 levels, error on cycle
 
 **Object lookup** (`find_object(oid)`):
@@ -186,7 +186,9 @@ Delta chain depth limit: 50 (git default). Use iterative stack, not recursion.
 4. For delta objects: resolve chain iteratively (stack-based)
 5. Return `(ObjectType, Vec<u8>)`
 
-**LRU cache policy**: Two-tiered. Trees and commits cached (small, re-accessed during revwalk). Blobs never cached (up to 2MB, typically accessed once). Default cache size: ~16MB.
+**LRU cache policy**: Two-tiered. Trees and commits cached (small, re-accessed during revwalk). Blobs never cached (up to 2MB, typically accessed once). Cache sized by total byte count of stored `Vec<u8>` content — cap at 16MB. On insert, evict LRU entries until under cap. Typical tree objects are 1-10KB, commits are <1KB, so 16MB holds thousands of entries.
+
+**Tag peeling**: If ref resolution yields a tag object (type 4), read the tag and follow the `object` field to the target commit. Annotated tags point to tag objects which point to commits. Peel through up to 10 levels (tags can chain, though rare). Used implicitly — any ref lookup that expects a commit must peel through tags.
 
 **Shallow clone support**: Read `.git/shallow` on open. Store set of grafted OIDs. When walking parents, treat shallow OIDs as root commits (no parents). Don't error on missing parent objects if OID is in the shallow set.
 
@@ -218,7 +220,7 @@ pub struct RawCommit {
     pub author_time: i64,        // epoch seconds
     pub author_tz_offset: i32,   // minutes from UTC
     pub committer_time: i64,
-    pub message: String,         // first line only (repotoire never uses full message)
+    pub message: String,         // first line only — deliberate simplification, repotoire never uses full body
 }
 ```
 
@@ -228,12 +230,14 @@ Parse tree object content (binary):
 
 Repeated entries: `<mode> <name>\0<20-byte-oid>` (no separators, no trailing newline).
 
-Modes (ASCII octal, no leading zeros):
-- `40000` — subtree (directory)
-- `100644` — normal file
-- `100755` — executable
-- `120000` — symlink
-- `160000` — gitlink (submodule)
+Modes are variable-length ASCII octal strings (no zero-padding to fixed width):
+- `40000` — subtree (directory), 5 digits
+- `100644` — normal file, 6 digits
+- `100755` — executable, 6 digits
+- `120000` — symlink, 6 digits
+- `160000` — gitlink (submodule), 6 digits
+
+Parser must handle any mode length — do not assume fixed width.
 
 Output:
 ```rust
@@ -286,12 +290,26 @@ pub struct DiffHunk {
 pub fn diff_blobs(old: &[u8], new: &[u8]) -> Vec<DiffHunk>
 ```
 
-**Diff stats**: `insertions` and `deletions` computed from hunk data. Only computed when requested (lazy).
+**Diff stats**: Computed from hunk data, only when requested.
+```rust
+pub struct DiffStats {
+    pub insertions: usize,
+    pub deletions: usize,
+}
+
+pub fn compute_stats(hunks: &[DiffHunk]) -> DiffStats
+```
+
+**Pathspec matching**: All pathspecs are literal exact matches (no glob patterns). This matches the current code which always calls `disable_pathspec_match(true)`. Pathspec filtering prunes subtrees during tree walk — if a subtree's path prefix doesn't match any pathspec, skip it entirely without reading the tree object.
+
+**Binary detection**: Skipped entirely. The current code sets `skip_binary_check(true)` everywhere. No consumer needs binary file detection.
+
+**SHA-1 verification**: Not performed on object read. The current code sets `strict_hash_verification(false)` for performance. Our implementation follows the same policy — trust the object store, never recompute SHA-1 to verify. SHA-1 is only used for computing the hash when we need to identify objects (e.g., looking up by OID).
 
 **Myers diff implementation** (~200 lines):
 - Forward-only O(ND) algorithm
 - Line-level granularity (split on `\n`)
-- Bail-out heuristic: if edit distance D exceeds N/2, treat as full replacement (protects against pathological cases on large auto-generated files)
+- Bail-out heuristic: if edit distance D exceeds `max(old_lines, new_lines) / 2`, treat as full replacement (all old lines deleted, all new lines inserted). Protects against O(N^2) pathological cases on large auto-generated files.
 - Output: edit script of Equal/Insert/Delete operations with line indices
 
 ### Revwalk (`revwalk.rs`)
@@ -306,11 +324,13 @@ pub struct RevWalk<'repo> {
     heap: BinaryHeap<(i64, Oid)>,   // (timestamp, oid), max-heap = newest first
     seen: HashSet<Oid>,
     first_parent_only: bool,
+    reverse: bool,                   // collect all, then reverse iteration order
 }
 ```
 
 - `push_head()`: resolve HEAD to OID, parse commit for timestamp, push to heap
 - `simplify_first_parent()`: only enqueue `parents[0]`, skip merge parents
+- `set_sorting_reverse()`: collect all OIDs into a vec, reverse at end (oldest-first). Used by `telemetry/config.rs` to find root commit via `Sort::TIME | Sort::REVERSE`.
 - `Iterator::next()`: pop max timestamp from heap, enqueue parents (if not seen), yield OID
 - Shallow awareness: skip parent OIDs that are in the shallow set
 
@@ -445,11 +465,11 @@ Net result: ~89 fewer transitive dependencies, elimination of C build toolchain 
 | Pack index v2 | ~200 |
 | Packfile reader + delta reconstruction | ~400 |
 | Repo open + ref resolution | ~200 |
-| Commit/tree parsing | ~150 |
+| Commit/tree/tag parsing | ~200 |
 | Tree-to-tree diff | ~200 |
 | Myers diff (blob-level) | ~200 |
 | Revwalk | ~150 |
 | Blame | ~300 |
-| **Total implementation** | **~3,250** |
+| **Total implementation** | **~3,300** |
 | Tests (estimated) | ~1,500 |
-| **Grand total** | **~4,750** |
+| **Grand total** | **~4,800** |
