@@ -259,22 +259,35 @@ pub struct StringInterner {
 }
 
 struct InternerInner {
-    /// Append-only chunk arena. Each chunk is a `String` that is never
-    /// reallocated once created. This guarantees that `&str` references
-    /// into existing chunks remain valid even when new chunks are added.
+    /// Append-only chunk arena. Each chunk is a `String` with a fixed
+    /// capacity that is never reallocated once created. New strings are
+    /// appended to the current chunk; when it fills, a new chunk is
+    /// allocated. References into existing chunks remain valid forever.
+    /// This matches lasso::ThreadedRodeo's internal approach.
     chunks: Vec<String>,
-    /// (chunk_index, start, len) for each interned string.
+    /// (chunk_index, start_offset, len) for each interned string.
     spans: Vec<(u16, u32, u32)>,
     /// String hash → StrKey candidates for O(1) dedup.
     map: HashMap<u64, Vec<StrKey>>,
-    /// Current chunk capacity target (grows as needed).
+    /// Current chunk capacity (starts at 64KB, doubles on growth).
     chunk_capacity: usize,
 }
 ```
 
-**Soundness note**: A single `String` arena is unsound because `push_str` can reallocate, invalidating all outstanding `&str` references. The chunk-based design avoids this: each chunk is a fixed `String` that never grows after creation. When a chunk fills, a new chunk is allocated. `resolve()` returns a `&str` pointing into a chunk that will never move. This matches the approach used by `lasso::ThreadedRodeo` internally.
+**Soundness note**: A single `String` arena is unsound because `push_str` can reallocate, invalidating all outstanding `&str` references. The chunk-based design avoids this: each chunk is pre-allocated to a fixed capacity and never grows beyond it. When a chunk fills, a new chunk is created. `resolve()` returns a `&str` pointing into a chunk that will never move.
 
-**Thread safety**: `RwLock<InternerInner>`. `intern()` takes a write lock. `resolve()` takes a read lock — the `&str` returned borrows from the `StringInterner` (not from the lock guard), which is safe because chunks are append-only and never reallocated.
+This pattern is validated by:
+- `lasso::ThreadedRodeo` (uses the same chunk-based arena internally)
+- `elsa` crate (append-only collections where borrows outlive insertions)
+- matklad's interner design (2020) using arena allocation with `&'static str` transmutation
+- The `append-only-vec` crate (arrays-of-pointers, nothing moves on growth)
+
+**Thread safety**: `RwLock<InternerInner>`. `intern()` takes a write lock (rare after initial build phase — most strings are interned during parsing). `resolve()` takes a read lock. The `&str` returned borrows from the `StringInterner` (not from the lock guard) — this is safe because:
+1. Chunks are append-only (never reallocated, never dropped while `StringInterner` lives)
+2. The `&str` lifetime is tied to `&self` (the `StringInterner`), not to the lock guard
+3. A concurrent `intern()` call may add to or create a new chunk, but never touches existing chunk memory
+
+**Alternative considered**: `Vec<Box<str>>` where each string is a separate heap allocation. Simpler but wastes memory on per-allocation overhead (~16 bytes/string for Box metadata). Chunks amortize this.
 
 API surface (unchanged from current):
 - `intern(&self, s: &str) -> StrKey`
@@ -393,3 +406,18 @@ The migration is bottom-up:
 ## Estimated size
 
 ~2,000 lines new/rewritten code. ~500 lines removed (petgraph boilerplate, lasso wrapper).
+
+## References
+
+- [Performance Comparison of Graph Representations (arXiv 2502.13862, Feb 2025)](https://arxiv.org/abs/2502.13862) — 177x loading speedup of custom CSR over petgraph
+- [Amortized Cost in Graph Reordering: Why BFS Ordering Deserves More Attention (ACM 2025)](https://dl.acm.org/doi/10.1145/3733723.3733730) — validates BFS reordering as best cost/benefit
+- [HisOrder: Historical Frontier-Aware Graph Reordering (ACM 2025)](https://dl.acm.org/doi/10.1145/3711708.3723445) — advanced BFS reordering using frontier history
+- [GraphCSR: Space and Time-Efficient Sparse Matrix Representation (ACM WWW 2025)](https://dl.acm.org/doi/10.1145/3696410.3714833) — degree clustering for CSR
+- [VCSC: Value-Compressed Sparse Column (arXiv 2309.04355, updated 2025)](https://arxiv.org/abs/2309.04355) — delta-encoding of index arrays (future optimization)
+- [GBBS: Theoretically Efficient Parallel Graph Algorithms (TOPC 2021)](https://ldhulipala.github.io/papers/gbbs_topc.pdf) — canonical CSR two-phase design
+- [Beamer: Reducing PageRank Communication via Propagation Blocking (IPDPS 2017)](https://scottbeamer.net/pubs/beamer-ipdps2017.pdf) — cache-friendly PageRank
+- [Beamer: Understanding and Improving Graph Algorithm Performance (UC Berkeley Thesis, 2016)](https://www2.eecs.berkeley.edu/Pubs/TechRpts/2016/EECS-2016-153.pdf) — direction-optimizing BFS, locality analysis
+- [graph_builder crate (Neo4j labs)](https://crates.io/crates/graph_builder) — Rust reference implementation of builder→CSR pattern
+- [matklad: Fast and Simple Rust Interner (2020)](https://matklad.github.io/2020/03/22/fast-simple-rust-interner.html) — interner design patterns
+- [elsa crate (Manishearth)](https://github.com/Manishearth/elsa) — append-only collections with stable borrows
+- [Interning for 2000x compression (March 2025)](https://gendignoux.com/blog/2025/03/03/rust-interning-2000x.html) — u32 indices, per-type interners
