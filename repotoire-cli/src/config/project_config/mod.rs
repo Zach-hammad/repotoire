@@ -292,6 +292,10 @@ pub struct DetectorConfigOverride {
     /// Keys depend on the detector (e.g., method_count, loc, max_params)
     #[serde(default)]
     pub thresholds: HashMap<String, ThresholdValue>,
+
+    /// Minimum confidence level required to report findings from this detector
+    #[serde(default)]
+    pub confidence_threshold: Option<crate::models::Confidence>,
 }
 
 /// A threshold value can be an integer, float, or boolean

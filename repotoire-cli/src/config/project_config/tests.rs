@@ -353,3 +353,18 @@ skip_detectors = ["dead-code", "unused-import"]
     );
     assert_eq!(config.defaults.skip_detectors.len(), 2);
 }
+
+#[test]
+fn test_detector_config_confidence_threshold() {
+    let toml_str = r#"
+[detectors.hidden-n-plus-one]
+confidence_threshold = "high"
+enabled = true
+severity = "medium"
+"#;
+    let config: ProjectConfig = basic_toml::from_str(toml_str).unwrap();
+    let det = config.detectors.get("hidden-n-plus-one").unwrap();
+    assert_eq!(det.confidence_threshold, Some(crate::models::Confidence::High));
+    assert_eq!(det.enabled, Some(true));
+    assert_eq!(det.severity, Some(crate::models::Severity::Medium));
+}
