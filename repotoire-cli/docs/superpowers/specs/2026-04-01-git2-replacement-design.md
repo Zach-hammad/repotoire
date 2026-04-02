@@ -139,7 +139,7 @@ Critical: must handle 64-bit offsets or repos with >4GB packs (linux kernel) bre
 
 Read objects from `.git/objects/pack/*.pack` files.
 
-**Header**: `PACK` magic (4 bytes) + version u32 BE (must be 2) + object count u32 BE.
+**Header**: `PACK` magic (4 bytes) + version u32 BE + object count u32 BE. Accept version 2 only. Explicitly reject version 3 (SHA-256 packs) with a clear error rather than silently misinterpreting.
 
 **Object entry at offset**:
 1. Parse variable-length type+size header. First byte: bits [4..6] = 3-bit type, bits [0..3] = 4-bit size. MSB is continuation. Subsequent bytes contribute 7 bits each. Note: first chunk is 4 bits, not 7.
@@ -179,12 +179,15 @@ Delta chain depth limit: 50 (git default). Use iterative stack, not recursion.
 3. If not found: search `.git/packed-refs` (parse on first access, sort lexicographically by ref name if `sorted` trait absent in header, cache in memory)
 4. Symbolic ref chains: follow up to 10 levels, error on cycle
 
+**Alternates support**: On open, read `.git/objects/info/alternates` if it exists. Each line is a path to another object directory. Chain resolution: alternates can have their own alternates files — follow recursively with cycle detection (cap at 5 levels). Object lookup searches the local store first, then each alternate in order. Common in CI (`actions/checkout --reference`), `git clone --shared`, and forked repos.
+
 **Object lookup** (`find_object(oid)`):
 1. Check LRU cache (trees + commits only, not blobs)
 2. Try loose: `objects/xx/yy...` path
 3. Try each pack index: binary search for OID, read from packfile at offset
-4. For delta objects: resolve chain iteratively (stack-based)
-5. Return `(ObjectType, Vec<u8>)`
+4. Try each alternate's loose objects and pack indices
+5. For delta objects: resolve chain iteratively (stack-based)
+6. Return `(ObjectType, Vec<u8>)`
 
 **LRU cache policy**: Two-tiered. Trees and commits cached (small, re-accessed during revwalk). Blobs never cached (up to 2MB, typically accessed once). Cache sized by total byte count of stored `Vec<u8>` content — cap at 16MB. On insert, evict LRU entries until under cap. Typical tree objects are 1-10KB, commits are <1KB, so 16MB holds thousands of entries.
 
@@ -261,6 +264,7 @@ Replaces `repo.diff_tree_to_tree()`.
 - Same name + different OID = modified. If both are subtrees, recurse. If blob, emit Modified delta.
 - Name only in old tree = Deleted
 - Name only in new tree = Added
+- **Mode 160000 (gitlink/submodule)**: Skip entirely — never recurse into submodule entries. The OID points to a commit in the submodule's object store, not our repo. Matches current `ignore_submodules(true)` behavior.
 
 **Pathspec filtering**: Before recursing into a subtree, check if the subtree's path prefix matches any pathspec. Prune non-matching subtrees without reading their tree objects. This is critical for `fast_pathspec_opts` performance (single-file diffs skip all unrelated subtrees).
 
@@ -300,7 +304,9 @@ pub struct DiffStats {
 pub fn compute_stats(hunks: &[DiffHunk]) -> DiffStats
 ```
 
-**Pathspec matching**: All pathspecs are literal exact matches (no glob patterns). This matches the current code which always calls `disable_pathspec_match(true)`. Pathspec filtering prunes subtrees during tree walk — if a subtree's path prefix doesn't match any pathspec, skip it entirely without reading the tree object.
+**Pathspec matching**: All pathspecs are literal exact matches (no glob patterns). This matches the current code which always calls `disable_pathspec_match(true)`. Multiple pathspecs supported — match if file path equals any pathspec (OR semantics, matching `get_hunks_for_paths` which adds multiple paths via `diff_opts.pathspec(path)` in a loop). Pathspec filtering prunes subtrees during tree walk — if a subtree's path prefix doesn't match any pathspec, skip it entirely without reading the tree object.
+
+**Hunk output**: Zero context lines, no inter-hunk merging. Each Myers edit region produces a separate hunk. This matches the current `context_lines(0)` and `interhunk_lines(0)` settings in `fast_diff_opts()`. Hunks map to the existing `HunkDetail` struct via: `new_start` = `DiffHunk.new_start`, `new_end` = `new_start + new_lines`, `insertions` = `new_lines`, `deletions` = `old_lines`.
 
 **Binary detection**: Skipped entirely. The current code sets `skip_binary_check(true)` everywhere. No consumer needs binary file detection.
 
@@ -330,7 +336,7 @@ pub struct RevWalk<'repo> {
 
 - `push_head()`: resolve HEAD to OID, parse commit for timestamp, push to heap
 - `simplify_first_parent()`: only enqueue `parents[0]`, skip merge parents
-- `set_sorting_reverse()`: collect all OIDs into a vec, reverse at end (oldest-first). Used by `telemetry/config.rs` to find root commit via `Sort::TIME | Sort::REVERSE`.
+- `find_root_commit()`: dedicated helper for `telemetry/config.rs` use case (`Sort::TIME | Sort::REVERSE` + `.next()`). Walks first-parent chain to the root commit (zero parents) without collecting the entire history. O(depth) instead of O(N) — avoids performance regression on large repos where collecting + reversing the full revwalk would be expensive.
 - `Iterator::next()`: pop max timestamp from heap, enqueue parents (if not seen), yield OID
 - Shallow awareness: skip parent OIDs that are in the shallow set
 
@@ -369,7 +375,7 @@ pub struct BlameHunk {
 - LRU object cache behind `Mutex<LruCache<Oid, (ObjectType, Vec<u8>)>>`
 - Packed-refs parsed once, stored as `Vec<(String, Oid)>`, immutable after init
 
-This eliminates the current pattern of opening N `Repository::discover()` handles in the blame prewarm parallel loop.
+This eliminates the current pattern of opening N `Repository::discover()` handles in the blame prewarm parallel loop. `GitBlame::open()` will take an `Arc<RawRepo>` (or `&RawRepo` with lifetime) rather than discovering its own repository — all blame threads share the same mmapped packfiles and object cache.
 
 ## Error Handling
 
@@ -424,7 +430,7 @@ Incremental, not big-bang. git2 and raw/ coexist during migration.
 3. **Swap `classifier/bootstrap.rs`** — revwalk + diff for fix-commit and stable-file detection.
 4. **Swap `history.rs`** — the bulk. Revwalk, diff, tree walk, hunks, churn. Replace `GitHistory` internals to use `RawRepo`.
 5. **Swap `blame.rs`** — most complex. Replace `GitBlame` internals with raw blame algorithm.
-6. **Swap tests** — replace `Repository::init()` test helpers with `Command::new("git")` setup.
+6. **Swap tests** — replace `Repository::init()` test helpers with `Command::new("git")` setup. Note: this adds a runtime dependency on the `git` binary for tests only (not for production). CI environments already have git installed. Consider a minimal `RawRepo::init_for_test()` helper that creates bare `.git/` structure (HEAD, objects/, refs/) to avoid the external dependency if test speed is a concern.
 7. **Remove `git2`** from Cargo.toml. Delete golden tests. Verify `cargo tree` shows ~89 fewer deps.
 
 Each step is a separate commit. The codebase compiles and tests pass at every step.
@@ -434,7 +440,8 @@ Each step is a separate commit. The codebase compiles and tests pass at every st
 - **Commit-graph file reader**: 6-10x revwalk speedup on large repos. Flat binary format with pre-computed parent OIDs and generation numbers. Worth adding after v1 is stable.
 - **Multi-pack-index (MIDX)**: Modern repos from GitHub have these. v1 falls back to scanning individual .idx files. MIDX avoids opening N index files.
 - **SHA-256 support**: Parameterize hash length (20 vs 32 bytes). Not needed today — no major hosting platform supports SHA-256 repos yet.
-- **Replace refs**: `refs/replace/` for object substitution. libgit2 still doesn't support this. Low priority.
+- **Replace refs**: `refs/replace/` for object substitution. libgit2 still doesn't support this. Low priority. Note: repos using replace refs will get original objects instead of replacements — a known behavioral divergence from git CLI (but matching git2 behavior).
+- **Grafts** (`.git/info/grafts`): Deprecated in favor of `git replace`, but some older repos may have them. Very low priority.
 
 ## Dependencies Removed
 
