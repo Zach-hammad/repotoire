@@ -12,7 +12,7 @@
 //!
 //! # Pipeline stages
 //!
-//! Each call to `analyze()` runs 8 stages in order:
+//! Each call to `analyze()` runs 9 stages in order:
 //!
 //! 1. **Collect** — walk the repo, hash file contents, determine deltas
 //! 2. **Parse** — tree-sitter parse source files in parallel
@@ -21,6 +21,7 @@
 //! 5. **Calibrate** — learn adaptive thresholds + n-gram language model
 //! 6. **Detect** — run all detectors in parallel (with incremental reuse)
 //! 7. **Postprocess** — deduplicate, suppress, filter findings
+//! 7.5. **Filter** — baseline matching, config overrides, delta attribution
 //! 8. **Score** — compute three-pillar health score
 //!
 //! # Incremental analysis
@@ -443,6 +444,37 @@ impl AnalysisEngine {
         let mut final_findings = postprocess_out.findings;
         final_findings.extend(detect_out.cached_findings);
 
+        // Stage 7.5: Filter — baseline matching, config overrides, delta attribution
+        let graph_for_filter = Arc::clone(&frozen.graph);
+        let resolve_qn = move |f: &crate::models::Finding| -> Option<String> {
+            let file = f.affected_files.first()?;
+            let line = f.line_start?;
+            let file_str = file.to_string_lossy();
+            let interner = graph_for_filter.interner();
+            if let Some(idx) = graph_for_filter.function_at_idx(&file_str, line) {
+                if let Some(node) = graph_for_filter.node_idx(idx) {
+                    return Some(interner.resolve(node.qualified_name).to_string());
+                }
+            }
+            for &cls_idx in graph_for_filter.classes_in_file_idx(&file_str) {
+                if let Some(cls) = graph_for_filter.node_idx(cls_idx) {
+                    if cls.line_start <= line && cls.line_end >= line {
+                        return Some(interner.resolve(cls.qualified_name).to_string());
+                    }
+                }
+            }
+            None
+        };
+        let filter_output = filter::filter_stage(filter::FilterInput {
+            findings: final_findings,
+            baseline: None,
+            detector_overrides: &self.project_config.detectors,
+            changed_node_qnames: None,
+            caller_of_changed_qnames: None,
+            resolve_qualified_name: Some(&resolve_qn),
+        });
+        let final_findings = filter_output.findings;
+
         // Stage 8: Score — compute three-pillar health score
         let score_out = timed(&mut timings, "score", || {
             score::score_stage(&score::ScoreInput {
@@ -699,6 +731,37 @@ impl AnalysisEngine {
         // Merge already-postprocessed cached findings with newly postprocessed findings
         let mut final_findings = postprocess_out.findings;
         final_findings.extend(detect_out.cached_findings);
+
+        // Stage 7.5: Filter — baseline matching, config overrides, delta attribution
+        let graph_for_filter = Arc::clone(&frozen.graph);
+        let resolve_qn = move |f: &crate::models::Finding| -> Option<String> {
+            let file = f.affected_files.first()?;
+            let line = f.line_start?;
+            let file_str = file.to_string_lossy();
+            let interner = graph_for_filter.interner();
+            if let Some(idx) = graph_for_filter.function_at_idx(&file_str, line) {
+                if let Some(node) = graph_for_filter.node_idx(idx) {
+                    return Some(interner.resolve(node.qualified_name).to_string());
+                }
+            }
+            for &cls_idx in graph_for_filter.classes_in_file_idx(&file_str) {
+                if let Some(cls) = graph_for_filter.node_idx(cls_idx) {
+                    if cls.line_start <= line && cls.line_end >= line {
+                        return Some(interner.resolve(cls.qualified_name).to_string());
+                    }
+                }
+            }
+            None
+        };
+        let filter_output = filter::filter_stage(filter::FilterInput {
+            findings: final_findings,
+            baseline: None,
+            detector_overrides: &self.project_config.detectors,
+            changed_node_qnames: None,
+            caller_of_changed_qnames: None,
+            resolve_qualified_name: Some(&resolve_qn),
+        });
+        let final_findings = filter_output.findings;
 
         // Merge parse stats: delta parse stats + cached totals for full codebase picture.
         // The delta only parsed changed files, but stats should reflect the whole codebase.

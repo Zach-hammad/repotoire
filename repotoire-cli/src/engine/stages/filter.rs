@@ -5,7 +5,9 @@
 
 use crate::baseline::Baseline;
 use crate::config::DetectorConfigOverride;
-use crate::models::{Attribution, Confidence, Finding, FindingStatus, Severity};
+use crate::models::{Attribution, Confidence, Finding, FindingStatus};
+#[cfg(test)]
+use crate::models::Severity;
 use std::collections::{HashMap, HashSet};
 
 /// Input to the filter stage.
