@@ -6,6 +6,7 @@ pub mod oid;
 pub mod pack;
 pub mod pack_index;
 pub mod repo;
+pub mod revwalk;
 pub mod sha1;
 pub mod tree;
 
