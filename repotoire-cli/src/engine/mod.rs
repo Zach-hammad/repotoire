@@ -37,6 +37,7 @@
 //! enabling cross-process incremental analysis (e.g., between CLI invocations).
 
 pub mod context;
+pub mod delta;
 pub mod diff;
 mod report_context;
 pub mod stages;
