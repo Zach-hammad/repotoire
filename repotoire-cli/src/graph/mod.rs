@@ -4,6 +4,7 @@
 //! No C++ dependencies - builds everywhere!
 
 pub mod interner;
+pub mod node_index;
 pub mod store_models;
 pub mod traits;
 
