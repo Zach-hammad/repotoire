@@ -5,6 +5,62 @@ All notable changes to Repotoire will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0](https://github.com/Zach-hammad/repotoire/compare/v0.6.0...v0.7.0) (2026-04-02)
+
+
+### Features
+
+* **analyze:** apply user FP/TP labels during postprocess ([6ef61d9](https://github.com/Zach-hammad/repotoire/commit/6ef61d912d6f0d8024e21d421c47756a8a5e8876))
+* **cache:** add fingerprint-based auto-invalidation ([cb01e8b](https://github.com/Zach-hammad/repotoire/commit/cb01e8b7cbd93a300bd86594a32db58c9c5e75a0))
+* **cli:** remove clean command, add --force-reanalyze ([0cdab12](https://github.com/Zach-hammad/repotoire/commit/0cdab1277a327bdc3c62d3ee981842615b70b27b))
+* **config:** add Serialize derive to ProjectConfig and nested types ([ea92443](https://github.com/Zach-hammad/repotoire/commit/ea924438c1f138a2cc8fb477bc2031b54b800754))
+* **diff:** add attribution-aware markdown formatter ([cbc43cf](https://github.com/Zach-hammad/repotoire/commit/cbc43cfeb8d93ccb275758874d5c00d25fa3b4ad))
+* **diff:** add hunk-level attribution parser for git diff -U0 ([7cf9eea](https://github.com/Zach-hammad/repotoire/commit/7cf9eeab7dd30b1e767eed0d1780c393b87c8bd7))
+* **diff:** auto-analyze when no cached findings exist ([c63cfb2](https://github.com/Zach-hammad/repotoire/commit/c63cfb29d896f5cd40ab5597b11562ecd2bc53b7))
+* **diff:** show hint when findings exist but are filtered by attribution ([271f725](https://github.com/Zach-hammad/repotoire/commit/271f7253974eba37a4433a8fede1656f2ec660b5))
+* **diff:** wire hunk attribution + update formatters with --all/--changed flags ([2dfa7aa](https://github.com/Zach-hammad/repotoire/commit/2dfa7aa03ef6d106339fff14789e91f4f642c452))
+* enable jemalloc as default allocator ([46c4975](https://github.com/Zach-hammad/repotoire/commit/46c4975e59dd6a03e3d40fe05fef5aec34cbffe7))
+* **engine:** add fingerprint to session cache ([01340ad](https://github.com/Zach-hammad/repotoire/commit/01340ad3ce8fa9a071024cfb6ce65e4eed725d35))
+* **feedback:** add load_label_map() for finding_id → is_tp lookup ([a6217eb](https://github.com/Zach-hammad/repotoire/commit/a6217eb8fff6831c381671545fc6843d9200ce32))
+* **http:** replace ureq with hand-rolled HTTP/1.1 client over rustls ([5ee70e1](https://github.com/Zach-hammad/repotoire/commit/5ee70e1c16cdd031f12e37d386207baf5b9a7ff4))
+* **log:** replace tracing-subscriber with hand-rolled stderr subscriber ([80d454f](https://github.com/Zach-hammad/repotoire/commit/80d454f539e611cc1dd49f78f6c6c9747c34c2a7))
+* **quantize:** replace nalgebra with hand-rolled dense matrix + Householder QR ([a20a7de](https://github.com/Zach-hammad/repotoire/commit/a20a7de6a2d7e5ae6868d7d3f0768eeaeee8588f))
+* **telemetry:** enrich detector_feedback with language, title, reason ([fcf4682](https://github.com/Zach-hammad/repotoire/commit/fcf4682058b15bbaa374e95b71ac6ed46e10efa0))
+* **tui:** replace ratatui + crossterm with hand-rolled mini TUI framework ([f03e4ae](https://github.com/Zach-hammad/repotoire/commit/f03e4aef4eff116e423ff52d91124485db03bbb6))
+
+
+### Bug Fixes
+
+* **cache:** move labels and min-confidence after cache write ([c404095](https://github.com/Zach-hammad/repotoire/commit/c4040954e8c34ca955d3729bf221a21d4a85c0f8))
+* **deps:** migrate bincode 1.3 → bitcode 0.6 ([9743617](https://github.com/Zach-hammad/repotoire/commit/9743617b37670fb28e134f90ef6b28767059ec96))
+* **detectors:** add return/void/two-arg-then exemptions to UnhandledPromiseDetector ([5f297f6](https://github.com/Zach-hammad/repotoire/commit/5f297f6d8480da90df5dab7170927ddc0f747eb8))
+* **detectors:** distinguish async function calls from declarations ([e3b5108](https://github.com/Zach-hammad/repotoire/commit/e3b5108b1c4291fbfbf4da655058b59ab7310f7f))
+* **detectors:** replace regex with word-boundary check, scope .then() to current line ([db25308](https://github.com/Zach-hammad/repotoire/commit/db25308c825064b0ed1922e7ecdb8561c2fdb190))
+* **detectors:** respect enabled=false in repotoire.toml for all detectors ([29a22a4](https://github.com/Zach-hammad/repotoire/commit/29a22a47f53f0c4623af3b9aecf1ae8cdf5e9846))
+* **detectors:** skip module-scoped variables in GlobalVariablesDetector ([be2a938](https://github.com/Zach-hammad/repotoire/commit/be2a9386d3051b3ef19fd9496a8ca82963212bf8))
+* **diff:** address code review feedback ([44a79bb](https://github.com/Zach-hammad/repotoire/commit/44a79bb96cc6fe72386b4f5beb6c0d294b2fda4c))
+* **diff:** handle git renames in hunk attribution ([c94696a](https://github.com/Zach-hammad/repotoire/commit/c94696a7dc53488a2728a1a0bc3cf8a957a7c285))
+* **feedback:** load findings from last_findings.json (not findings.json) ([cbac368](https://github.com/Zach-hammad/repotoire/commit/cbac368e00cc00693b2d5192229fce2560075fc9))
+* **feedback:** read findings from correct cache path ([84c0871](https://github.com/Zach-hammad/repotoire/commit/84c087179ee7e1cb8e3b93e98fce37e39419acf4))
+* **plan:** add explicit emit_output signature update step ([50cbd86](https://github.com/Zach-hammad/repotoire/commit/50cbd86f2f61c10e34b1c14d7e695356ba8998a8))
+* **plan:** format_text takes &SmartDiffResult, safe UTF-8 truncation ([7596d90](https://github.com/Zach-hammad/repotoire/commit/7596d90d29bcbcc4b0914ecbf3ec5df83ad31678))
+* **plan:** inline score delta formatting (was placeholder comment) ([35fcf38](https://github.com/Zach-hammad/repotoire/commit/35fcf3826710094f98ba2d13ea0b11b8a6868f60))
+* **plan:** resolve 4 critical type issues from code review ([6085764](https://github.com/Zach-hammad/repotoire/commit/6085764ab85eb3cb5e04f30c10c85cb4ef1f69ee))
+* **plan:** update existing tests for SmartDiffResult, remove dead count_changed_files ([838305e](https://github.com/Zach-hammad/repotoire/commit/838305e8ceda7771f664a6682b37bc0f7a9470ca))
+* revert jemalloc default + update CLAUDE.md cache docs ([73fd39b](https://github.com/Zach-hammad/repotoire/commit/73fd39bde7d777db1d3ce10eb44e7a01b624f9be))
+* **sql-injection:** require SQL sink context for JS template literals ([6baa88e](https://github.com/Zach-hammad/repotoire/commit/6baa88ee75d484583752e9f9b97aaf9a66269928))
+* **tui:** address all review findings from 5 code reviewers ([418c8c9](https://github.com/Zach-hammad/repotoire/commit/418c8c9346e44f97d4a1ed72dc466915210d6fb5))
+* **tui:** clip text to rect boundaries — prevent content overflow ([8ddf506](https://github.com/Zach-hammad/repotoire/commit/8ddf506f5b93d346040e4d3cedc3ddec47068b3f))
+* **tui:** prevent panic on title truncation in narrow terminals ([8e55e48](https://github.com/Zach-hammad/repotoire/commit/8e55e48ac61c038e6aabb14fbf2cb33f41ba6f18))
+* **tui:** prevent panic when finding line exceeds file length ([e1fc7be](https://github.com/Zach-hammad/repotoire/commit/e1fc7be87c75cea8ad3c7f557ddd9e16cef270f3))
+
+
+### Performance Improvements
+
+* switch incremental findings cache from JSON to bincode ([0553e1a](https://github.com/Zach-hammad/repotoire/commit/0553e1add6b1212a8b5e5db3dc468676b9fffd4b))
+* use foldhash for graph index HashMaps ([e3dc849](https://github.com/Zach-hammad/repotoire/commit/e3dc84927a9a2d454661b87f1713cc925fb952f2))
+* use memchr SIMD-accelerated search in hot security detectors ([d78bc64](https://github.com/Zach-hammad/repotoire/commit/d78bc640ae79547acc49a24db25e02aa2f9ba1cf))
+
 ## [0.6.0](https://github.com/Zach-hammad/repotoire/compare/v0.5.0...v0.6.0) (2026-03-30)
 
 
