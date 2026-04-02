@@ -1,3 +1,4 @@
+pub mod commit;
 pub mod deflate;
 pub mod error;
 pub mod object;
@@ -5,6 +6,7 @@ pub mod oid;
 pub mod pack;
 pub mod pack_index;
 pub mod sha1;
+pub mod tree;
 
 pub use error::GitError;
 pub use oid::Oid;
