@@ -142,7 +142,7 @@ Read objects from `.git/objects/pack/*.pack` files.
 **Header**: `PACK` magic (4 bytes) + version u32 BE + object count u32 BE. Accept version 2 only. Explicitly reject version 3 (SHA-256 packs) with a clear error rather than silently misinterpreting.
 
 **Object entry at offset**:
-1. Parse variable-length type+size header. First byte: bits [4..6] = 3-bit type, bits [0..3] = 4-bit size. MSB is continuation. Subsequent bytes contribute 7 bits each. Note: first chunk is 4 bits, not 7.
+1. Parse variable-length type+size header. First byte: bit 7 = continuation flag, bits 4..=6 (inclusive) = 3-bit type (mask `0x70 >> 4`), bits 0..=3 = 4-bit size (mask `0x0F`). Subsequent bytes contribute 7 bits each. Note: first chunk is 4 bits, not 7.
 2. Based on type:
    - Types 1-4 (commit/tree/blob/tag): zlib decompress `size` bytes of content.
    - Type 6 (OFS_DELTA): parse negative offset (non-standard VLQ with +1 correction on continuation bytes), then zlib decompress delta data. Resolve base object recursively. Apply delta.
@@ -253,7 +253,9 @@ pub struct TreeEntry {
 pub fn parse_tree(data: &[u8]) -> Vec<TreeEntry>
 ```
 
-Tree walk: recursive descent into subtree entries, building full paths with `dir/name` concatenation.
+**Tree walk** (replaces `tree.walk(TreeWalkMode::PreOrder, callback)`): Recursive pre-order traversal yielding `(path_prefix: &str, entry: &TreeEntry)` for every entry. Blob entries (mode != 40000) are the leaf nodes used by `get_tracked_files()`. Subtree entries (mode 40000) are recursed into, prepending `name/` to the path prefix.
+
+**Peel to tree**: Convenience path for `head.peel_to_tree()`. Resolves HEAD ref -> commit OID -> parse commit -> extract `tree_oid` -> read tree object. Handles tag peeling if HEAD points to a tag (rare). Exposed as `repo.head_tree() -> Result<(Oid, Vec<TreeEntry>)>`.
 
 ### Tree-to-Tree Diff (`diff.rs`)
 
@@ -294,7 +296,8 @@ pub struct DiffHunk {
 pub fn diff_blobs(old: &[u8], new: &[u8]) -> Vec<DiffHunk>
 ```
 
-**Diff stats**: Computed from hunk data, only when requested.
+**Diff stats**: Computed from hunk data, which requires running the Myers blob diff. There is no shortcut to get line-level insertion/deletion counts without diffing blob content. Call sites that currently use `diff.stats()` without requesting hunks (e.g., `extract_commit_info`, `get_commit_file_stats`) will implicitly trigger blob decompression + diff. This is acceptable — the cost is bounded by file size (2MB max) and these are already I/O-bound operations.
+
 ```rust
 pub struct DiffStats {
     pub insertions: usize,
