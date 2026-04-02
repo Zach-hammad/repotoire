@@ -13,8 +13,13 @@ Replace petgraph's `StableGraph` and the lasso string interner with purpose-buil
 
 ### Dep reduction impact
 
-- Removes: petgraph (+ fixedbitset, indexmap, hashbrown, equivalent), lasso (+ hashbrown, memchr, etc.)
-- Net: ~25 unique transitive deps eliminated
+- Removes from petgraph: `petgraph`, `fixedbitset`, `indexmap`, `equivalent` (4 unique)
+- Removes from lasso: `lasso`, `ahash`, `allocator-api2`, `lock_api`, `parking_lot_core`, `scopeguard`, `version_check` (7 unique)
+- Shared deps that stay (used by other crates): `hashbrown`, `cfg-if`, `crossbeam-utils`, `serde`, `syn`, etc.
+- `dashmap` stays (direct dep in 8 files — separate removal candidate)
+- **Net: 11 unique transitive deps eliminated (125 → 114)**
+- Also removes: `bitcode`, `bitcode_derive`, `bytemuck` (3 unique) — replaced by hand-rolled zero-copy persistence
+- **Net: 14 unique transitive deps eliminated (125 → 111)**
 
 ### Research backing
 
@@ -75,6 +80,14 @@ fn callers(&self, v: u32) -> &[u32] {
 ```
 
 One multiply, one add, two array reads, one slice. No HashMap, no Vec-of-Vec, no filtering.
+
+### Runtime format: plain u32 arrays
+
+The in-memory CSR uses plain `u32` arrays for both offsets and neighbors. No runtime compression. Neighbor lists are sorted by target NodeIndex within each slot.
+
+At our current scale (50k nodes, 200k edges), the entire CSR fits in ~4MB — well within L3 cache. Runtime decode overhead (even at 5.5 billion ints/sec via SIMD varint) would hurt PageRank's hot loop for zero practical memory benefit at this scale.
+
+Delta encoding is reserved for the **on-disk format** (see Persistence section), where it compresses the file without affecting query performance. The runtime format stays plain u32 — clean `&[NodeIndex]` slices, no decode, no iterator adapters.
 
 ### Memory budget (50k nodes, 200k edges)
 
@@ -340,16 +353,87 @@ for &target in code_graph.callees_idx(node) {
 
 Most primitives already use `GraphQuery` trait methods rather than raw petgraph access, so the change propagates naturally.
 
-## Persistence (serialization)
+## Persistence: hand-rolled zero-copy
 
-Current: `graph/persistence.rs` serializes the `StableGraph` via bitcode + custom Spur→String table.
+Current: `graph/persistence.rs` serializes the `StableGraph` via bitcode + custom Spur→String table. Load requires full deserialization (~1.4s for large repos).
 
-New: Serialize the CSR arrays directly. The format becomes:
-- String table: `Vec<String>` (all interned strings, indexed by StrKey.0)
-- Node array: `Vec<SerializedCodeNode>` (StrKey fields stored as u32 indices)
-- Edge triples: `Vec<(u32, u32, u8)>` (source, target, edge_kind)
+New: **Zero-copy mmap persistence**. No serialization framework (no rkyv, no bitcode, no bincode). The file IS the memory layout — flat arrays written as raw bytes, read back via mmap + pointer cast.
 
-On load: re-intern strings into the global interner (producing new StrKeys), rebuild nodes with new keys, run freeze() to rebuild CSR. This is simpler than the current approach which deserializes a full StableGraph.
+This works because our core data is all plain-old-data:
+- `CodeNode` is `Copy`, all fields are `u32`/`u16`/`u8`/`StrKey(u32)` — no heap pointers
+- `offsets` and `neighbors` are `Vec<u32>` — flat arrays
+- `NodeIndex(u32)` is position-based, not interner-dependent
+
+### File format
+
+```
+bytes 0-3:    magic "RPTG"
+bytes 4-7:    format version (u32 LE)
+bytes 8-15:   node_count (u64 LE)
+bytes 16-23:  offset_count (u64 LE)
+bytes 24-31:  neighbor_count (u64 LE)
+bytes 32-39:  string_table_size (u64 LE)
+bytes 40-47:  aux_section_offset (u64 LE)
+bytes 48+:    string table (length-prefixed strings)
+              nodes array (raw CodeNode bytes, #[repr(C)])
+              offsets array (raw u32 LE)
+              neighbors array (raw u32 LE)
+              auxiliary indexes (functions list, spatial, cycles, fingerprint)
+```
+
+### Save path
+
+```rust
+fn save(graph: &CodeGraph, path: &Path) {
+    // 1. Write header
+    // 2. Write string table: for each StrKey 0..N, write the interned string
+    //    as (u32 length, utf8 bytes)
+    // 3. Write nodes as raw bytes (CodeNode must be #[repr(C)])
+    // 4. Write offsets as raw u32 LE
+    // 5. Write neighbors as raw u32 LE
+    // 6. Write auxiliary indexes (bitcode or hand-rolled)
+}
+```
+
+### Load path
+
+```rust
+fn load(path: &Path) -> CodeGraph {
+    let mmap = unsafe { Mmap::map(&File::open(path)?) };
+    // 1. Validate magic + version
+    // 2. Read string table, re-intern into global interner → build remap table
+    //    (old StrKey → new StrKey)
+    // 3. Cast &[u8] → &[CodeNode] (zero-copy reference into mmap)
+    // 4. One pass over nodes: remap StrKey fields using remap table
+    //    (copy nodes into owned Vec during remap — the only allocation)
+    // 5. Cast offsets slice (true zero-copy — NodeIndex is position-based)
+    // 6. Cast neighbors slice (true zero-copy — NodeIndex is position-based)
+    // 7. Read auxiliary indexes
+}
+```
+
+### What's zero-copy vs what's not
+
+| Component | Zero-copy? | Why |
+|-----------|-----------|-----|
+| `offsets` | Yes | Position-based u32 indices, no remapping |
+| `neighbors` | Yes | NodeIndex values, position-based |
+| `nodes` | **No** — copied once | StrKey fields need remapping (old→new interner keys) |
+| String table | No — re-interned | StrKey assignment is process-local |
+| Auxiliary indexes | No — deserialized | Small, complex structure (HashMaps, Vecs of tuples) |
+
+The topology (offsets + neighbors) — which is 80%+ of the file — is true zero-copy. Nodes are copied once for StrKey remapping. String table is re-interned. Net result: load time drops from ~1.4s (full bitcode deserialize) to ~1ms (mmap + one node-array pass).
+
+### Requirements
+
+- `CodeNode` must be `#[repr(C)]` for deterministic layout across compilations
+- `CodeNode` must have no padding-dependent behavior (already true — all fields are primitives)
+- Same-machine only (endianness must match) — fine for a local cache file
+- Cache already invalidates on binary version change, so format evolution is handled
+
+### Future: on-disk delta encoding
+
+Format version 2+ can delta-encode the neighbors array on disk. The load path decodes into plain u32 before use. The runtime format always stays plain u32 — delta encoding is purely a disk optimization. This is why `format_version` is in the header.
 
 ## Migration strategy
 
@@ -405,7 +489,7 @@ The migration is bottom-up:
 
 ## Estimated size
 
-~2,000 lines new/rewritten code. ~500 lines removed (petgraph boilerplate, lasso wrapper).
+~2,200 lines new/rewritten code. ~500 lines removed (petgraph boilerplate, lasso wrapper). Net: ~1,700 lines added.
 
 ## References
 
