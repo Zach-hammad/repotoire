@@ -558,7 +558,7 @@ pub fn load_project_config(repo_path: &Path) -> ProjectConfig {
 /// Load configuration from a TOML file
 fn load_toml_config(path: &Path) -> anyhow::Result<ProjectConfig> {
     let content = std::fs::read_to_string(path)?;
-    let config: ProjectConfig = toml::from_str(&content)?;
+    let config: ProjectConfig = basic_toml::from_str(&content)?;
     Ok(config)
 }
 

@@ -115,7 +115,7 @@ workers = 4
 skip_detectors = ["debug-code"]
 "#;
 
-    let config: ProjectConfig = toml::from_str(toml_content).expect("parse project config");
+    let config: ProjectConfig = basic_toml::from_str(toml_content).expect("parse project config");
 
     // Check detectors
     assert!(config.is_detector_enabled("god-class"));
@@ -238,7 +238,7 @@ security_multiplier = 3.0
 [exclude]
 paths = ["generated/"]
 "#;
-    let config: ProjectConfig = toml::from_str(toml_str).expect("parse scoring config");
+    let config: ProjectConfig = basic_toml::from_str(toml_str).expect("parse scoring config");
     assert_eq!(config.project_type, Some(ProjectType::Library));
     assert!((config.scoring.security_multiplier - 3.0).abs() < 0.001);
     assert_eq!(config.exclude.paths, vec!["generated/"]);
@@ -259,7 +259,7 @@ fn test_project_config_all_project_types_parse() {
         ("mobile", ProjectType::Mobile),
     ] {
         let toml_str = format!("project_type = \"{}\"", type_str);
-        let config: ProjectConfig = toml::from_str(&toml_str).expect("parse project type config");
+        let config: ProjectConfig = basic_toml::from_str(&toml_str).expect("parse project type config");
         assert_eq!(
             config.project_type,
             Some(expected),
@@ -272,7 +272,7 @@ fn test_project_config_all_project_types_parse() {
 #[test]
 fn test_unknown_project_type_is_error() {
     let toml_str = r#"project_type = "unknown_type""#;
-    let result = toml::from_str::<ProjectConfig>(toml_str);
+    let result = basic_toml::from_str::<ProjectConfig>(toml_str);
     assert!(result.is_err());
 }
 
@@ -312,7 +312,7 @@ enabled = true
 [defaults]
 skip_detectors = ["debug-code"]
 "#;
-    let config: ProjectConfig = toml::from_str(toml_str).expect("parse disabled detectors config");
+    let config: ProjectConfig = basic_toml::from_str(toml_str).expect("parse disabled detectors config");
     let disabled = config.disabled_detectors();
     assert!(disabled.contains(&"god-class".to_string()));
     assert!(disabled.contains(&"debug-code".to_string()));
@@ -333,7 +333,7 @@ no_emoji = true
 fail_on = "medium"
 skip_detectors = ["dead-code", "unused-import"]
 "#;
-    let config: ProjectConfig = toml::from_str(toml_str).expect("parse CLI defaults config");
+    let config: ProjectConfig = basic_toml::from_str(toml_str).expect("parse CLI defaults config");
     assert_eq!(
         config.defaults.format,
         Some(crate::reporters::OutputFormat::Sarif)

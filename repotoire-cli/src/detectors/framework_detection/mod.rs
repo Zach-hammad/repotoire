@@ -599,7 +599,7 @@ fn detect_python_frameworks_from_requirements(content: &str, frameworks: &mut Ha
 
 fn detect_python_frameworks_from_pyproject(content: &str, frameworks: &mut HashSet<Framework>) {
     // Try to parse as TOML
-    if let Ok(pyproject) = toml::from_str::<PyProjectToml>(content) {
+    if let Ok(pyproject) = basic_toml::from_str::<PyProjectToml>(content) {
         // Check project.dependencies
         if let Some(project) = &pyproject.project {
             for dep in &project.dependencies {
@@ -666,7 +666,7 @@ fn detect_python_frameworks_from_pyproject(content: &str, frameworks: &mut HashS
 }
 
 fn detect_rust_frameworks(content: &str, frameworks: &mut HashSet<Framework>) {
-    if let Ok(cargo) = toml::from_str::<CargoToml>(content) {
+    if let Ok(cargo) = basic_toml::from_str::<CargoToml>(content) {
         for dep in cargo.dependencies.keys() {
             match dep.as_str() {
                 "diesel" => {

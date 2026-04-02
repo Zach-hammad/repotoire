@@ -56,7 +56,7 @@ impl UserConfig {
         if let Some(user_config) = Self::user_config_path()
             .filter(|p| p.exists())
             .and_then(|p| std::fs::read_to_string(&p).ok())
-            .and_then(|content| toml::from_str::<UserConfig>(&content).ok())
+            .and_then(|content| basic_toml::from_str::<UserConfig>(&content).ok())
         {
             config.merge(user_config);
         }
@@ -203,7 +203,7 @@ backend = "ollama"
 ollama_url = "http://localhost:11434"
 ollama_model = "codellama"
 "#;
-        let config: UserConfig = toml::from_str(toml_str).expect("parse ollama config");
+        let config: UserConfig = basic_toml::from_str(toml_str).expect("parse ollama config");
         assert_eq!(config.ai.anthropic_api_key.as_deref(), Some("sk-test-123"));
         assert_eq!(config.ai.backend.as_deref(), Some("ollama"));
         assert_eq!(
@@ -223,7 +223,7 @@ ollama_model = "codellama"
 anthropic_api_key = "sk-ant-abc"
 backend = "claude"
 "#;
-        let config: UserConfig = toml::from_str(toml_str).expect("parse claude config");
+        let config: UserConfig = basic_toml::from_str(toml_str).expect("parse claude config");
         assert!(config.has_ai_key());
         assert!(!config.use_ollama());
         assert_eq!(config.ai_backend(), "claude");
@@ -233,7 +233,7 @@ backend = "claude"
     #[test]
     fn test_toml_parsing_minimal() {
         let toml_str = "";
-        let config: UserConfig = toml::from_str(toml_str).expect("parse minimal config");
+        let config: UserConfig = basic_toml::from_str(toml_str).expect("parse minimal config");
         assert!(!config.has_ai_key());
         assert_eq!(config.ai_backend(), "claude");
     }
@@ -241,7 +241,7 @@ backend = "claude"
     #[test]
     fn test_invalid_toml_does_not_crash() {
         let bad_toml = "this is [[ not valid toml {{{}}}";
-        let result = toml::from_str::<UserConfig>(bad_toml);
+        let result = basic_toml::from_str::<UserConfig>(bad_toml);
         assert!(result.is_err());
     }
 
@@ -302,14 +302,14 @@ backend = "claude"
 [telemetry]
 enabled = true
 "#;
-        let config: UserConfig = toml::from_str(toml_str).expect("parse telemetry config");
+        let config: UserConfig = basic_toml::from_str(toml_str).expect("parse telemetry config");
         assert_eq!(config.telemetry.enabled, Some(true));
     }
 
     #[test]
     fn test_toml_parsing_no_telemetry_section() {
         let toml_str = "";
-        let config: UserConfig = toml::from_str(toml_str).expect("parse minimal config");
+        let config: UserConfig = basic_toml::from_str(toml_str).expect("parse minimal config");
         assert_eq!(config.telemetry.enabled, None);
     }
 }
