@@ -131,16 +131,9 @@ pub fn load_or_create_distinct_id() -> Result<String> {
 /// Compute a stable repo ID from the root commit of the git repo at `path`.
 /// Returns `None` if the path is not a git repo or has no commits.
 pub fn compute_repo_id(path: &Path) -> Option<String> {
-    let repo = git2::Repository::discover(path).ok()?;
-    let mut revwalk = repo.revwalk().ok()?;
-    revwalk.push_head().ok()?;
-    // Sort oldest-first so .next() yields the root commit without walking the full chain
-    revwalk
-        .set_sorting(git2::Sort::TIME | git2::Sort::REVERSE)
-        .ok()?;
-
-    let root_oid = revwalk.next()?.ok()?;
-    let hash = root_oid.to_string();
+    let repo = crate::git::raw::RawRepo::discover(path).ok()?;
+    let root_oid = repo.find_root_commit().ok()?;
+    let hash = root_oid.to_hex();
     Some(compute_repo_id_from_hash(&hash))
 }
 
