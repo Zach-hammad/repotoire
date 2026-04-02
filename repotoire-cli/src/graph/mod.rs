@@ -3,8 +3,10 @@
 //! Pure Rust implementation using petgraph.
 //! No C++ dependencies - builds everywhere!
 
+pub mod algo;
 pub mod interner;
 pub mod node_index;
+pub mod overlay;
 pub mod store_models;
 pub mod traits;
 
