@@ -633,7 +633,7 @@ pub enum ObjectType {
 }
 
 impl ObjectType {
-    pub fn from_str(s: &str) -> Result<Self, GitError> {
+    pub fn parse(s: &str) -> Result<Self, GitError> {
         match s {
             "commit" => Ok(Self::Commit),
             "tree" => Ok(Self::Tree),
@@ -672,7 +672,7 @@ pub fn parse_object_data(data: &[u8]) -> Result<(ObjectType, &[u8]), GitError> {
         path: String::new(),
         detail: "no space in object header".into(),
     })?;
-    let obj_type = ObjectType::from_str(&header[..space_pos])?;
+    let obj_type = ObjectType::parse(&header[..space_pos])?;
     let content = &data[nul_pos + 1..];
     Ok((obj_type, content))
 }
@@ -901,13 +901,13 @@ mod tests {
     #[test]
     fn test_parse_simple_commit() {
         let data = b"tree a94a8fe5ccb19ba61c4c0873d391e987982fbbd3\n\
-            parent b94a8fe5ccb19ba61c4c0873d391e987982fbbd3\n\
-            author Test User <test@example.com> 1700000000 +0000\n\
-            committer Test User <test@example.com> 1700000000 +0000\n\
-            \n\
-            Initial commit\n\
-            \n\
-            Some details";
+parent b94a8fe5ccb19ba61c4c0873d391e987982fbbd3\n\
+author Test User <test@example.com> 1700000000 +0000\n\
+committer Test User <test@example.com> 1700000000 +0000\n\
+\n\
+Initial commit\n\
+\n\
+Some details";
         let commit = RawCommit::parse(data).unwrap();
         assert_eq!(commit.tree_oid.to_hex(), "a94a8fe5ccb19ba61c4c0873d391e987982fbbd3");
         assert_eq!(commit.parents.len(), 1);
@@ -920,10 +920,10 @@ mod tests {
     #[test]
     fn test_parse_root_commit() {
         let data = b"tree a94a8fe5ccb19ba61c4c0873d391e987982fbbd3\n\
-            author Test <t@e.com> 1700000000 +0000\n\
-            committer Test <t@e.com> 1700000000 +0000\n\
-            \n\
-            root";
+author Test <t@e.com> 1700000000 +0000\n\
+committer Test <t@e.com> 1700000000 +0000\n\
+\n\
+root";
         let commit = RawCommit::parse(data).unwrap();
         assert!(commit.parents.is_empty());
     }
@@ -931,12 +931,12 @@ mod tests {
     #[test]
     fn test_parse_merge_commit() {
         let data = b"tree a94a8fe5ccb19ba61c4c0873d391e987982fbbd3\n\
-            parent 1111111111111111111111111111111111111111\n\
-            parent 2222222222222222222222222222222222222222\n\
-            author Test <t@e.com> 1700000000 +0000\n\
-            committer Test <t@e.com> 1700000000 +0000\n\
-            \n\
-            merge";
+parent 1111111111111111111111111111111111111111\n\
+parent 2222222222222222222222222222222222222222\n\
+author Test <t@e.com> 1700000000 +0000\n\
+committer Test <t@e.com> 1700000000 +0000\n\
+\n\
+merge";
         let commit = RawCommit::parse(data).unwrap();
         assert_eq!(commit.parents.len(), 2);
     }
@@ -944,11 +944,11 @@ mod tests {
     #[test]
     fn test_parse_gpgsig_commit() {
         let data = b"tree a94a8fe5ccb19ba61c4c0873d391e987982fbbd3\n\
-            author Test <t@e.com> 1700000000 +0000\n\
-            committer Test <t@e.com> 1700000000 +0000\n\
-            gpgsig -----BEGIN PGP SIGNATURE-----\n \n wsBcBAAB\n -----END PGP SIGNATURE-----\n\
-            \n\
-            signed commit";
+author Test <t@e.com> 1700000000 +0000\n\
+committer Test <t@e.com> 1700000000 +0000\n\
+gpgsig -----BEGIN PGP SIGNATURE-----\n \n wsBcBAAB\n -----END PGP SIGNATURE-----\n\
+\n\
+signed commit";
         let commit = RawCommit::parse(data).unwrap();
         assert_eq!(commit.message, "signed commit");
     }
@@ -1475,6 +1475,68 @@ git commit -m "feat(git/raw): add line-level blame algorithm"
 
 ---
 
+## Task 11b: Finalize `mod.rs` public API surface
+
+**Files:**
+- Modify: `src/git/raw/mod.rs`
+
+After all submodules are built, ensure `mod.rs` re-exports the complete public API:
+
+- [ ] **Step 1: Update mod.rs with all modules and re-exports**
+
+```rust
+pub mod blame;
+pub mod commit;
+pub mod deflate;
+pub mod diff;
+pub mod error;
+pub mod object;
+pub mod oid;
+pub mod pack;
+pub mod pack_index;
+pub mod repo;
+pub mod revwalk;
+pub mod sha1;
+pub mod tree;
+
+pub use blame::{blame_file, BlameHunk};
+pub use commit::RawCommit;
+pub use diff::{compute_stats, diff_blobs, diff_trees, diff_trees_with_hunks, DiffDelta, DiffHunk, DiffStats, DeltaStatus};
+pub use error::GitError;
+pub use object::ObjectType;
+pub use oid::Oid;
+pub use repo::RawRepo;
+pub use revwalk::RevWalk;
+pub use tree::{parse_tree, walk_tree, TreeEntry};
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use std::path::PathBuf;
+    pub fn find_repo_git_dir() -> PathBuf {
+        let mut dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        loop {
+            let git = dir.join(".git");
+            if git.is_dir() { return git; }
+            if !dir.pop() { panic!("not in a git repo"); }
+        }
+    }
+}
+```
+
+- [ ] **Step 2: Verify compilation**
+
+Run: `cargo check 2>&1 | tail -5`
+Expected: compiles clean
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add src/git/raw/mod.rs
+git commit -m "feat(git/raw): finalize public API surface in mod.rs"
+```
+
+---
+
 ## Task 12: Golden tests (raw vs git2 parity)
 
 **Files:**
@@ -1569,12 +1631,43 @@ fn golden_tracked_files_match() {
 
     assert_eq!(raw_files, git2_files, "tracked file lists differ");
 }
+
+#[test]
+fn golden_diff_stats_match() {
+    use repotoire::git::raw::{diff_trees_with_hunks, compute_stats};
+
+    let raw_repo = RawRepo::discover(repo_path()).unwrap();
+    let head_oid = raw_repo.resolve_head().unwrap();
+    let commit = raw_repo.find_commit(&head_oid).unwrap();
+    if let Some(parent_oid) = commit.parents.first() {
+        let parent = raw_repo.find_commit(parent_oid).unwrap();
+        let results = diff_trees_with_hunks(&raw_repo, &parent.tree_oid, &commit.tree_oid, &[]).unwrap();
+        let (raw_ins, raw_del) = results.iter().fold((0, 0), |(i, d), (_, hunks)| {
+            let s = compute_stats(hunks);
+            (i + s.insertions, d + s.deletions)
+        });
+
+        // Compare with git2
+        let git2_repo = git2::Repository::discover(repo_path()).unwrap();
+        let git2_commit = git2_repo.find_commit(git2::Oid::from_str(&head_oid.to_hex()).unwrap()).unwrap();
+        let git2_parent = git2_commit.parent(0).unwrap();
+        let diff = git2_repo.diff_tree_to_tree(
+            Some(&git2_parent.tree().unwrap()),
+            Some(&git2_commit.tree().unwrap()),
+            None,
+        ).unwrap();
+        let stats = diff.stats().unwrap();
+
+        assert_eq!(raw_ins, stats.insertions(), "insertions mismatch");
+        assert_eq!(raw_del, stats.deletions(), "deletions mismatch");
+    }
+}
 ```
 
 - [ ] **Step 2: Run golden tests**
 
 Run: `cargo test --test raw_git_golden -- --nocapture`
-Expected: all 4 tests pass
+Expected: all 5 tests pass
 
 - [ ] **Step 3: Commit**
 
@@ -1735,7 +1828,42 @@ Use `repo.head_tree()` + `walk_tree()`.
 
 - [ ] **Step 7: Replace `extract_commit_info`, `get_commit_file_stats`, `commit_touches_lines`**
 
-All use `diff_trees` / `diff_trees_with_hunks` with pathspec. Additional API mappings:
+**Concrete `diff.stats()` replacement pattern**: Every call site that used `diff.stats()?.insertions()` must now use `diff_trees_with_hunks` and aggregate:
+```rust
+// Before (git2):
+let diff = self.repo.diff_tree_to_tree(...)?;
+let stats = diff.stats()?;
+let ins = stats.insertions();
+let del = stats.deletions();
+
+// After (raw):
+let results = diff_trees_with_hunks(&self.repo, &parent_tree_oid, &commit_tree_oid, &pathspecs)?;
+let (ins, del) = results.iter().fold((0, 0), |(i, d), (_, hunks)| {
+    let s = compute_stats(hunks);
+    (i + s.insertions, d + s.deletions)
+});
+```
+
+**Root commit diff (no parent)**: When `commit.parents` is empty, pass `Oid::ZERO` as the old tree OID. `diff_trees` must handle `Oid::ZERO` by treating it as an empty tree (all entries in new tree are Added). Implement this check at the top of `diff_trees`:
+```rust
+if old_tree_oid == &Oid::ZERO {
+    // Everything in new tree is Added
+}
+```
+
+**`process_diff_file_cb` rewrite**: This function currently takes `git2::DiffDelta<'_>`. Replace with direct iteration over `Vec<DiffDelta>`:
+```rust
+// Before (git2 callback):
+diff.foreach(&mut |delta, _| { process_diff_file_cb(delta, ...); true }, None, None, None)?;
+
+// After (raw):
+for delta in &deltas {
+    process_diff_delta(churn_map, delta.new_path.clone(), author, timestamp);
+}
+```
+The `process_diff_file_cb` wrapper function can be deleted; call `process_diff_delta` directly.
+
+Additional API mappings:
 - `git2::Oid::from_str(commit_hash)` -> `Oid::from_hex(commit_hash)`
 - `commit.time().seconds()` -> `commit.committer_time`
 - `commit.id().to_string()` -> `commit_oid.to_hex()`
