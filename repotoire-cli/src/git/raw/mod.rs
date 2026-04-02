@@ -1,3 +1,4 @@
+pub mod deflate;
 pub mod error;
 pub mod oid;
 pub mod sha1;
