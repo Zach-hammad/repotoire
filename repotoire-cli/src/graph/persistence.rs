@@ -21,8 +21,8 @@ const CODEGRAPH_CACHE_VERSION: u32 = 1;
 
 /// Serializable cache format for CodeGraph.
 ///
-/// StrKey values are process-local (lasso::Spur), so we serialize a string_table
-/// mapping raw Spur u32 → String, and re-intern on load.
+/// StrKey values are process-local, so we serialize a string_table
+/// mapping raw StrKey u32 → String, and re-intern on load.
 #[derive(Serialize, Deserialize)]
 struct CodeGraphCache {
     version: u32,
@@ -30,7 +30,7 @@ struct CodeGraphCache {
     graph: StableGraph<CodeNode, CodeEdge>,
     /// Qualified-name → NodeIndex, with keys as strings (not StrKeys).
     node_index: HashMap<String, NodeIndex>,
-    /// String table: raw Spur u32 → interned string for cross-process re-interning.
+    /// String table: raw StrKey u32 → interned string for cross-process re-interning.
     string_table: HashMap<u32, String>,
     /// ExtraProps serialized with string values (StrKeys are process-local).
     extra_props: Vec<(String, SerializableExtraProps)>,
@@ -55,7 +55,7 @@ impl CodeGraph {
     pub fn save_cache(&self, cache_path: &Path) -> Result<()> {
         let i = global_interner();
 
-        // Build string table: raw Spur u32 → interned string for all StrKeys in nodes
+        // Build string table: raw StrKey u32 → interned string for all StrKeys in nodes
         let mut string_table: HashMap<u32, String> = HashMap::new();
         for node in self.raw_graph().node_weights() {
             for &key in &[
@@ -64,7 +64,7 @@ impl CodeGraph {
                 node.file_path,
                 node.language,
             ] {
-                let raw = key.into_inner().get();
+                let raw = key.as_u32();
                 string_table
                     .entry(raw)
                     .or_insert_with(|| i.resolve(key).to_string());
@@ -147,16 +147,16 @@ impl CodeGraph {
         let mut graph = cache.graph;
         for idx in graph.node_indices().collect::<Vec<_>>() {
             if let Some(node) = graph.node_weight_mut(idx) {
-                if let Some(&new) = remap.get(&node.name.into_inner().get()) {
+                if let Some(&new) = remap.get(&node.name.as_u32()) {
                     node.name = new;
                 }
-                if let Some(&new) = remap.get(&node.qualified_name.into_inner().get()) {
+                if let Some(&new) = remap.get(&node.qualified_name.as_u32()) {
                     node.qualified_name = new;
                 }
-                if let Some(&new) = remap.get(&node.file_path.into_inner().get()) {
+                if let Some(&new) = remap.get(&node.file_path.as_u32()) {
                     node.file_path = new;
                 }
-                if let Some(&new) = remap.get(&node.language.into_inner().get()) {
+                if let Some(&new) = remap.get(&node.language.as_u32()) {
                     node.language = new;
                 }
             }

@@ -388,8 +388,8 @@ fn compute_edge_fingerprint(graph: &StableGraph<CodeNode, CodeEdge>) -> u64 {
             let src = &graph[e.source()];
             let tgt = &graph[e.target()];
             (
-                src.qualified_name.into_inner().get(),
-                tgt.qualified_name.into_inner().get(),
+                src.qualified_name.as_u32(),
+                tgt.qualified_name.as_u32(),
                 e.weight().kind as u8,
             )
         })
