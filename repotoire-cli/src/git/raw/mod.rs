@@ -1,5 +1,6 @@
 pub mod commit;
 pub mod deflate;
+pub mod diff;
 pub mod error;
 pub mod object;
 pub mod oid;
