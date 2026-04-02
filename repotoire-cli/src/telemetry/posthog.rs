@@ -40,16 +40,12 @@ pub fn send_event_background(
     let url = url.to_string();
 
     std::thread::spawn(move || {
-        let agent = ureq::config::Config::builder()
-            .timeout_global(Some(Duration::from_secs(10)))
-            .build()
-            .new_agent();
-
         // Ignore all errors — telemetry must never impact CLI behaviour
-        let _ = agent
-            .post(&url)
-            .header("Content-Type", "application/json")
-            .send_json(payload);
+        let body = match serde_json::to_string(&payload) {
+            Ok(b) => b,
+            Err(_) => return,
+        };
+        let _ = crate::http::post_json(&url, &[], &body, Duration::from_secs(10));
     })
 }
 

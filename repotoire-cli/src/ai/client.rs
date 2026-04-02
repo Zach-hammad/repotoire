@@ -1,7 +1,7 @@
 //! LLM API client supporting OpenAI and Anthropic backends
 //!
 //! Provides a unified interface for making API calls to different LLM providers.
-//! Uses ureq (sync HTTP) — no async runtime needed.
+//! Uses crate::http (sync HTTP) — no async runtime or external HTTP deps needed.
 
 use crate::ai::{AiError, AiResult};
 use serde::{Deserialize, Serialize};
@@ -136,19 +136,11 @@ impl AiConfig {
     }
 }
 
-/// Unified LLM client — sync HTTP via ureq (no tokio needed)
+/// Unified LLM client — sync HTTP via crate::http (no external HTTP deps)
 pub struct AiClient {
     config: AiConfig,
     api_key: String,
-    agent: ureq::Agent,
-}
-
-fn make_agent() -> ureq::Agent {
-    ureq::config::Config::builder()
-        .http_status_as_error(false) // We handle status codes ourselves (parity with reqwest)
-        .timeout_global(Some(std::time::Duration::from_secs(120))) // LLM calls can be slow
-        .build()
-        .new_agent()
+    timeout: std::time::Duration,
 }
 
 impl AiClient {
@@ -156,7 +148,7 @@ impl AiClient {
         Self {
             config,
             api_key: api_key.into(),
-            agent: make_agent(),
+            timeout: std::time::Duration::from_secs(120),
         }
     }
 
@@ -239,32 +231,35 @@ impl AiClient {
             temperature: self.config.temperature,
         };
 
-        let mut req = self
-            .agent
-            .post(self.config.backend.api_url())
-            .header("Content-Type", "application/json");
-
+        let mut headers = Vec::new();
+        let auth_header;
         if self.config.backend.requires_api_key() {
-            req = req.header("Authorization", &format!("Bearer {}", self.api_key));
+            auth_header = format!("Bearer {}", self.api_key);
+            headers.push(("Authorization", auth_header.as_str()));
         }
 
-        let response = req.send_json(&body).map_err(|e| AiError::ApiError {
+        let body_str = serde_json::to_string(&body)
+            .map_err(|e| AiError::ParseError(e.to_string()))?;
+
+        let response = crate::http::post_json(
+            self.config.backend.api_url(),
+            &headers,
+            &body_str,
+            self.timeout,
+        )
+        .map_err(|e| AiError::ApiError {
             status: 0,
             message: e.to_string(),
         })?;
 
-        let status = response.status().as_u16();
-        if status >= 400 {
-            let error_text = response.into_body().read_to_string().unwrap_or_default();
+        if response.status >= 400 {
             return Err(AiError::ApiError {
-                status,
-                message: error_text,
+                status: response.status,
+                message: response.body,
             });
         }
 
-        let resp: OpenAiResponse = response
-            .into_body()
-            .read_json()
+        let resp: OpenAiResponse = serde_json::from_str(&response.body)
             .map_err(|e| AiError::ParseError(e.to_string()))?;
 
         resp.choices
@@ -288,30 +283,33 @@ impl AiClient {
             temperature: Some(self.config.temperature),
         };
 
-        let response = self
-            .agent
-            .post(self.config.backend.api_url())
-            .header("Content-Type", "application/json")
-            .header("x-api-key", &self.api_key)
-            .header("anthropic-version", "2023-06-01")
-            .send_json(&body)
-            .map_err(|e| AiError::ApiError {
-                status: 0,
-                message: e.to_string(),
-            })?;
+        let headers = vec![
+            ("x-api-key", self.api_key.as_str()),
+            ("anthropic-version", "2023-06-01"),
+        ];
 
-        let status = response.status().as_u16();
-        if status >= 400 {
-            let error_text = response.into_body().read_to_string().unwrap_or_default();
+        let body_str = serde_json::to_string(&body)
+            .map_err(|e| AiError::ParseError(e.to_string()))?;
+
+        let response = crate::http::post_json(
+            self.config.backend.api_url(),
+            &headers,
+            &body_str,
+            self.timeout,
+        )
+        .map_err(|e| AiError::ApiError {
+            status: 0,
+            message: e.to_string(),
+        })?;
+
+        if response.status >= 400 {
             return Err(AiError::ApiError {
-                status,
-                message: error_text,
+                status: response.status,
+                message: response.body,
             });
         }
 
-        let resp: AnthropicResponse = response
-            .into_body()
-            .read_json()
+        let resp: AnthropicResponse = serde_json::from_str(&response.body)
             .map_err(|e| AiError::ParseError(e.to_string()))?;
 
         resp.content

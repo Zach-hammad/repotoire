@@ -443,12 +443,6 @@ impl DepAuditDetector {
         // OSV batch API limit is 1000 queries per request
         let mut all_results = Vec::new();
 
-        // Sync HTTP via ureq (no tokio needed)
-        let agent = ureq::config::Config::builder()
-            .http_status_as_error(false)
-            .build()
-            .new_agent();
-
         for chunk in deps.chunks(1000) {
             let query = OsvBatchQuery {
                 queries: chunk
@@ -463,22 +457,28 @@ impl DepAuditDetector {
                     .collect(),
             };
 
-            let result = agent
-                .post("https://api.osv.dev/v1/querybatch")
-                .header("Content-Type", "application/json")
-                .send_json(&query);
+            let body = match serde_json::to_string(&query) {
+                Ok(b) => b,
+                Err(e) => {
+                    warn!("Failed to serialize OSV query: {}", e);
+                    continue;
+                }
+            };
 
-            match result {
+            match crate::http::post_json(
+                "https://api.osv.dev/v1/querybatch",
+                &[],
+                &body,
+                std::time::Duration::from_secs(30),
+            ) {
                 Ok(response) => {
-                    let text = response.into_body().read_to_string();
-                    if let Ok(text) = text {
-                        if let Ok(batch_response) = serde_json::from_str::<OsvBatchResponse>(&text)
-                        {
-                            let offset = all_results.len();
-                            for (i, result) in batch_response.results.into_iter().enumerate() {
-                                if !result.vulns.is_empty() {
-                                    all_results.push((offset + i, result.vulns));
-                                }
+                    if let Ok(batch_response) =
+                        serde_json::from_str::<OsvBatchResponse>(&response.body)
+                    {
+                        let offset = all_results.len();
+                        for (i, result) in batch_response.results.into_iter().enumerate() {
+                            if !result.vulns.is_empty() {
+                                all_results.push((offset + i, result.vulns));
                             }
                         }
                     }

@@ -191,13 +191,11 @@ fn read_cache(path: &std::path::Path) -> Option<BenchmarkData> {
 
 /// Attempt a single CDN fetch with a 5-second timeout. Returns None on any error.
 fn try_fetch_url(url: &str) -> Option<BenchmarkData> {
-    let agent = ureq::config::Config::builder()
-        .timeout_global(Some(Duration::from_secs(5)))
-        .build()
-        .new_agent();
-
-    let response = agent.get(url).call().ok()?;
-    let data: BenchmarkData = response.into_body().read_json().ok()?;
+    let response = crate::http::get(url, Duration::from_secs(5)).ok()?;
+    if response.status >= 400 {
+        return None;
+    }
+    let data: BenchmarkData = serde_json::from_str(&response.body).ok()?;
 
     // Validate schema version and sample size
     if data.schema_version != EXPECTED_SCHEMA_VERSION {

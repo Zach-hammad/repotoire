@@ -72,8 +72,9 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 basic-toml = "0.1"
 
-# Sync HTTP (for AI API calls + OSV.dev)
-ureq = { version = "3", features = ["json"] }
+# TLS for hand-rolled HTTP client (src/http.rs)
+rustls = { version = "0.23", default-features = false, features = ["std", "ring", "logging"] }
+webpki-roots = "1"
 
 # Error handling
 anyhow = "1"
