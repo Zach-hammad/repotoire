@@ -12,7 +12,7 @@ use crate::detectors::ast_fingerprint::{get_ts_language, parse_root};
 use crate::detectors::base::Detector;
 use crate::detectors::framework_detection::{detect_frameworks, Framework};
 use crate::graph::GraphQueryExt;
-use crate::models::{Finding, Severity};
+use crate::models::{Confidence, Finding, Severity};
 use crate::parsers::lightweight::Language;
 use anyhow::Result;
 use regex::Regex;
@@ -66,6 +66,45 @@ fn is_consumer_context(text: &str) -> bool {
 fn is_consumer_function_name(name: &str) -> bool {
     let lower = name.to_lowercase();
     CONSUMER_FUNCTION_SUFFIXES.iter().any(|s| lower.ends_with(s))
+}
+
+/// Compute confidence for an N+1 detection based on evidence type and BFS distance.
+///
+/// - Direct SQL or ORM call in loop (or depth 0) = High
+/// - 1-hop BFS = Medium
+/// - 2+ hops = Low
+fn compute_n_plus_one_confidence(direct_sql: bool, direct_orm: bool, bfs_hops: usize) -> Confidence {
+    if direct_sql || direct_orm || bfs_hops == 0 {
+        Confidence::High
+    } else if bfs_hops == 1 {
+        Confidence::Medium
+    } else {
+        Confidence::Low
+    }
+}
+
+/// Map a confidence level to a numeric score for the `finding.confidence` field.
+fn confidence_to_score(c: Confidence) -> f64 {
+    match c {
+        Confidence::High => 0.9,
+        Confidence::Medium => 0.6,
+        Confidence::Low => 0.3,
+    }
+}
+
+/// Downgrade severity based on confidence. High confidence keeps base severity,
+/// Medium drops one level, Low always maps to Info.
+fn adjust_severity_by_confidence(base: Severity, confidence: Confidence) -> Severity {
+    match confidence {
+        Confidence::High => base,
+        Confidence::Medium => match base {
+            Severity::Critical => Severity::High,
+            Severity::High => Severity::Medium,
+            Severity::Medium => Severity::Low,
+            other => other,
+        },
+        Confidence::Low => Severity::Info,
+    }
 }
 
 /// Node kinds that represent function/method definitions, per language.
@@ -607,10 +646,10 @@ impl NPlusOneDetector {
 
         if in_loop && Self::is_call_node(kind, lang) {
             let call_text = &source[node.start_byte()..node.end_byte()];
-            let is_query = Self::is_db_query_call(call_text, frameworks)
-                || Self::is_raw_sql_execution(node, source, lang);
+            let is_orm = Self::is_db_query_call(call_text, frameworks);
+            let is_sql = Self::is_raw_sql_execution(node, source, lang);
 
-            if is_query {
+            if is_orm || is_sql {
                 let line = node.start_position().row as u32 + 1;
                 let first_line = call_text.lines().next().unwrap_or("").trim();
                 let truncated = if first_line.len() > 80 {
@@ -619,10 +658,13 @@ impl NPlusOneDetector {
                     first_line.to_string()
                 };
 
+                let confidence = compute_n_plus_one_confidence(is_sql, is_orm, 0);
+                let severity = adjust_severity_by_confidence(Severity::High, confidence);
+
                 findings.push(Finding {
                     id: String::new(),
                     detector: "NPlusOneDetector".to_string(),
-                    severity: Severity::High,
+                    severity,
                     title: "N+1 query inside loop".to_string(),
                     description: format!(
                         "Database query inside loop:\n```\n{}\n```\n\n\
@@ -642,6 +684,7 @@ impl NPlusOneDetector {
                     estimated_effort: Some("45 minutes".to_string()),
                     category: Some("performance".to_string()),
                     cwe_id: None,
+                    confidence: Some(confidence_to_score(confidence)),
                     why_it_matters: Some(
                         "N+1 queries cause N database roundtrips instead of 1, \
                          degrading performance linearly with data size."
@@ -716,10 +759,10 @@ impl NPlusOneDetector {
 
         if Self::is_call_node(kind, lang) {
             let call_text = &source[node.start_byte()..node.end_byte()];
-            let is_query = Self::is_db_query_call(call_text, frameworks)
-                || Self::is_raw_sql_execution(node, source, lang);
+            let is_orm = Self::is_db_query_call(call_text, frameworks);
+            let is_sql = Self::is_raw_sql_execution(node, source, lang);
 
-            if is_query {
+            if is_orm || is_sql {
                 let line = node.start_position().row as u32 + 1;
                 query_lines.push(line);
 
@@ -731,10 +774,13 @@ impl NPlusOneDetector {
                         first_line.to_string()
                     };
 
+                    let confidence = compute_n_plus_one_confidence(is_sql, is_orm, 0);
+                    let severity = adjust_severity_by_confidence(Severity::High, confidence);
+
                     findings.push(Finding {
                         id: String::new(),
                         detector: "NPlusOneDetector".to_string(),
-                        severity: Severity::High,
+                        severity,
                         title: "N+1 query inside loop".to_string(),
                         description: format!(
                             "Database query inside loop:\n```\n{}\n```\n\n\
@@ -754,6 +800,7 @@ impl NPlusOneDetector {
                         estimated_effort: Some("45 minutes".to_string()),
                         category: Some("performance".to_string()),
                         cwe_id: None,
+                        confidence: Some(confidence_to_score(confidence)),
                         why_it_matters: Some(
                             "N+1 queries cause N database roundtrips instead of 1.".to_string(),
                         ),
@@ -794,12 +841,12 @@ impl NPlusOneDetector {
             return findings;
         }
 
-        let mut reaches_query: HashMap<String, String> = HashMap::new();
+        let mut reaches_query: HashMap<String, (String, usize)> = HashMap::new();
         let mut queue: VecDeque<(String, String, usize)> = VecDeque::new();
 
         for qf in query_func_qns {
             let short = qf.rsplit("::").next().unwrap_or(qf).to_string();
-            reaches_query.insert(qf.clone(), short.clone());
+            reaches_query.insert(qf.clone(), (short.clone(), 0));
             queue.push_back((qf.clone(), short, 0));
         }
 
@@ -811,7 +858,7 @@ impl NPlusOneDetector {
                 let caller_qn = caller.qn(i).to_string();
                 if !reaches_query.contains_key(&caller_qn) {
                     let chain = format!("{} -> {}", caller.node_name(i), query_chain);
-                    reaches_query.insert(caller_qn.clone(), chain.clone());
+                    reaches_query.insert(caller_qn.clone(), (chain.clone(), depth + 1));
                     queue.push_back((caller_qn, chain, depth + 1));
                 }
             }
@@ -838,13 +885,14 @@ impl NPlusOneDetector {
 
             let mut callee_chain = None;
             for callee in graph.get_callees(func.qn(i)) {
-                if let Some(chain) = reaches_query.get(callee.qn(i)) {
-                    callee_chain = Some((callee.node_name(i).to_string(), chain.clone()));
+                if let Some((chain, depth)) = reaches_query.get(callee.qn(i)) {
+                    callee_chain =
+                        Some((callee.node_name(i).to_string(), chain.clone(), *depth));
                     break;
                 }
             }
 
-            let (callee_name, chain) = match callee_chain {
+            let (callee_name, chain, callee_depth) = match callee_chain {
                 Some(c) => c,
                 None => continue,
             };
@@ -880,10 +928,14 @@ impl NPlusOneDetector {
                 continue;
             }
 
+            let confidence =
+                compute_n_plus_one_confidence(false, false, callee_depth);
+            let severity = adjust_severity_by_confidence(Severity::High, confidence);
+
             findings.push(Finding {
                 id: String::new(),
                 detector: "NPlusOneDetector".to_string(),
-                severity: Severity::High,
+                severity,
                 title: format!(
                     "Hidden N+1: {} calls query in loop",
                     func.node_name(i)
@@ -910,6 +962,7 @@ impl NPlusOneDetector {
                 estimated_effort: Some("1 hour".to_string()),
                 category: Some("performance".to_string()),
                 cwe_id: None,
+                confidence: Some(confidence_to_score(confidence)),
                 why_it_matters: Some(
                     "Hidden N+1 queries across function boundaries are harder to detect \
                      but cause the same performance issues."
@@ -1403,5 +1456,89 @@ def event_processor(messages):
             "Function named _processor should be exempted from N+1 detection, got: {:?}",
             findings.iter().map(|f| &f.title).collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn test_confidence_direct_sql_in_loop() {
+        assert_eq!(
+            compute_n_plus_one_confidence(true, false, 0),
+            Confidence::High
+        );
+    }
+
+    #[test]
+    fn test_confidence_orm_in_loop() {
+        assert_eq!(
+            compute_n_plus_one_confidence(false, true, 0),
+            Confidence::High
+        );
+    }
+
+    #[test]
+    fn test_confidence_direct_in_loop_no_sql() {
+        assert_eq!(
+            compute_n_plus_one_confidence(false, false, 0),
+            Confidence::High
+        );
+    }
+
+    #[test]
+    fn test_confidence_one_hop_bfs() {
+        assert_eq!(
+            compute_n_plus_one_confidence(false, false, 1),
+            Confidence::Medium
+        );
+    }
+
+    #[test]
+    fn test_confidence_two_plus_hop() {
+        assert_eq!(
+            compute_n_plus_one_confidence(false, false, 2),
+            Confidence::Low
+        );
+        assert_eq!(
+            compute_n_plus_one_confidence(false, false, 3),
+            Confidence::Low
+        );
+    }
+
+    #[test]
+    fn test_severity_adjustment_high_confidence() {
+        assert_eq!(
+            adjust_severity_by_confidence(Severity::High, Confidence::High),
+            Severity::High
+        );
+    }
+
+    #[test]
+    fn test_severity_adjustment_medium_confidence() {
+        assert_eq!(
+            adjust_severity_by_confidence(Severity::High, Confidence::Medium),
+            Severity::Medium
+        );
+        assert_eq!(
+            adjust_severity_by_confidence(Severity::Critical, Confidence::Medium),
+            Severity::High
+        );
+    }
+
+    #[test]
+    fn test_severity_adjustment_low_confidence() {
+        assert_eq!(
+            adjust_severity_by_confidence(Severity::High, Confidence::Low),
+            Severity::Info
+        );
+    }
+
+    #[test]
+    fn test_direct_finding_has_high_confidence() {
+        let detector = NPlusOneDetector::new("/mock/repo");
+        let code = "def list_orders(user_ids):\n    results = []\n    for uid in user_ids:\n        order = Order.objects.filter(user_id=uid)\n        results.append(order)\n    return results\n";
+        let frameworks: HashSet<Framework> = [Framework::Django].into();
+        let findings =
+            detector.analyze_file(code, Path::new("views.py"), Language::Python, &frameworks);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].confidence, Some(0.9));
+        assert_eq!(findings[0].severity, Severity::High);
     }
 }
