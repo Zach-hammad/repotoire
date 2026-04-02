@@ -1,5 +1,6 @@
 pub mod error;
 pub mod oid;
+pub mod sha1;
 
 pub use error::GitError;
 pub use oid::Oid;
