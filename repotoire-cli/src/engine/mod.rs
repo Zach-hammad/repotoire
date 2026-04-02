@@ -36,6 +36,7 @@
 //! Engine state can be saved to disk via `save()` and restored via `load()`,
 //! enabling cross-process incremental analysis (e.g., between CLI invocations).
 
+pub mod context;
 pub mod diff;
 mod report_context;
 pub mod stages;
