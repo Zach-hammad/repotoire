@@ -1,34 +1,17 @@
-//! Git history extraction using libgit2
+//! Git history extraction using raw git implementation
 //!
 //! Extracts commit history, calculates churn metrics, and tracks file changes
-//! over time using the git2 crate (Rust bindings to libgit2).
+//! over time using the hand-rolled `crate::git::raw` module (pure Rust, no libgit2).
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, TimeZone, Utc};
-use git2::{DiffOptions, ObjectType, Repository, Sort};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use std::sync::Once;
 use tracing::debug;
 
-/// One-time libgit2 global tuning for read-only analysis workloads.
-/// - Disables SHA hash verification (5-15% speedup — we only read, never write)
-/// - Increases tree object cache limit from 4KB to 256KB (fewer re-decompressions)
-static GIT2_TUNED: Once = Once::new();
-
-fn tune_libgit2() {
-    GIT2_TUNED.call_once(|| {
-        // Skip SHA re-verification on decompressed objects.
-        // We only read; tamper detection is not needed for analysis.
-        git2::opts::strict_hash_verification(false);
-
-        // Raise tree cache limit — default 4KB is too small for large repos.
-        // SAFETY: called once before any threads via Once guard.
-        unsafe {
-            let _ = git2::opts::set_cache_object_limit(ObjectType::Tree, 256 * 1024);
-        }
-    });
-}
+use crate::git::raw::{
+    compute_stats, diff_blobs, diff_trees, DiffStatus, Oid, RawRepo, RevWalk,
+};
 
 /// Information about a git commit.
 #[derive(Debug, Clone)]
@@ -84,23 +67,9 @@ pub struct HunkDetail {
     pub deletions: usize,
 }
 
-/// Git history analyzer using libgit2.
+/// Git history analyzer using raw git implementation.
 pub struct GitHistory {
-    repo: Repository,
-}
-
-/// Extract file path from a diff delta and process it for churn tracking.
-fn process_diff_file_cb(
-    delta: git2::DiffDelta<'_>,
-    churn_map: &mut HashMap<String, FileChurn>,
-    author: &str,
-    timestamp: &str,
-) {
-    let Some(path) = delta.new_file().path() else {
-        return;
-    };
-    let path_str = path.to_string_lossy().to_string();
-    process_diff_delta(churn_map, path_str, author, timestamp);
+    repo: RawRepo,
 }
 
 /// Process a single diff delta, updating churn tracking for the file.
@@ -125,33 +94,10 @@ fn process_diff_delta(
     }
 }
 
-/// Create DiffOptions tuned for performance.
-///
-/// - `skip_binary_check`: avoids decompressing blobs just to detect binary files
-/// - `context_lines(0)`: no surrounding context needed for analysis
-/// - `ignore_submodules`: skip submodule diffing
-fn fast_diff_opts() -> DiffOptions {
-    let mut opts = DiffOptions::new();
-    opts.skip_binary_check(true);
-    opts.ignore_submodules(true);
-    opts.context_lines(0);
-    opts.interhunk_lines(0);
-    opts
-}
-
-/// Create fast DiffOptions with an exact pathspec filter.
-fn fast_pathspec_opts(path: &str) -> DiffOptions {
-    let mut opts = fast_diff_opts();
-    opts.pathspec(path);
-    opts.disable_pathspec_match(true);
-    opts
-}
-
-/// Check whether a commit is before the given timestamp cutoff
-fn is_commit_before(commit: &git2::Commit, since: Option<DateTime<Utc>>) -> bool {
+/// Check whether a commit's committer_time is before the given timestamp cutoff
+fn is_commit_before(committer_time: i64, since: Option<DateTime<Utc>>) -> bool {
     let Some(since_ts) = since else { return false };
-    let commit_time = commit.time();
-    Utc.timestamp_opt(commit_time.seconds(), 0)
+    Utc.timestamp_opt(committer_time, 0)
         .single()
         .is_some_and(|dt| dt < since_ts)
 }
@@ -170,23 +116,20 @@ impl GitHistory {
     /// # Arguments
     /// * `path` - Path to the repository (or any subdirectory)
     pub fn open(path: &Path) -> Result<Self> {
-        tune_libgit2();
-        let repo = Repository::discover(path)
+        let repo = RawRepo::discover(path)
             .with_context(|| format!("Failed to open git repository at {:?}", path))?;
-        debug!("Opened git repository at {:?}", repo.path());
+        debug!("Opened git repository at {:?}", repo.git_dir());
         Ok(Self { repo })
     }
 
     /// Check if a path is inside a git repository.
     pub fn is_git_repo(path: &Path) -> bool {
-        Repository::discover(path).is_ok()
+        RawRepo::discover(path).is_ok()
     }
 
     /// Get the repository root path.
     pub fn repo_root(&self) -> Result<&Path> {
-        self.repo
-            .workdir()
-            .context("Repository has no working directory (bare repo?)")
+        Ok(self.repo.workdir())
     }
 
     /// Get commit history for a specific file.
@@ -195,12 +138,11 @@ impl GitHistory {
     /// * `file_path` - Relative path to file within repo
     /// * `max_commits` - Maximum number of commits to retrieve
     pub fn get_file_commits(&self, file_path: &str, max_commits: usize) -> Result<Vec<CommitInfo>> {
-        let mut revwalk = self.repo.revwalk()?;
-        revwalk.set_sorting(Sort::TIME)?;
+        let mut revwalk = RevWalk::new(&self.repo);
         revwalk.push_head()?;
 
         let mut commits = Vec::new();
-        let mut diff_opts = fast_pathspec_opts(file_path);
+        let pathspecs = vec![file_path.to_string()];
 
         for oid_result in revwalk {
             if commits.len() >= max_commits {
@@ -208,25 +150,24 @@ impl GitHistory {
             }
 
             let oid = oid_result?;
-            let commit = self.repo.find_commit(oid)?;
+            let commit = self.repo.find_commit(&oid)?;
 
-            // Check if this commit touched the file
-            let parent = commit.parent(0).ok();
-            let tree = commit.tree()?;
-            let parent_tree = parent.as_ref().map(|p| p.tree()).transpose()?;
+            // Get parent tree OID (or ZERO for root commit)
+            let parent_tree_oid = if let Some(parent_oid) = commit.parents.first() {
+                let parent = self.repo.find_commit(parent_oid)?;
+                parent.tree_oid
+            } else {
+                Oid::ZERO
+            };
 
-            let diff = self.repo.diff_tree_to_tree(
-                parent_tree.as_ref(),
-                Some(&tree),
-                Some(&mut diff_opts),
-            )?;
+            let deltas = diff_trees(&self.repo, &parent_tree_oid, &commit.tree_oid, &pathspecs)?;
 
             // Skip if no changes to this file
-            if diff.deltas().len() == 0 {
+            if deltas.is_empty() {
                 continue;
             }
 
-            let commit_info = self.extract_commit_info(&commit)?;
+            let commit_info = self.extract_commit_info(&oid, &commit)?;
             commits.push(commit_info);
         }
 
@@ -243,8 +184,7 @@ impl GitHistory {
         max_commits: usize,
         since: Option<DateTime<Utc>>,
     ) -> Result<Vec<CommitInfo>> {
-        let mut revwalk = self.repo.revwalk()?;
-        revwalk.set_sorting(Sort::TIME)?;
+        let mut revwalk = RevWalk::new(&self.repo);
         revwalk.push_head()?;
 
         let mut commits = Vec::new();
@@ -255,14 +195,14 @@ impl GitHistory {
             }
 
             let oid = oid_result?;
-            let commit = self.repo.find_commit(oid)?;
+            let commit = self.repo.find_commit(&oid)?;
 
             // Filter by timestamp if specified — commits are sorted by time, so stop early
-            if is_commit_before(&commit, since) {
+            if is_commit_before(commit.committer_time, since) {
                 break;
             }
 
-            let commit_info = self.extract_commit_info(&commit)?;
+            let commit_info = self.extract_commit_info(&oid, &commit)?;
             commits.push(commit_info);
         }
 
@@ -306,12 +246,9 @@ impl GitHistory {
     pub fn get_all_file_churn(&self, max_commits: usize) -> Result<HashMap<String, FileChurn>> {
         let mut churn_map: HashMap<String, FileChurn> = HashMap::new();
 
-        let mut revwalk = self.repo.revwalk()?;
-        revwalk.set_sorting(Sort::TIME)?;
-        revwalk.simplify_first_parent()?;
+        let mut revwalk = RevWalk::new(&self.repo);
+        revwalk.simplify_first_parent();
         revwalk.push_head()?;
-
-        let mut diff_opts = fast_diff_opts();
 
         for (commit_count, oid_result) in revwalk.enumerate() {
             if commit_count >= max_commits {
@@ -319,35 +256,25 @@ impl GitHistory {
             }
 
             let oid = oid_result?;
-            let commit = self.repo.find_commit(oid)?;
+            let commit = self.repo.find_commit(&oid)?;
 
-            // Get diff with parent
-            let parent = commit.parent(0).ok();
-            let tree = commit.tree()?;
-            let parent_tree = parent.as_ref().map(|p| p.tree()).transpose()?;
+            // Get parent tree OID (or ZERO for root commit)
+            let parent_tree_oid = if let Some(parent_oid) = commit.parents.first() {
+                let parent = self.repo.find_commit(parent_oid)?;
+                parent.tree_oid
+            } else {
+                Oid::ZERO
+            };
 
-            let diff = self.repo.diff_tree_to_tree(
-                parent_tree.as_ref(),
-                Some(&tree),
-                Some(&mut diff_opts),
-            )?;
+            let deltas = diff_trees(&self.repo, &parent_tree_oid, &commit.tree_oid, &[])?;
 
-            let author = commit.author().name().unwrap_or("Unknown").to_string();
-            let timestamp = format_git_time(&commit.time());
+            let author = commit.author_name.clone();
+            let timestamp = format_epoch_time(commit.committer_time);
 
             // Process each file in the diff
-            let churn_ref = &mut churn_map;
-            let author_ref = &author;
-            let ts_ref = &timestamp;
-            diff.foreach(
-                &mut |delta, _| {
-                    process_diff_file_cb(delta, churn_ref, author_ref, ts_ref);
-                    true
-                },
-                None,
-                None,
-                None,
-            )?;
+            for delta in &deltas {
+                process_diff_delta(&mut churn_map, delta.new_path.clone(), &author, &timestamp);
+            }
         }
 
         Ok(churn_map)
@@ -355,88 +282,151 @@ impl GitHistory {
 
     /// Get line change stats for a specific file in a specific commit.
     fn get_commit_file_stats(&self, commit_hash: &str, file_path: &str) -> Result<(usize, usize)> {
-        let oid = git2::Oid::from_str(commit_hash)?;
-        let commit = self.repo.find_commit(oid)?;
+        let oid = Oid::from_hex(commit_hash)?;
+        let commit = self.repo.find_commit(&oid)?;
 
-        let parent = commit.parent(0).ok();
-        let tree = commit.tree()?;
-        let parent_tree = parent.as_ref().map(|p| p.tree()).transpose()?;
+        let parent_tree_oid = if let Some(parent_oid) = commit.parents.first() {
+            let parent = self.repo.find_commit(parent_oid)?;
+            parent.tree_oid
+        } else {
+            Oid::ZERO
+        };
 
-        let mut diff_opts = fast_pathspec_opts(file_path);
+        let pathspecs = vec![file_path.to_string()];
+        let deltas = diff_trees(&self.repo, &parent_tree_oid, &commit.tree_oid, &pathspecs)?;
 
-        let diff =
-            self.repo
-                .diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), Some(&mut diff_opts))?;
+        let mut insertions = 0usize;
+        let mut deletions = 0usize;
 
-        let stats = diff.stats()?;
-        Ok((stats.insertions(), stats.deletions()))
+        for delta in &deltas {
+            match delta.status {
+                DiffStatus::Added => {
+                    if let Ok(blob) = self.repo.find_blob(&delta.new_oid) {
+                        let lines = blob.split(|&b| b == b'\n').count();
+                        insertions += lines;
+                    }
+                }
+                DiffStatus::Deleted => {
+                    if let Ok(blob) = self.repo.find_blob(&delta.old_oid) {
+                        let lines = blob.split(|&b| b == b'\n').count();
+                        deletions += lines;
+                    }
+                }
+                DiffStatus::Modified => {
+                    let old_blob = self.repo.find_blob(&delta.old_oid).unwrap_or_default();
+                    let new_blob = self.repo.find_blob(&delta.new_oid).unwrap_or_default();
+                    let hunks = diff_blobs(&old_blob, &new_blob);
+                    let stats = compute_stats(&hunks);
+                    insertions += stats.insertions;
+                    deletions += stats.deletions;
+                }
+            }
+        }
+
+        Ok((insertions, deletions))
     }
 
-    /// Extract commit information from a git2 Commit object.
-    fn extract_commit_info(&self, commit: &git2::Commit) -> Result<CommitInfo> {
-        let author = commit.author();
-        let timestamp = format_git_time(&commit.time());
+    /// Extract commit information from a RawCommit.
+    fn extract_commit_info(
+        &self,
+        oid: &Oid,
+        commit: &crate::git::raw::RawCommit,
+    ) -> Result<CommitInfo> {
+        let timestamp = format_epoch_time(commit.committer_time);
         let message = commit
-            .message()
-            .unwrap_or("")
+            .message
             .lines()
             .next()
             .unwrap_or("")
             .to_string();
 
         // Get changed files
-        let parent = commit.parent(0).ok();
-        let tree = commit.tree()?;
-        let parent_tree = parent.as_ref().map(|p| p.tree()).transpose()?;
+        let parent_tree_oid = if let Some(parent_oid) = commit.parents.first() {
+            let parent = self.repo.find_commit(parent_oid)?;
+            parent.tree_oid
+        } else {
+            Oid::ZERO
+        };
 
-        let mut diff_opts = fast_diff_opts();
-        let diff =
-            self.repo
-                .diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), Some(&mut diff_opts))?;
+        let deltas = diff_trees(&self.repo, &parent_tree_oid, &commit.tree_oid, &[])?;
 
-        let mut files_changed = Vec::new();
-        diff.foreach(
-            &mut |delta, _| {
-                if let Some(path) = delta.new_file().path() {
-                    files_changed.push(path.to_string_lossy().to_string());
+        let files_changed: Vec<String> = deltas.iter().map(|d| d.new_path.clone()).collect();
+
+        // Compute stats
+        let mut total_insertions = 0usize;
+        let mut total_deletions = 0usize;
+        for delta in &deltas {
+            match delta.status {
+                DiffStatus::Added => {
+                    if let Ok(blob) = self.repo.find_blob(&delta.new_oid) {
+                        total_insertions += blob.split(|&b| b == b'\n').count();
+                    }
                 }
-                true
-            },
-            None,
-            None,
-            None,
-        )?;
+                DiffStatus::Deleted => {
+                    if let Ok(blob) = self.repo.find_blob(&delta.old_oid) {
+                        total_deletions += blob.split(|&b| b == b'\n').count();
+                    }
+                }
+                DiffStatus::Modified => {
+                    let old_blob = self.repo.find_blob(&delta.old_oid).unwrap_or_default();
+                    let new_blob = self.repo.find_blob(&delta.new_oid).unwrap_or_default();
+                    let hunks = diff_blobs(&old_blob, &new_blob);
+                    let stats = compute_stats(&hunks);
+                    total_insertions += stats.insertions;
+                    total_deletions += stats.deletions;
+                }
+            }
+        }
 
-        let stats = diff.stats()?;
-
+        let hex = oid.to_hex();
         Ok(CommitInfo {
-            hash: commit.id().to_string()[..12].to_string(),
-            full_hash: commit.id().to_string(),
-            author: author.name().unwrap_or("Unknown").to_string(),
-            author_email: author.email().unwrap_or("").to_string(),
+            hash: hex[..12].to_string(),
+            full_hash: hex,
+            author: commit.author_name.clone(),
+            author_email: commit.author_email.clone(),
             timestamp,
             message,
             files_changed,
-            insertions: stats.insertions(),
-            deletions: stats.deletions(),
+            insertions: total_insertions,
+            deletions: total_deletions,
         })
     }
 
     /// Get the list of all tracked files in the repository.
     pub fn get_tracked_files(&self) -> Result<Vec<String>> {
-        let head = self.repo.head()?;
-        let tree = head.peel_to_tree()?;
+        let (_tree_oid, entries) = self.repo.head_tree()?;
 
         let mut files = Vec::new();
-        tree.walk(git2::TreeWalkMode::PreOrder, |dir, entry| {
-            if entry.kind() == Some(git2::ObjectType::Blob) {
-                let name = entry.name().unwrap_or("");
-                files.push(format!("{dir}{name}"));
-            }
-            git2::TreeWalkResult::Ok
-        })?;
-
+        self.collect_tree_files(&entries, "", &mut files)?;
         Ok(files)
+    }
+
+    /// Recursively collect file paths from tree entries.
+    fn collect_tree_files(
+        &self,
+        entries: &[crate::git::raw::TreeEntry],
+        prefix: &str,
+        files: &mut Vec<String>,
+    ) -> Result<()> {
+        for entry in entries {
+            let path = if prefix.is_empty() {
+                entry.name.clone()
+            } else {
+                format!("{prefix}{}", entry.name)
+            };
+
+            if entry.is_submodule() {
+                continue;
+            }
+
+            if entry.is_tree() {
+                let sub_entries = self.repo.find_tree(&entry.oid)?;
+                self.collect_tree_files(&sub_entries, &format!("{path}/"), files)?;
+            } else {
+                files.push(path);
+            }
+        }
+        Ok(())
     }
 
     /// Get commits that modified a specific line range in a file.
@@ -479,12 +469,11 @@ impl GitHistory {
         file_path: &str,
         max_commits: usize,
     ) -> Result<Vec<(CommitInfo, Vec<(u32, u32)>)>> {
-        let mut revwalk = self.repo.revwalk()?;
-        revwalk.set_sorting(Sort::TIME)?;
+        let mut revwalk = RevWalk::new(&self.repo);
         revwalk.push_head()?;
 
         let mut results = Vec::new();
-        let mut diff_opts = fast_pathspec_opts(file_path);
+        let pathspecs = vec![file_path.to_string()];
 
         for oid_result in revwalk {
             if results.len() >= max_commits {
@@ -492,58 +481,77 @@ impl GitHistory {
             }
 
             let oid = oid_result?;
-            let commit = self.repo.find_commit(oid)?;
+            let commit = self.repo.find_commit(&oid)?;
 
-            let parent = commit.parent(0).ok();
-            let tree = commit.tree()?;
-            let parent_tree = parent.as_ref().map(|p| p.tree()).transpose()?;
+            let parent_tree_oid = if let Some(parent_oid) = commit.parents.first() {
+                let parent_commit = self.repo.find_commit(parent_oid)?;
+                parent_commit.tree_oid
+            } else {
+                Oid::ZERO
+            };
 
-            let diff = self.repo.diff_tree_to_tree(
-                parent_tree.as_ref(),
-                Some(&tree),
-                Some(&mut diff_opts),
-            )?;
+            let deltas =
+                diff_trees(&self.repo, &parent_tree_oid, &commit.tree_oid, &pathspecs)?;
 
-            if diff.deltas().len() == 0 {
+            if deltas.is_empty() {
                 continue;
             }
 
-            // Collect hunk ranges in a single pass
+            // Collect hunk ranges from blob diffs
             let mut hunks = Vec::new();
-            diff.foreach(
-                &mut |_, _| true,
-                None,
-                Some(&mut |_, hunk| {
-                    let start = hunk.new_start();
-                    let end = start + hunk.new_lines();
-                    hunks.push((start, end));
-                    true
-                }),
-                None,
-            )?;
+            let mut total_insertions = 0usize;
+            let mut total_deletions = 0usize;
 
-            // Extract commit info with file-scoped stats
-            let stats = diff.stats()?;
-            let author = commit.author();
-            let timestamp = format_git_time(&commit.time());
+            for delta in &deltas {
+                match delta.status {
+                    DiffStatus::Added => {
+                        if let Ok(blob) = self.repo.find_blob(&delta.new_oid) {
+                            let lines = blob.split(|&b| b == b'\n').count();
+                            hunks.push((1u32, lines as u32 + 1));
+                            total_insertions += lines;
+                        }
+                    }
+                    DiffStatus::Deleted => {
+                        if let Ok(blob) = self.repo.find_blob(&delta.old_oid) {
+                            let lines = blob.split(|&b| b == b'\n').count();
+                            total_deletions += lines;
+                        }
+                    }
+                    DiffStatus::Modified => {
+                        let old_blob = self.repo.find_blob(&delta.old_oid).unwrap_or_default();
+                        let new_blob = self.repo.find_blob(&delta.new_oid).unwrap_or_default();
+                        let diff_hunks = diff_blobs(&old_blob, &new_blob);
+                        let stats = compute_stats(&diff_hunks);
+                        total_insertions += stats.insertions;
+                        total_deletions += stats.deletions;
+                        for h in &diff_hunks {
+                            let start = h.new_start as u32;
+                            let end = start + h.new_lines as u32;
+                            hunks.push((start, end));
+                        }
+                    }
+                }
+            }
+
+            let hex = oid.to_hex();
+            let timestamp = format_epoch_time(commit.committer_time);
             let message = commit
-                .message()
-                .unwrap_or("")
+                .message
                 .lines()
                 .next()
                 .unwrap_or("")
                 .to_string();
 
             let info = CommitInfo {
-                hash: commit.id().to_string()[..12].to_string(),
-                full_hash: commit.id().to_string(),
-                author: author.name().unwrap_or("Unknown").to_string(),
-                author_email: author.email().unwrap_or("").to_string(),
+                hash: hex[..12].to_string(),
+                full_hash: hex,
+                author: commit.author_name.clone(),
+                author_email: commit.author_email.clone(),
                 timestamp,
                 message,
                 files_changed: vec![file_path.to_string()],
-                insertions: stats.insertions(),
-                deletions: stats.deletions(),
+                insertions: total_insertions,
+                deletions: total_deletions,
             };
 
             results.push((info, hunks));
@@ -570,15 +578,13 @@ impl GitHistory {
         let mut results: HashMap<String, Vec<(CommitInfo, Vec<(u32, u32)>)>> = HashMap::new();
         let mut commit_counts: HashMap<String, usize> = HashMap::new();
 
-        let mut revwalk = self.repo.revwalk()?;
-        revwalk.set_sorting(Sort::TIME)?;
-        revwalk.simplify_first_parent()?;
+        let mut revwalk = RevWalk::new(&self.repo);
+        revwalk.simplify_first_parent();
         revwalk.push_head()?;
 
         let max_total_commits = 500;
         let mut saturated = 0usize;
         let total_target = target_files.len();
-        let mut broad_opts = fast_diff_opts();
 
         for (idx, oid_result) in revwalk.enumerate() {
             if idx >= max_total_commits || saturated >= total_target {
@@ -586,29 +592,26 @@ impl GitHistory {
             }
 
             let oid = oid_result?;
-            let commit = self.repo.find_commit(oid)?;
+            let commit = self.repo.find_commit(&oid)?;
 
-            let parent = commit.parent(0).ok();
-            let tree = commit.tree()?;
-            let parent_tree = parent.as_ref().map(|p| p.tree()).transpose()?;
+            let parent_tree_oid = if let Some(parent_oid) = commit.parents.first() {
+                let parent_commit = self.repo.find_commit(parent_oid)?;
+                parent_commit.tree_oid
+            } else {
+                Oid::ZERO
+            };
 
             // Full diff to identify which target files appear in this commit
-            let diff = self.repo.diff_tree_to_tree(
-                parent_tree.as_ref(),
-                Some(&tree),
-                Some(&mut broad_opts),
-            )?;
+            let deltas = diff_trees(&self.repo, &parent_tree_oid, &commit.tree_oid, &[])?;
 
-            // Check deltas for target files (fast: iterates tree comparison structs)
+            // Check deltas for target files
             let mut matched: Vec<String> = Vec::new();
-            for delta in diff.deltas() {
-                if let Some(path) = delta.new_file().path() {
-                    let p = path.to_string_lossy();
-                    if target_set.contains(p.as_ref()) {
-                        let count = commit_counts.get(p.as_ref()).copied().unwrap_or(0);
-                        if count < max_commits_per_file {
-                            matched.push(p.to_string());
-                        }
+            for delta in &deltas {
+                let p = &delta.new_path;
+                if target_set.contains(p.as_str()) {
+                    let count = commit_counts.get(p.as_str()).copied().unwrap_or(0);
+                    if count < max_commits_per_file {
+                        matched.push(p.clone());
                     }
                 }
             }
@@ -618,11 +621,10 @@ impl GitHistory {
             }
 
             // Extract commit metadata once
-            let author = commit.author();
-            let timestamp = format_git_time(&commit.time());
+            let hex = oid.to_hex();
+            let timestamp = format_epoch_time(commit.committer_time);
             let message = commit
-                .message()
-                .unwrap_or("")
+                .message
                 .lines()
                 .next()
                 .unwrap_or("")
@@ -630,43 +632,65 @@ impl GitHistory {
 
             // For each matched file, pathspec diff for accurate hunks + stats
             for file_path in matched {
-                let mut diff_opts = fast_pathspec_opts(file_path.as_str());
-
-                let file_diff = self.repo.diff_tree_to_tree(
-                    parent_tree.as_ref(),
-                    Some(&tree),
-                    Some(&mut diff_opts),
+                let pathspecs = vec![file_path.clone()];
+                let file_deltas = diff_trees(
+                    &self.repo,
+                    &parent_tree_oid,
+                    &commit.tree_oid,
+                    &pathspecs,
                 )?;
 
-                if file_diff.deltas().len() == 0 {
+                if file_deltas.is_empty() {
                     continue;
                 }
 
                 let mut hunks = Vec::new();
-                file_diff.foreach(
-                    &mut |_, _| true,
-                    None,
-                    Some(&mut |_, hunk| {
-                        let start = hunk.new_start();
-                        let end = start + hunk.new_lines();
-                        hunks.push((start, end));
-                        true
-                    }),
-                    None,
-                )?;
+                let mut total_insertions = 0usize;
+                let mut total_deletions = 0usize;
 
-                let stats = file_diff.stats()?;
+                for delta in &file_deltas {
+                    match delta.status {
+                        DiffStatus::Added => {
+                            if let Ok(blob) = self.repo.find_blob(&delta.new_oid) {
+                                let lines = blob.split(|&b| b == b'\n').count();
+                                hunks.push((1u32, lines as u32 + 1));
+                                total_insertions += lines;
+                            }
+                        }
+                        DiffStatus::Deleted => {
+                            if let Ok(blob) = self.repo.find_blob(&delta.old_oid) {
+                                let lines = blob.split(|&b| b == b'\n').count();
+                                total_deletions += lines;
+                            }
+                        }
+                        DiffStatus::Modified => {
+                            let old_blob =
+                                self.repo.find_blob(&delta.old_oid).unwrap_or_default();
+                            let new_blob =
+                                self.repo.find_blob(&delta.new_oid).unwrap_or_default();
+                            let diff_hunks = diff_blobs(&old_blob, &new_blob);
+                            let stats = compute_stats(&diff_hunks);
+                            total_insertions += stats.insertions;
+                            total_deletions += stats.deletions;
+                            for h in &diff_hunks {
+                                let start = h.new_start as u32;
+                                let end = start + h.new_lines as u32;
+                                hunks.push((start, end));
+                            }
+                        }
+                    }
+                }
 
                 let info = CommitInfo {
-                    hash: commit.id().to_string()[..12].to_string(),
-                    full_hash: commit.id().to_string(),
-                    author: author.name().unwrap_or("Unknown").to_string(),
-                    author_email: author.email().unwrap_or("").to_string(),
+                    hash: hex[..12].to_string(),
+                    full_hash: hex.clone(),
+                    author: commit.author_name.clone(),
+                    author_email: commit.author_email.clone(),
                     timestamp: timestamp.clone(),
                     message: message.clone(),
                     files_changed: vec![file_path.clone()],
-                    insertions: stats.insertions(),
-                    deletions: stats.deletions(),
+                    insertions: total_insertions,
+                    deletions: total_deletions,
                 };
 
                 results
@@ -685,20 +709,17 @@ impl GitHistory {
         Ok(results)
     }
 
-    /// Phase 1: Count how many commits touched each file using file_cb ONLY.
+    /// Phase 1: Count how many commits touched each file using tree-OID comparison ONLY.
     ///
     /// Uses pure tree-OID comparison — zero content decompression.
-    /// This is dramatically faster than using `hunk_cb` because libgit2 only
-    /// compares tree entry OIDs, never decompressing blob content.
+    /// This is dramatically faster than computing blob diffs because we only
+    /// compare tree entry OIDs, never decompressing blob content.
     pub fn get_file_churn_counts(&self, max_commits: usize) -> Result<HashMap<String, usize>> {
         let mut churn_counts: HashMap<String, usize> = HashMap::new();
 
-        let mut revwalk = self.repo.revwalk()?;
-        revwalk.set_sorting(Sort::TIME)?;
-        revwalk.simplify_first_parent()?;
+        let mut revwalk = RevWalk::new(&self.repo);
+        revwalk.simplify_first_parent();
         revwalk.push_head()?;
-
-        let mut diff_opts = fast_diff_opts();
 
         for (idx, oid_result) in revwalk.enumerate() {
             if idx >= max_commits {
@@ -706,32 +727,23 @@ impl GitHistory {
             }
 
             let oid = oid_result?;
-            let commit = self.repo.find_commit(oid)?;
+            let commit = self.repo.find_commit(&oid)?;
 
             // Skip commits with no parent (initial commit or shallow clone boundary).
             // Diffing against the empty tree produces ALL files as "added" —
             // no meaningful churn signal, and very expensive on large repos.
-            let parent = match commit.parent(0) {
-                Ok(p) => p,
-                Err(_) => continue,
+            let parent_oid = match commit.parents.first() {
+                Some(p) => p,
+                None => continue,
             };
 
-            let tree = commit.tree()?;
-            let parent_tree = parent.tree()?;
+            let parent = self.repo.find_commit(parent_oid)?;
 
-            let diff = self.repo.diff_tree_to_tree(
-                Some(&parent_tree),
-                Some(&tree),
-                Some(&mut diff_opts),
-            )?;
+            let deltas = diff_trees(&self.repo, &parent.tree_oid, &commit.tree_oid, &[])?;
 
-            // Use deltas() iterator instead of foreach() — avoids FFI callback overhead.
             // Pure tree-OID comparison, no content decompression.
-            for delta in diff.deltas() {
-                if let Some(path) = delta.new_file().path() {
-                    let path_str = path.to_string_lossy().to_string();
-                    *churn_counts.entry(path_str).or_default() += 1;
-                }
+            for delta in &deltas {
+                *churn_counts.entry(delta.new_path.clone()).or_default() += 1;
             }
         }
 
@@ -740,9 +752,9 @@ impl GitHistory {
 
     /// Phase 2: Get per-file commit history with hunk details for a specific set of paths.
     ///
-    /// Uses multi-pathspec filtering so libgit2 only diffs files in `paths`,
-    /// skipping tree entries for all other files. Combined with `hunk_cb` to extract
-    /// per-hunk line ranges and insertion/deletion counts.
+    /// Uses pathspec filtering so only files in `paths` are diffed,
+    /// skipping tree entries for all other files. Combined with blob diffing
+    /// to extract per-hunk line ranges and insertion/deletion counts.
     ///
     /// `since` enables early termination — stops walking when commits are older
     /// than the cutoff (commits are time-sorted, newest first).
@@ -753,24 +765,16 @@ impl GitHistory {
         max_commits_per_file: usize,
         since: Option<DateTime<Utc>>,
     ) -> Result<HashMap<String, Vec<(CommitInfo, Vec<HunkDetail>)>>> {
-        use std::cell::RefCell;
         use std::sync::Arc;
 
         let mut file_commits: HashMap<String, Vec<(CommitInfo, Vec<HunkDetail>)>> = HashMap::new();
         let mut file_commit_counts: HashMap<String, usize> = HashMap::new();
 
-        let mut revwalk = self.repo.revwalk()?;
-        revwalk.set_sorting(Sort::TIME)?;
-        revwalk.simplify_first_parent()?;
+        let mut revwalk = RevWalk::new(&self.repo);
+        revwalk.simplify_first_parent();
         revwalk.push_head()?;
 
-        // Multi-pathspec: add each high-churn path as a literal pathspec.
-        // libgit2 skips tree entries not matching any pathspec.
-        let mut diff_opts = fast_diff_opts();
-        for path in paths {
-            diff_opts.pathspec(path);
-        }
-        diff_opts.disable_pathspec_match(true);
+        let pathspecs: Vec<String> = paths.iter().cloned().collect();
 
         for (idx, oid_result) in revwalk.enumerate() {
             if idx >= max_commits {
@@ -778,80 +782,104 @@ impl GitHistory {
             }
 
             let oid = oid_result?;
-            let commit = self.repo.find_commit(oid)?;
+            let commit = self.repo.find_commit(&oid)?;
 
             // Early cutoff: stop when commits are older than the analysis window
-            if is_commit_before(&commit, since) {
+            if is_commit_before(commit.committer_time, since) {
                 break;
             }
 
             // Skip commits with no parent (initial commit or shallow clone boundary)
-            let parent = match commit.parent(0) {
-                Ok(p) => p,
-                Err(_) => continue,
+            let parent_oid = match commit.parents.first() {
+                Some(p) => p,
+                None => continue,
             };
-            let tree = commit.tree()?;
-            let parent_tree = parent.tree()?;
+            let parent = self.repo.find_commit(parent_oid)?;
 
-            let diff = self.repo.diff_tree_to_tree(
-                Some(&parent_tree),
-                Some(&tree),
-                Some(&mut diff_opts),
+            let deltas = diff_trees(
+                &self.repo,
+                &parent.tree_oid,
+                &commit.tree_oid,
+                &pathspecs,
             )?;
 
-            // file_cb + hunk_cb for pathspec-filtered files only.
-            // RefCell for shared state between file_cb and hunk_cb closures.
-            let current_file: RefCell<Option<String>> = RefCell::new(None);
+            if deltas.is_empty() {
+                continue;
+            }
+
+            // For each delta, compute hunks via blob diff
             let mut file_hunks: HashMap<String, Vec<HunkDetail>> = HashMap::new();
 
-            diff.foreach(
-                &mut |delta, _progress| {
-                    *current_file.borrow_mut() = delta
-                        .new_file()
-                        .path()
-                        .map(|p| p.to_string_lossy().to_string());
-                    true
-                },
-                None, // binary_cb
-                Some(&mut |_delta, hunk| {
-                    if let Some(ref file) = *current_file.borrow() {
-                        file_hunks
-                            .entry(file.clone())
-                            .or_default()
-                            .push(HunkDetail {
-                                new_start: hunk.new_start(),
-                                new_end: hunk.new_start() + hunk.new_lines(),
-                                insertions: hunk.new_lines() as usize,
-                                deletions: hunk.old_lines() as usize,
-                            });
+            for delta in &deltas {
+                let file = delta.new_path.clone();
+                match delta.status {
+                    DiffStatus::Added => {
+                        if let Ok(blob) = self.repo.find_blob(&delta.new_oid) {
+                            let lines = blob.split(|&b| b == b'\n').count();
+                            file_hunks
+                                .entry(file)
+                                .or_default()
+                                .push(HunkDetail {
+                                    new_start: 1,
+                                    new_end: lines as u32 + 1,
+                                    insertions: lines,
+                                    deletions: 0,
+                                });
+                        }
                     }
-                    true
-                }),
-                None, // no line_cb
-            )?;
+                    DiffStatus::Deleted => {
+                        if let Ok(blob) = self.repo.find_blob(&delta.old_oid) {
+                            let lines = blob.split(|&b| b == b'\n').count();
+                            file_hunks
+                                .entry(file)
+                                .or_default()
+                                .push(HunkDetail {
+                                    new_start: 1,
+                                    new_end: 1,
+                                    insertions: 0,
+                                    deletions: lines,
+                                });
+                        }
+                    }
+                    DiffStatus::Modified => {
+                        let old_blob = self.repo.find_blob(&delta.old_oid).unwrap_or_default();
+                        let new_blob = self.repo.find_blob(&delta.new_oid).unwrap_or_default();
+                        let diff_hunks = diff_blobs(&old_blob, &new_blob);
+                        for h in &diff_hunks {
+                            file_hunks
+                                .entry(file.clone())
+                                .or_default()
+                                .push(HunkDetail {
+                                    new_start: h.new_start as u32,
+                                    new_end: h.new_start as u32 + h.new_lines as u32,
+                                    insertions: h.new_lines,
+                                    deletions: h.old_lines,
+                                });
+                        }
+                    }
+                }
+            }
 
             if file_hunks.is_empty() {
                 continue;
             }
 
             // Build CommitInfo once per commit, wrap in Arc so file entries share it.
-            let author = commit.author();
-            let timestamp = format_git_time(&commit.time());
+            let hex = oid.to_hex();
+            let timestamp = format_epoch_time(commit.committer_time);
             let message = commit
-                .message()
-                .unwrap_or("")
+                .message
                 .lines()
                 .next()
                 .unwrap_or("")
                 .to_string();
-            let hash_str = commit.id().to_string();
-            let short_hash = hash_str[..12.min(hash_str.len())].to_string();
+            let short_hash = hex[..12.min(hex.len())].to_string();
 
             let shared_info = Arc::new(CommitInfo {
                 hash: short_hash,
-                full_hash: hash_str,
-                author: author.name().unwrap_or("Unknown").to_string(),
-                author_email: author.email().unwrap_or("").to_string(),
+                full_hash: hex,
+                author: commit.author_name.clone(),
+                author_email: commit.author_email.clone(),
                 timestamp,
                 message,
                 files_changed: file_hunks.keys().cloned().collect(),
@@ -886,44 +914,51 @@ impl GitHistory {
         line_start: u32,
         line_end: u32,
     ) -> Result<bool> {
-        let oid = git2::Oid::from_str(commit_hash)?;
-        let commit = self.repo.find_commit(oid)?;
+        let oid = Oid::from_hex(commit_hash)?;
+        let commit = self.repo.find_commit(&oid)?;
 
-        let parent = commit.parent(0).ok();
-        let tree = commit.tree()?;
-        let parent_tree = parent.as_ref().map(|p| p.tree()).transpose()?;
+        let parent_tree_oid = if let Some(parent_oid) = commit.parents.first() {
+            let parent = self.repo.find_commit(parent_oid)?;
+            parent.tree_oid
+        } else {
+            Oid::ZERO
+        };
 
-        let mut diff_opts = fast_pathspec_opts(file_path);
+        let pathspecs = vec![file_path.to_string()];
+        let deltas = diff_trees(&self.repo, &parent_tree_oid, &commit.tree_oid, &pathspecs)?;
 
-        let diff =
-            self.repo
-                .diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), Some(&mut diff_opts))?;
-
-        let mut touches_lines = false;
-
-        diff.foreach(
-            &mut |_, _| true,
-            None,
-            Some(&mut |_, hunk| {
-                // Check if hunk overlaps with our line range
-                let hunk_start = hunk.new_start();
-                let hunk_end = hunk_start + hunk.new_lines();
-
-                if hunk_start <= line_end && hunk_end >= line_start {
-                    touches_lines = true;
+        for delta in &deltas {
+            match delta.status {
+                DiffStatus::Added => {
+                    // Entire file is new — overlaps with any range
+                    return Ok(true);
                 }
-                true
-            }),
-            None,
-        )?;
+                DiffStatus::Deleted => {
+                    // Entire file deleted — overlaps with any range
+                    return Ok(true);
+                }
+                DiffStatus::Modified => {
+                    let old_blob = self.repo.find_blob(&delta.old_oid).unwrap_or_default();
+                    let new_blob = self.repo.find_blob(&delta.new_oid).unwrap_or_default();
+                    let hunks = diff_blobs(&old_blob, &new_blob);
+                    for h in &hunks {
+                        let hunk_start = h.new_start as u32;
+                        let hunk_end = hunk_start + h.new_lines as u32;
+                        if hunk_start <= line_end && hunk_end >= line_start {
+                            return Ok(true);
+                        }
+                    }
+                }
+            }
+        }
 
-        Ok(touches_lines)
+        Ok(false)
     }
 }
 
-/// Format a git timestamp as ISO 8601.
-fn format_git_time(time: &git2::Time) -> String {
-    match Utc.timestamp_opt(time.seconds(), 0).single() {
+/// Format an epoch timestamp (seconds since Unix epoch) as ISO 8601.
+fn format_epoch_time(secs: i64) -> String {
+    match Utc.timestamp_opt(secs, 0).single() {
         Some(dt) => dt.to_rfc3339(),
         None => "1970-01-01T00:00:00Z".to_string(),
     }
@@ -932,37 +967,39 @@ fn format_git_time(time: &git2::Time) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::process::Command;
     use tempfile::tempdir;
 
-    fn create_test_repo() -> Result<(tempfile::TempDir, Repository)> {
+    fn create_test_repo() -> Result<tempfile::TempDir> {
         let dir = tempdir()?;
-        let repo = Repository::init(dir.path())?;
 
-        // Configure user for commits
-        let mut config = repo.config()?;
-        config.set_str("user.name", "Test User")?;
-        config.set_str("user.email", "test@example.com")?;
+        let run = |args: &[&str]| {
+            Command::new("git")
+                .args(args)
+                .current_dir(dir.path())
+                .env("GIT_AUTHOR_NAME", "Test User")
+                .env("GIT_AUTHOR_EMAIL", "test@example.com")
+                .env("GIT_COMMITTER_NAME", "Test User")
+                .env("GIT_COMMITTER_EMAIL", "test@example.com")
+                .output()
+                .expect("git command failed")
+        };
+
+        run(&["init"]);
+        run(&["config", "user.name", "Test User"]);
+        run(&["config", "user.email", "test@example.com"]);
 
         // Create initial commit
-        {
-            let sig = repo.signature()?;
-            let tree_id = {
-                let mut index = repo.index()?;
-                std::fs::write(dir.path().join("test.txt"), "hello")?;
-                index.add_path(Path::new("test.txt"))?;
-                index.write()?;
-                index.write_tree()?
-            };
-            let tree = repo.find_tree(tree_id)?;
-            repo.commit(Some("HEAD"), &sig, &sig, "Initial commit", &tree, &[])?;
-        }
+        std::fs::write(dir.path().join("test.txt"), "hello")?;
+        run(&["add", "test.txt"]);
+        run(&["commit", "-m", "Initial commit"]);
 
-        Ok((dir, repo))
+        Ok(dir)
     }
 
     #[test]
     fn test_open_repo() -> Result<()> {
-        let (dir, _repo) = create_test_repo()?;
+        let dir = create_test_repo()?;
         let history = GitHistory::open(dir.path())?;
         assert!(history.repo_root()?.exists());
         Ok(())
@@ -970,7 +1007,7 @@ mod tests {
 
     #[test]
     fn test_is_git_repo() -> Result<()> {
-        let (dir, _repo) = create_test_repo()?;
+        let dir = create_test_repo()?;
         assert!(GitHistory::is_git_repo(dir.path()));
 
         let non_repo = tempdir()?;
@@ -980,7 +1017,7 @@ mod tests {
 
     #[test]
     fn test_get_recent_commits() -> Result<()> {
-        let (dir, _repo) = create_test_repo()?;
+        let dir = create_test_repo()?;
         let history = GitHistory::open(dir.path())?;
 
         let commits = history.get_recent_commits(10, None)?;
@@ -991,7 +1028,7 @@ mod tests {
 
     #[test]
     fn test_get_file_commits() -> Result<()> {
-        let (dir, _repo) = create_test_repo()?;
+        let dir = create_test_repo()?;
         let history = GitHistory::open(dir.path())?;
 
         let commits = history.get_file_commits("test.txt", 10)?;
