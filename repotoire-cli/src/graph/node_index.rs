@@ -33,6 +33,22 @@ impl From<usize> for NodeIndex {
     }
 }
 
+// ── Petgraph interop (temporary, removed in Task 11) ──
+
+impl From<petgraph::stable_graph::NodeIndex> for NodeIndex {
+    #[inline]
+    fn from(idx: petgraph::stable_graph::NodeIndex) -> Self {
+        Self(idx.index() as u32)
+    }
+}
+
+impl From<NodeIndex> for petgraph::stable_graph::NodeIndex {
+    #[inline]
+    fn from(idx: NodeIndex) -> Self {
+        petgraph::stable_graph::NodeIndex::new(idx.0 as usize)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

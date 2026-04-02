@@ -1,20 +1,17 @@
-//! Mutable graph builder for the build phase (parse → graph build → git enrich).
+//! Mutable graph builder for the build phase (parse -> graph build -> git enrich).
 //!
-//! `GraphBuilder` owns the petgraph `StableGraph` and provides mutation methods
-//! (`add_node`, `add_edge`, `update_node_property`, etc.) without any locking.
-//! All methods take `&mut self` or `&self` — no `RwLock`, no `DashMap`, no `Mutex`.
+//! `GraphBuilder` owns `Vec<Option<CodeNode>>` + edge Vec and provides mutation
+//! methods (`add_node`, `add_edge`, `update_node_property`, etc.) without any locking.
+//! All methods take `&mut self` or `&self` -- no `RwLock`, no `DashMap`, no `Mutex`.
 //!
 //! After building is complete, call `freeze()` to consume the builder and produce
-//! an immutable `CodeGraph` with pre-built indexes.
+//! an immutable `CodeGraph` with pre-built indexes and CSR storage.
 
-use petgraph::stable_graph::{NodeIndex, StableGraph};
-use petgraph::visit::{EdgeRef, IntoEdgeReferences};
-use petgraph::Direction;
+use crate::graph::node_index::NodeIndex;
 use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
 
 use super::frozen::CodeGraph;
-use super::indexes::GraphIndexes;
 use super::interner::{global_interner, StrKey, StringInterner};
 use super::store_models::{CodeEdge, CodeNode, EdgeKind, ExtraProps, NodeKind};
 
@@ -74,12 +71,14 @@ fn apply_extra_prop(
 }
 
 /// Mutable graph builder. Used during parse, graph build, and git enrichment.
-/// No locks — all methods take `&mut self` or `&self`.
+/// No locks -- all methods take `&mut self` or `&self`.
 pub struct GraphBuilder {
-    /// The underlying petgraph directed graph.
-    graph: StableGraph<CodeNode, CodeEdge>,
-    /// Node lookup by qualified name (interned StrKey → NodeIndex).
+    /// Nodes stored as Vec<Option<CodeNode>>. None = tombstone (removed).
+    nodes: Vec<Option<CodeNode>>,
+    /// Node lookup by qualified name (interned StrKey -> NodeIndex).
     node_index: HashMap<StrKey, NodeIndex>,
+    /// Edge list: (source, target, CodeEdge).
+    edges: Vec<(NodeIndex, NodeIndex, CodeEdge)>,
     /// Edge deduplication set: (source, target, kind).
     edge_set: HashSet<(NodeIndex, NodeIndex, EdgeKind)>,
     /// Extra (cold) properties stored per qualified_name StrKey.
@@ -96,8 +95,9 @@ impl GraphBuilder {
     /// Create a new empty builder.
     pub fn new() -> Self {
         Self {
-            graph: StableGraph::new(),
+            nodes: Vec::new(),
             node_index: HashMap::new(),
+            edges: Vec::new(),
             edge_set: HashSet::new(),
             extra_props: HashMap::new(),
             query_snapshot: OnceLock::new(),
@@ -107,15 +107,15 @@ impl GraphBuilder {
     /// Get or build the frozen query snapshot for `GraphQuery` trait access.
     ///
     /// Built lazily on first call by cloning the current graph state.
-    /// NOT invalidated by subsequent mutations — intended for test code.
+    /// NOT invalidated by subsequent mutations -- intended for test code.
     pub(crate) fn snapshot(&self) -> &CodeGraph {
         self.query_snapshot.get_or_init(|| {
-            let indexes = GraphIndexes::build(&self.graph, &self.node_index, None);
-            CodeGraph::from_parts(
-                self.graph.clone(),
+            CodeGraph::build(
+                self.nodes.clone(),
                 self.node_index.clone(),
+                self.edges.clone(),
                 self.extra_props.clone(),
-                indexes,
+                None,
             )
         })
     }
@@ -136,13 +136,12 @@ impl GraphBuilder {
 
         // Check if node already exists
         if let Some(&idx) = self.node_index.get(&qn) {
-            if let Some(existing) = self.graph.node_weight_mut(idx) {
-                *existing = node;
-            }
+            self.nodes[idx.index()] = Some(node);
             return idx;
         }
 
-        let idx = self.graph.add_node(node);
+        let idx = NodeIndex::new(self.nodes.len() as u32);
+        self.nodes.push(Some(node));
         self.node_index.insert(qn, idx);
         idx
     }
@@ -158,12 +157,11 @@ impl GraphBuilder {
             let qn = node.qualified_name;
 
             if let Some(&idx) = self.node_index.get(&qn) {
-                if let Some(existing) = self.graph.node_weight_mut(idx) {
-                    *existing = node;
-                }
+                self.nodes[idx.index()] = Some(node);
                 indices.push(idx);
             } else {
-                let idx = self.graph.add_node(node);
+                let idx = NodeIndex::new(self.nodes.len() as u32);
+                self.nodes.push(Some(node));
                 self.node_index.insert(qn, idx);
                 indices.push(idx);
             }
@@ -172,7 +170,7 @@ impl GraphBuilder {
         indices
     }
 
-    /// Add nodes and create Contains edges (file → function/class) in one operation.
+    /// Add nodes and create Contains edges (file -> function/class) in one operation.
     ///
     /// This avoids buffering edge tuples for Contains edges that are always
     /// intra-file and always resolved.
@@ -191,19 +189,18 @@ impl GraphBuilder {
             let needs_contains = node.kind == NodeKind::Function || node.kind == NodeKind::Class;
 
             if let Some(&idx) = self.node_index.get(&qn) {
-                if let Some(existing) = self.graph.node_weight_mut(idx) {
-                    *existing = node;
-                }
+                self.nodes[idx.index()] = Some(node);
                 indices.push(idx);
             } else {
-                let idx = self.graph.add_node(node);
+                let idx = NodeIndex::new(self.nodes.len() as u32);
+                self.nodes.push(Some(node));
                 self.node_index.insert(qn, idx);
 
-                // Add Contains edge: file → function/class
+                // Add Contains edge: file -> function/class
                 if needs_contains {
                     if let Some(f_idx) = file_idx {
                         if self.edge_set.insert((f_idx, idx, EdgeKind::Contains)) {
-                            self.graph.add_edge(f_idx, idx, CodeEdge::contains());
+                            self.edges.push((f_idx, idx, CodeEdge::contains()));
                         }
                     }
                 }
@@ -225,14 +222,14 @@ impl GraphBuilder {
     pub fn get_node(&self, qn: &str) -> Option<&CodeNode> {
         let key = self.interner().intern(qn);
         let &idx = self.node_index.get(&key)?;
-        self.graph.node_weight(idx)
+        self.nodes[idx.index()].as_ref()
     }
 
     /// Get a mutable reference to a node by qualified name.
     pub fn get_node_mut(&mut self, qn: &str) -> Option<&mut CodeNode> {
         let key = self.interner().intern(qn);
         let &idx = self.node_index.get(&key)?;
-        self.graph.node_weight_mut(idx)
+        self.nodes[idx.index()].as_mut()
     }
 
     /// Update a single property on a node.
@@ -248,7 +245,7 @@ impl GraphBuilder {
             None => return false,
         };
         let val: serde_json::Value = value.into();
-        if let Some(node) = self.graph.node_weight_mut(idx) {
+        if let Some(node) = self.nodes[idx.index()].as_mut() {
             apply_node_metric(node, key, &val);
             apply_extra_prop(&mut self.extra_props, intern_qn, key, &val);
             return true;
@@ -267,7 +264,7 @@ impl GraphBuilder {
             Some(idx) => idx,
             None => return false,
         };
-        // Pre-intern string values before taking mutable borrow on self.graph
+        // Pre-intern string values before taking mutable borrow on self.nodes
         let si = global_interner();
         let mut extras = ExtraProps::default();
         let mut has_extras = false;
@@ -289,7 +286,7 @@ impl GraphBuilder {
             }
         }
 
-        if let Some(node) = self.graph.node_weight_mut(idx) {
+        if let Some(node) = self.nodes[idx.index()].as_mut() {
             for (key, value) in props {
                 apply_node_metric(node, key, value);
             }
@@ -324,7 +321,7 @@ impl GraphBuilder {
         if !self.edge_set.insert((from, to, edge.kind)) {
             return; // duplicate
         }
-        self.graph.add_edge(from, to, edge);
+        self.edges.push((from, to, edge));
     }
 
     /// Add edge by qualified names (returns false if either node doesn't exist).
@@ -361,7 +358,7 @@ impl GraphBuilder {
         let mut added = 0;
         for (from, to, edge) in resolved {
             if self.edge_set.insert((from, to, edge.kind)) {
-                self.graph.add_edge(from, to, edge);
+                self.edges.push((from, to, edge));
                 added += 1;
             }
         }
@@ -370,13 +367,14 @@ impl GraphBuilder {
 
     // ==================== Read Methods (needed during build phase) ====================
 
-    /// Get all function nodes (O(N) scan — acceptable during build phase).
+    /// Get all function nodes (O(N) scan -- acceptable during build phase).
     /// Sorted by qualified_name for determinism.
     pub fn get_functions(&self) -> Vec<CodeNode> {
         let si = self.interner();
         let mut nodes: Vec<CodeNode> = self
-            .graph
-            .node_weights()
+            .nodes
+            .iter()
+            .filter_map(|n| n.as_ref())
             .filter(|n| n.kind == NodeKind::Function)
             .copied()
             .collect();
@@ -389,8 +387,9 @@ impl GraphBuilder {
     pub fn get_classes(&self) -> Vec<CodeNode> {
         let si = self.interner();
         let mut nodes: Vec<CodeNode> = self
-            .graph
-            .node_weights()
+            .nodes
+            .iter()
+            .filter_map(|n| n.as_ref())
             .filter(|n| n.kind == NodeKind::Class)
             .copied()
             .collect();
@@ -403,8 +402,9 @@ impl GraphBuilder {
     pub fn get_files(&self) -> Vec<CodeNode> {
         let si = self.interner();
         let mut nodes: Vec<CodeNode> = self
-            .graph
-            .node_weights()
+            .nodes
+            .iter()
+            .filter_map(|n| n.as_ref())
             .filter(|n| n.kind == NodeKind::File)
             .copied()
             .collect();
@@ -412,14 +412,14 @@ impl GraphBuilder {
         nodes
     }
 
-    /// Node count.
+    /// Node count (excluding tombstones).
     pub fn node_count(&self) -> usize {
-        self.graph.node_count()
+        self.nodes.iter().filter(|n| n.is_some()).count()
     }
 
     /// Edge count.
     pub fn edge_count(&self) -> usize {
-        self.graph.edge_count()
+        self.edges.len()
     }
 
     // ==================== Edge Query Methods ====================
@@ -429,13 +429,13 @@ impl GraphBuilder {
     pub fn get_edges_by_kind(&self, kind: EdgeKind) -> Vec<(StrKey, StrKey)> {
         let si = self.interner();
         let mut edges: Vec<(StrKey, StrKey)> = self
-            .graph
-            .edge_references()
-            .filter(|e| e.weight().kind == kind)
-            .filter_map(|e| {
-                let src = self.graph.node_weight(e.source())?;
-                let dst = self.graph.node_weight(e.target())?;
-                Some((src.qualified_name, dst.qualified_name))
+            .edges
+            .iter()
+            .filter(|(_, _, e)| e.kind == kind)
+            .filter_map(|&(src, tgt, _)| {
+                let s = self.nodes[src.index()].as_ref()?;
+                let d = self.nodes[tgt.index()].as_ref()?;
+                Some((s.qualified_name, d.qualified_name))
             })
             .collect();
         edges.sort_unstable_by(|a, b| {
@@ -462,10 +462,10 @@ impl GraphBuilder {
     ///
     /// Pre-allocates internal storage to avoid reallocations during bulk insert.
     pub fn reserve_capacity(&mut self, nodes: usize, edges: usize) {
+        self.nodes.reserve(nodes);
         self.node_index.reserve(nodes);
+        self.edges.reserve(edges);
         self.edge_set.reserve(edges);
-        // Note: petgraph's StableGraph doesn't have reserve_nodes/reserve_edges,
-        // but reserving the HashMap/HashSet avoids rehashing during bulk insert.
     }
 
     // ==================== Delta Patching ====================
@@ -477,59 +477,41 @@ impl GraphBuilder {
         let si = self.interner();
         let mut removed_qns = Vec::new();
 
+        // Collect all node indices to remove
+        let mut removed_indices: HashSet<NodeIndex> = HashSet::new();
+
         for file in files {
             let file_str = file.to_string_lossy();
             let file_key = si.intern(file_str.as_ref());
 
-            // Collect all nodes in this file
-            let node_idxs: Vec<NodeIndex> = self
-                .graph
-                .node_indices()
-                .filter(|&idx| {
-                    self.graph
-                        .node_weight(idx)
-                        .is_some_and(|n| n.file_path == file_key)
-                })
-                .collect();
-
-            for &idx in &node_idxs {
-                // Collect all edges connected to this node
-                let mut edge_ids: Vec<_> = self
-                    .graph
-                    .edges_directed(idx, Direction::Outgoing)
-                    .map(|e| e.id())
-                    .collect();
-                let incoming: Vec<_> = self
-                    .graph
-                    .edges_directed(idx, Direction::Incoming)
-                    .map(|e| e.id())
-                    .collect();
-                edge_ids.extend(incoming);
-                edge_ids.sort();
-                edge_ids.dedup();
-
-                // Remove edges from edge_set and graph
-                for eid in edge_ids {
-                    if let Some((src, tgt)) = self.graph.edge_endpoints(eid) {
-                        if let Some(edge) = self.graph.edge_weight(eid) {
-                            self.edge_set.remove(&(src, tgt, edge.kind));
-                        }
+            for (i, slot) in self.nodes.iter().enumerate() {
+                if let Some(node) = slot {
+                    if node.file_path == file_key {
+                        let idx = NodeIndex::new(i as u32);
+                        removed_indices.insert(idx);
                     }
-                    self.graph.remove_edge(eid);
                 }
-
-                // Remove the node from QN index and collect removed QN
-                if let Some(node) = self.graph.node_weight(idx) {
-                    let qn = node.qualified_name;
-                    self.node_index.remove(&qn);
-                    self.extra_props.remove(&qn);
-                    removed_qns.push(qn);
-                }
-
-                // Remove the node from graph
-                self.graph.remove_node(idx);
             }
         }
+
+        // Remove nodes (tombstone) and clean up node_index
+        for &idx in &removed_indices {
+            if let Some(node) = &self.nodes[idx.index()] {
+                let qn = node.qualified_name;
+                self.node_index.remove(&qn);
+                self.extra_props.remove(&qn);
+                removed_qns.push(qn);
+            }
+            self.nodes[idx.index()] = None;
+        }
+
+        // Remove edges touching removed nodes
+        self.edges.retain(|&(src, tgt, _)| {
+            !removed_indices.contains(&src) && !removed_indices.contains(&tgt)
+        });
+        self.edge_set.retain(|&(src, tgt, _)| {
+            !removed_indices.contains(&src) && !removed_indices.contains(&tgt)
+        });
 
         removed_qns
     }
@@ -541,8 +523,7 @@ impl GraphBuilder {
     /// This is the transition from the mutable build phase to the immutable
     /// query phase. All indexes are built in one pass during this call.
     pub fn freeze(self) -> CodeGraph {
-        let indexes = GraphIndexes::build(&self.graph, &self.node_index, None);
-        CodeGraph::from_parts(self.graph, self.node_index, self.extra_props, indexes)
+        CodeGraph::build(self.nodes, self.node_index, self.edges, self.extra_props, None)
     }
 
     /// Consume the builder, build all indexes with co-change data, produce an immutable `CodeGraph`.
@@ -553,27 +534,35 @@ impl GraphBuilder {
         self,
         co_change: &crate::git::co_change::CoChangeMatrix,
     ) -> CodeGraph {
-        let indexes = GraphIndexes::build(&self.graph, &self.node_index, Some(co_change));
-        CodeGraph::from_parts(self.graph, self.node_index, self.extra_props, indexes)
+        CodeGraph::build(
+            self.nodes,
+            self.node_index,
+            self.edges,
+            self.extra_props,
+            Some(co_change),
+        )
     }
 
     /// Create a builder from a frozen CodeGraph (takes ownership).
     ///
-    /// Moves the StableGraph without copying nodes/edges.
-    /// Rebuilds edge_set from graph edges — O(E).
+    /// Reconstructs nodes (with tombstones) and edges from the frozen graph.
     /// Indexes are dropped (rebuilt on re-freeze).
     pub fn from_frozen(frozen: CodeGraph) -> Self {
-        let (graph, node_index, extra_props) = frozen.into_parts();
+        let (nodes, node_index, edges, extra_props) = frozen.into_parts();
 
-        // Rebuild edge_set from graph edges
-        let edge_set: HashSet<(NodeIndex, NodeIndex, EdgeKind)> = graph
-            .edge_references()
-            .map(|e| (e.source(), e.target(), e.weight().kind))
+        // Rebuild edge_set from edges
+        let edge_set: HashSet<(NodeIndex, NodeIndex, EdgeKind)> = edges
+            .iter()
+            .map(|&(src, tgt, ref e)| (src, tgt, e.kind))
             .collect();
 
+        // Convert compact nodes back to Option<CodeNode> (no tombstones from frozen)
+        let opt_nodes: Vec<Option<CodeNode>> = nodes.into_iter().map(Some).collect();
+
         Self {
-            graph,
+            nodes: opt_nodes,
             node_index,
+            edges,
             edge_set,
             extra_props,
             query_snapshot: OnceLock::new(),
@@ -646,7 +635,7 @@ mod tests {
         assert_eq!(indices.len(), 2);
         // File + 2 entities
         assert_eq!(builder.node_count(), 3);
-        // 2 Contains edges (file → foo, file → MyClass)
+        // 2 Contains edges (file -> foo, file -> MyClass)
         assert_eq!(builder.edge_count(), 2);
     }
 
@@ -730,18 +719,20 @@ mod tests {
         assert_eq!(graph.functions().len(), 2);
         assert_eq!(graph.files().len(), 1);
 
-        // Adjacency
-        assert_eq!(graph.callees(f1).len(), 1);
-        assert_eq!(graph.callers(f2).len(), 1);
-        assert!(graph.callers(f1).is_empty());
+        // Adjacency -- note: NodeIndex values may change after compaction
+        let (new_f1, _) = graph.node_by_name("a.py::foo").unwrap();
+        let (new_f2, _) = graph.node_by_name("a.py::bar").unwrap();
+        assert_eq!(graph.callees(new_f1).len(), 1);
+        assert_eq!(graph.callers(new_f2).len(), 1);
+        assert!(graph.callers(new_f1).is_empty());
     }
 
     #[test]
     fn test_freeze_roundtrip() {
         let mut builder = GraphBuilder::new();
-        let f1 = builder.add_node(CodeNode::function("foo", "a.py"));
-        let f2 = builder.add_node(CodeNode::function("bar", "a.py"));
-        builder.add_edge(f1, f2, CodeEdge::calls());
+        let _f1 = builder.add_node(CodeNode::function("foo", "a.py"));
+        let _f2 = builder.add_node(CodeNode::function("bar", "a.py"));
+        builder.add_edge(_f1, _f2, CodeEdge::calls());
 
         // Freeze
         let graph = builder.freeze();
@@ -754,12 +745,15 @@ mod tests {
 
         // Add more nodes
         let f3 = builder2.add_node(CodeNode::function("baz", "a.py"));
-        builder2.add_edge(f1, f3, CodeEdge::calls());
+        // Get the current idx of foo from the builder
+        let f1_new = builder2.get_node_index("a.py::foo").unwrap();
+        builder2.add_edge(f1_new, f3, CodeEdge::calls());
 
         // Re-freeze
         let graph2 = builder2.freeze();
         assert_eq!(graph2.functions().len(), 3);
-        assert_eq!(graph2.callees(f1).len(), 2);
+        let (f1_frozen, _) = graph2.node_by_name("a.py::foo").unwrap();
+        assert_eq!(graph2.callees(f1_frozen).len(), 2);
     }
 
     #[test]

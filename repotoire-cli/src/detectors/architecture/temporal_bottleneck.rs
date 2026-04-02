@@ -95,13 +95,14 @@ impl Detector for TemporalBottleneckDetector {
         }
 
         // Step 1-2: Collect weighted betweenness for all functions.
-        let entries: Vec<(petgraph::graph::NodeIndex, f64)> = functions
+        let entries: Vec<(crate::graph::node_index::NodeIndex, f64)> = functions
             .iter()
             .map(|&idx| {
+                let pg_idx: petgraph::stable_graph::NodeIndex = idx.into();
                 let wbw = graph
                     .primitives()
                     .weighted_betweenness
-                    .get(&idx)
+                    .get(&pg_idx)
                     .copied()
                     .unwrap_or(0.0);
                 (idx, wbw)
@@ -134,10 +135,11 @@ impl Detector for TemporalBottleneckDetector {
         let unweighted_entries: Vec<f64> = entries
             .iter()
             .map(|&(idx, _)| {
+                let pg_idx: petgraph::stable_graph::NodeIndex = idx.into();
                 graph
                     .primitives()
                     .betweenness
-                    .get(&idx)
+                    .get(&pg_idx)
                     .copied()
                     .unwrap_or(0.0)
             })

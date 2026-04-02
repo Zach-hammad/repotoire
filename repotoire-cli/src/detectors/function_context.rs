@@ -187,10 +187,11 @@ impl<'a> FunctionContextBuilder<'a> {
                 self.graph
                     .node_by_name_idx(f.qn(i))
                     .map(|(idx, _)| {
+                        let pg_idx: petgraph::stable_graph::NodeIndex = idx.into();
                         self.graph
                             .primitives()
                             .betweenness
-                            .get(&idx)
+                            .get(&pg_idx)
                             .copied()
                             .unwrap_or(0.0)
                     })
@@ -227,10 +228,11 @@ impl<'a> FunctionContextBuilder<'a> {
                     .graph
                     .node_by_name_idx(qn)
                     .map(|(ni, _)| {
+                        let pg_ni: petgraph::stable_graph::NodeIndex = ni.into();
                         self.graph
                             .primitives()
                             .call_depth
-                            .get(&ni)
+                            .get(&pg_ni)
                             .copied()
                             .unwrap_or(0)
                     })
@@ -283,7 +285,7 @@ impl<'a> FunctionContextBuilder<'a> {
     /// NodeIndex-based build path (CodeGraph). Zero Vec<CodeNode> cloning.
     fn build_indexed(
         &self,
-        func_node_idxs: &[petgraph::stable_graph::NodeIndex],
+        func_node_idxs: &[crate::graph::node_index::NodeIndex],
         i: &crate::graph::interner::StringInterner,
     ) -> FunctionContextMap {
         let start = std::time::Instant::now();
@@ -298,7 +300,7 @@ impl<'a> FunctionContextBuilder<'a> {
         );
 
         // Build a local NodeIndex -> usize map for adjacency arrays
-        let ni_to_local: HashMap<petgraph::stable_graph::NodeIndex, usize> = func_node_idxs
+        let ni_to_local: HashMap<crate::graph::node_index::NodeIndex, usize> = func_node_idxs
             .iter()
             .enumerate()
             .map(|(local, &ni)| (ni, local))
@@ -327,10 +329,11 @@ impl<'a> FunctionContextBuilder<'a> {
         let raw_betweenness: Vec<f64> = func_node_idxs
             .iter()
             .map(|&ni| {
+                let pg_ni: petgraph::stable_graph::NodeIndex = ni.into();
                 self.graph
                     .primitives()
                     .betweenness
-                    .get(&ni)
+                    .get(&pg_ni)
                     .copied()
                     .unwrap_or(0.0)
             })
@@ -373,11 +376,12 @@ impl<'a> FunctionContextBuilder<'a> {
                     .copied()
                     .unwrap_or(0.0);
 
+                let pg_ni: petgraph::stable_graph::NodeIndex = ni.into();
                 let call_depth = self
                     .graph
                     .primitives()
                     .call_depth
-                    .get(&ni)
+                    .get(&pg_ni)
                     .copied()
                     .unwrap_or(0);
 

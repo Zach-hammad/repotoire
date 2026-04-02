@@ -549,8 +549,8 @@ impl<'a> GraphScorer<'a> {
     fn compute_graph_metrics_indexed(
         &self,
         i: &crate::graph::interner::StringInterner,
-        func_idxs: &[petgraph::stable_graph::NodeIndex],
-        file_idxs: &[petgraph::stable_graph::NodeIndex],
+        func_idxs: &[crate::graph::NodeIndex],
+        file_idxs: &[crate::graph::NodeIndex],
     ) -> GraphMetrics {
         // Count modules (unique directories)
         let modules: HashSet<String> = file_idxs

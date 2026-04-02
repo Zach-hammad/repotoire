@@ -94,10 +94,11 @@ impl super::AnalysisEngine {
             .iter()
             .filter_map(|&idx| {
                 let node = graph.node_idx(idx)?;
+                let pg_idx: petgraph::stable_graph::NodeIndex = idx.into();
                 let score = graph
                     .primitives()
                     .page_rank
-                    .get(&idx)
+                    .get(&pg_idx)
                     .copied()
                     .unwrap_or(0.0);
                 if score > 0.0 {
@@ -116,10 +117,11 @@ impl super::AnalysisEngine {
             .iter()
             .filter_map(|&idx| {
                 let node = graph.node_idx(idx)?;
+                let pg_idx: petgraph::stable_graph::NodeIndex = idx.into();
                 let score = graph
                     .primitives()
                     .betweenness
-                    .get(&idx)
+                    .get(&pg_idx)
                     .copied()
                     .unwrap_or(0.0);
                 if score > 0.0 {
@@ -137,7 +139,8 @@ impl super::AnalysisEngine {
             .primitives()
             .articulation_points
             .iter()
-            .filter_map(|&idx| {
+            .filter_map(|&pg_idx| {
+                let idx: crate::graph::NodeIndex = pg_idx.into();
                 let node = graph.node_idx(idx)?;
                 Some(interner.resolve(node.qualified_name).to_string())
             })
@@ -151,7 +154,8 @@ impl super::AnalysisEngine {
             .map(|cycle| {
                 cycle
                     .iter()
-                    .filter_map(|&idx| {
+                    .filter_map(|&pg_idx| {
+                        let idx: crate::graph::NodeIndex = pg_idx.into();
                         let node = graph.node_idx(idx)?;
                         Some(interner.resolve(node.qualified_name).to_string())
                     })
@@ -189,8 +193,8 @@ impl super::AnalysisEngine {
             .hidden_coupling
             .iter()
             .filter_map(|&(a, b, w, _lift, _confidence)| {
-                let na = graph.node_idx(a)?;
-                let nb = graph.node_idx(b)?;
+                let na = graph.node_idx(a.into())?;
+                let nb = graph.node_idx(b.into())?;
                 Some((
                     interner.resolve(na.qualified_name).to_string(),
                     interner.resolve(nb.qualified_name).to_string(),
@@ -354,7 +358,8 @@ impl super::AnalysisEngine {
                     (sum + f.complexity as f64, cnt + 1)
                 });
 
-            let community = graph.primitives().community.get(&idx).copied();
+            let pg_idx: petgraph::stable_graph::NodeIndex = idx.into();
+            let community = graph.primitives().community.get(&pg_idx).copied();
 
             modules.entry(parent).or_default().push(FileInfo {
                 loc: node.loc() as usize,

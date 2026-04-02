@@ -3,7 +3,7 @@
 use super::CodeNode;
 use crate::graph::interner::{StrKey, StringInterner};
 use crate::graph::store_models::ExtraProps;
-use petgraph::stable_graph::NodeIndex;
+use crate::graph::node_index::NodeIndex;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 

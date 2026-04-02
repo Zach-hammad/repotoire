@@ -64,9 +64,9 @@ impl ReachabilityIndex {
     fn build_indexed(
         graph: &dyn GraphQuery,
         interner: &crate::graph::interner::StringInterner,
-        func_idxs: &[petgraph::stable_graph::NodeIndex],
+        func_idxs: &[crate::graph::node_index::NodeIndex],
     ) -> Self {
-        use petgraph::stable_graph::NodeIndex;
+        use crate::graph::node_index::NodeIndex;
 
         // Entry points: exported, or has zero callers
         let mut queue: VecDeque<NodeIndex> = VecDeque::new();

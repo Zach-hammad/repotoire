@@ -306,10 +306,11 @@ impl Detector for ArchitecturalBottleneckDetector {
                 // Fall back to graph queries + pre-computed betweenness
                 let fan_in = graph.call_fan_in_idx(func_idx);
                 let complexity = func.complexity_opt().unwrap_or(1) as usize;
+                let pg_idx: petgraph::stable_graph::NodeIndex = func_idx.into();
                 let raw_b = graph
                     .primitives()
                     .betweenness
-                    .get(&func_idx)
+                    .get(&pg_idx)
                     .copied()
                     .unwrap_or(0.0);
                 let betweenness = if raw_b > 0.0 { Some(raw_b) } else { None };

@@ -228,10 +228,11 @@ impl Detector for InfluentialCodeDetector {
         let mut pagerank_values: Vec<f64> = func_idxs
             .iter()
             .map(|&idx| {
+                let pg_idx: petgraph::stable_graph::NodeIndex = idx.into();
                 graph
                     .primitives()
                     .page_rank
-                    .get(&idx)
+                    .get(&pg_idx)
                     .copied()
                     .unwrap_or(0.0)
             })
@@ -267,10 +268,11 @@ impl Detector for InfluentialCodeDetector {
                 }
             }
 
+            let pg_func: petgraph::stable_graph::NodeIndex = func_idx.into();
             let page_rank = graph
                 .primitives()
                 .page_rank
-                .get(&func_idx)
+                .get(&pg_func)
                 .copied()
                 .unwrap_or(0.0);
             let pagerank_pct = percentile_of(page_rank);
@@ -292,10 +294,11 @@ impl Detector for InfluentialCodeDetector {
                 let fan_in = graph.call_fan_in_idx(func_idx);
                 let complexity = func.complexity_opt().unwrap_or(1) as usize;
                 let loc = func.loc() as usize;
+                let pg_fidx: petgraph::stable_graph::NodeIndex = func_idx.into();
                 let raw_b = graph
                     .primitives()
                     .betweenness
-                    .get(&func_idx)
+                    .get(&pg_fidx)
                     .copied()
                     .unwrap_or(0.0);
                 let betweenness = if raw_b > 0.0 { Some(raw_b) } else { None };

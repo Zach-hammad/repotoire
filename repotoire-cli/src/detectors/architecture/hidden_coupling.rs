@@ -110,13 +110,15 @@ impl Detector for HiddenCouplingDetector {
                 Severity::Low
             };
 
-            // Get file paths from node indices
+            // Get file paths from node indices (convert petgraph NodeIndex to ours)
+            let our_a: crate::graph::node_index::NodeIndex = file_a_idx.into();
+            let our_b: crate::graph::node_index::NodeIndex = file_b_idx.into();
             let file_a = graph
-                .node_idx(file_a_idx)
+                .node_idx(our_a)
                 .map(|n| n.path(gi).to_string())
                 .unwrap_or_default();
             let file_b = graph
-                .node_idx(file_b_idx)
+                .node_idx(our_b)
                 .map(|n| n.path(gi).to_string())
                 .unwrap_or_default();
 

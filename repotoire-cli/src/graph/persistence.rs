@@ -1,11 +1,11 @@
 //! Persistence layer for CodeGraph — bincode save/load.
 //!
-//! Serializes the StableGraph, node_index, and extra_props to a bincode file.
-//! Indexes are NOT serialized — they are rebuilt via `GraphIndexes::build()`
+//! Serializes the node array, edge list, node_index, and extra_props to a bincode file.
+//! Indexes are NOT serialized — they are rebuilt via `GraphIndexes::build_from_vecs()`
 //! on load. This matches the existing `GraphBuilder` cache format for compatibility.
 
 use anyhow::{Context, Result};
-use petgraph::stable_graph::{NodeIndex, StableGraph};
+use crate::graph::node_index::NodeIndex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
@@ -17,7 +17,7 @@ use super::store_models::{CodeEdge, CodeNode, ExtraProps};
 
 /// Schema version for CodeGraph persistence.
 /// Bump when the serialization format changes.
-const CODEGRAPH_CACHE_VERSION: u32 = 1;
+const CODEGRAPH_CACHE_VERSION: u32 = 2;
 
 /// Serializable cache format for CodeGraph.
 ///
@@ -27,9 +27,12 @@ const CODEGRAPH_CACHE_VERSION: u32 = 1;
 struct CodeGraphCache {
     version: u32,
     binary_version: String,
-    graph: StableGraph<CodeNode, CodeEdge>,
+    /// Compact node array (no tombstones).
+    nodes: Vec<CodeNode>,
+    /// Edge list as (src_index, tgt_index, edge).
+    edges: Vec<(u32, u32, CodeEdge)>,
     /// Qualified-name → NodeIndex, with keys as strings (not StrKeys).
-    node_index: HashMap<String, NodeIndex>,
+    node_index: HashMap<String, u32>,
     /// String table: raw StrKey u32 → interned string for cross-process re-interning.
     string_table: HashMap<u32, String>,
     /// ExtraProps serialized with string values (StrKeys are process-local).
@@ -49,15 +52,15 @@ struct SerializableExtraProps {
 impl CodeGraph {
     /// Save the code graph to a bincode cache file.
     ///
-    /// Serializes the StableGraph + node_index + extra_props. Indexes are NOT
-    /// serialized — they are rebuilt on load via `GraphIndexes::build()`.
+    /// Serializes the node array + edge list + node_index + extra_props. Indexes are NOT
+    /// serialized — they are rebuilt on load via `GraphIndexes::build_from_vecs()`.
     /// The file is written atomically via write-to-temp-then-rename.
     pub fn save_cache(&self, cache_path: &Path) -> Result<()> {
         let i = global_interner();
 
         // Build string table: raw StrKey u32 → interned string for all StrKeys in nodes
         let mut string_table: HashMap<u32, String> = HashMap::new();
-        for node in self.raw_graph().node_weights() {
+        for node in self.nodes() {
             for &key in &[
                 node.name,
                 node.qualified_name,
@@ -71,11 +74,18 @@ impl CodeGraph {
             }
         }
 
-        // Serialize node_index with string keys
-        let node_index: HashMap<String, NodeIndex> = self
+        // Serialize node_index with string keys and u32 values
+        let node_index: HashMap<String, u32> = self
             .node_index_map()
             .iter()
-            .map(|(&key, &idx)| (i.resolve(key).to_string(), idx))
+            .map(|(&key, &idx)| (i.resolve(key).to_string(), idx.as_u32()))
+            .collect();
+
+        // Serialize edges as (src_u32, tgt_u32, edge)
+        let edges: Vec<(u32, u32, CodeEdge)> = self
+            .edge_list()
+            .iter()
+            .map(|&(src, tgt, e)| (src.as_u32(), tgt.as_u32(), e))
             .collect();
 
         // Serialize ExtraProps with resolved strings
@@ -99,7 +109,8 @@ impl CodeGraph {
         let cache = CodeGraphCache {
             version: CODEGRAPH_CACHE_VERSION,
             binary_version: env!("CARGO_PKG_VERSION").to_string(),
-            graph: self.raw_graph().clone(),
+            nodes: self.nodes().to_vec(),
+            edges,
             node_index,
             string_table,
             extra_props: extra_props_ser,
@@ -143,22 +154,20 @@ impl CodeGraph {
             .map(|(&raw, s)| (raw, i.intern(s)))
             .collect();
 
-        // Remap all CodeNode StrKey fields in the deserialized graph
-        let mut graph = cache.graph;
-        for idx in graph.node_indices().collect::<Vec<_>>() {
-            if let Some(node) = graph.node_weight_mut(idx) {
-                if let Some(&new) = remap.get(&node.name.as_u32()) {
-                    node.name = new;
-                }
-                if let Some(&new) = remap.get(&node.qualified_name.as_u32()) {
-                    node.qualified_name = new;
-                }
-                if let Some(&new) = remap.get(&node.file_path.as_u32()) {
-                    node.file_path = new;
-                }
-                if let Some(&new) = remap.get(&node.language.as_u32()) {
-                    node.language = new;
-                }
+        // Remap all CodeNode StrKey fields in the deserialized nodes
+        let mut nodes = cache.nodes;
+        for node in &mut nodes {
+            if let Some(&new) = remap.get(&node.name.as_u32()) {
+                node.name = new;
+            }
+            if let Some(&new) = remap.get(&node.qualified_name.as_u32()) {
+                node.qualified_name = new;
+            }
+            if let Some(&new) = remap.get(&node.file_path.as_u32()) {
+                node.file_path = new;
+            }
+            if let Some(&new) = remap.get(&node.language.as_u32()) {
+                node.language = new;
             }
         }
 
@@ -166,7 +175,14 @@ impl CodeGraph {
         let node_index: HashMap<StrKey, NodeIndex> = cache
             .node_index
             .iter()
-            .map(|(key_str, &idx)| (i.intern(key_str), idx))
+            .map(|(key_str, &idx)| (i.intern(key_str), NodeIndex::new(idx)))
+            .collect();
+
+        // Rebuild edges
+        let edges: Vec<(NodeIndex, NodeIndex, CodeEdge)> = cache
+            .edges
+            .into_iter()
+            .map(|(src, tgt, e)| (NodeIndex::new(src), NodeIndex::new(tgt), e))
             .collect();
 
         // Rebuild ExtraProps from serialized string values
@@ -183,13 +199,14 @@ impl CodeGraph {
             extra_props.insert(qn_key, ep);
         }
 
-        // Rebuild indexes from the graph
-        let indexes = GraphIndexes::build(&graph, &node_index, None);
+        // Rebuild indexes from the node/edge data
+        let indexes = GraphIndexes::build_from_vecs(&nodes, &edges, &node_index, None);
 
         tracing::info!("Loaded CodeGraph cache ({} nodes)", node_index.len());
         Some(CodeGraph::from_parts(
-            graph,
+            nodes,
             node_index,
+            edges,
             extra_props,
             indexes,
         ))

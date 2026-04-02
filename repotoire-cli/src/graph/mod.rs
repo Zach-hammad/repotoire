@@ -1,9 +1,10 @@
 //! Graph database for code analysis
 //!
-//! Pure Rust implementation using petgraph.
+//! CSR-backed graph engine with petgraph shim for primitives.
 //! No C++ dependencies - builds everywhere!
 
 pub mod algo;
+pub mod csr;
 pub mod interner;
 pub mod node_index;
 pub mod overlay;
@@ -34,3 +35,4 @@ pub use builder::GraphBuilder;
 pub use frozen::CodeGraph;
 pub use indexes::GraphIndexes;
 pub use metrics_cache::MetricsCache;
+pub use node_index::NodeIndex;
