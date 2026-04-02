@@ -3,6 +3,7 @@ pub mod commit;
 pub mod deflate;
 pub mod diff;
 pub mod error;
+pub mod merge_base;
 pub mod object;
 pub mod oid;
 pub mod pack;
