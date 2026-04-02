@@ -65,7 +65,7 @@ pub struct WeakLabel {
 ///
 /// Returns an empty `Vec` on any git error (graceful degradation).
 pub fn mine_labels(findings: &[Finding], repo_path: &Path) -> Vec<WeakLabel> {
-    let repo = match git2::Repository::discover(repo_path) {
+    let repo = match crate::git::raw::RawRepo::discover(repo_path) {
         Ok(r) => r,
         Err(e) => {
             tracing::debug!(
@@ -116,61 +116,48 @@ pub fn mine_labels(findings: &[Finding], repo_path: &Path) -> Vec<WeakLabel> {
 
 /// Scan the last N commits for fix/bug/patch/hotfix/resolve messages and
 /// collect the set of file paths changed in those commits.
-fn find_fix_commit_files(repo: &git2::Repository) -> HashSet<String> {
+fn find_fix_commit_files(repo: &crate::git::raw::RawRepo) -> HashSet<String> {
     let mut fix_files = HashSet::new();
-
-    let mut revwalk = match repo.revwalk() {
-        Ok(rw) => rw,
-        Err(_) => return fix_files,
-    };
-
-    if revwalk.push_head().is_err() {
+    let mut walk = crate::git::raw::RevWalk::new(repo);
+    if walk.push_head().is_err() {
         return fix_files;
     }
-    revwalk.set_sorting(git2::Sort::TIME).ok();
 
     let fix_keywords = ["fix", "bug", "patch", "hotfix", "resolve"];
 
-    for (count, oid) in revwalk.enumerate() {
+    for (count, oid_result) in walk.enumerate() {
         if count >= MAX_REVWALK_COMMITS {
             break;
         }
-
-        let oid = match oid {
+        let oid = match oid_result {
             Ok(o) => o,
             Err(_) => continue,
         };
-
-        let commit = match repo.find_commit(oid) {
+        let commit = match repo.find_commit(&oid) {
             Ok(c) => c,
             Err(_) => continue,
         };
 
-        let message = commit.message().unwrap_or("");
-        let message_lower = message.to_lowercase();
-
-        let is_fix = fix_keywords.iter().any(|kw| message_lower.contains(kw));
-        if !is_fix {
+        let message_lower = commit.message.to_lowercase();
+        if !fix_keywords.iter().any(|kw| message_lower.contains(kw)) {
             continue;
         }
 
-        // Diff this commit against its first parent (or empty tree for root)
-        let tree = match commit.tree() {
-            Ok(t) => t,
-            Err(_) => continue,
-        };
+        let parent_tree = commit
+            .parents
+            .first()
+            .and_then(|p| repo.find_commit(p).ok())
+            .map(|c| c.tree_oid)
+            .unwrap_or(crate::git::raw::Oid::ZERO);
 
-        let parent_tree = commit.parent(0).ok().and_then(|p| p.tree().ok());
+        let deltas =
+            match crate::git::raw::diff_trees(repo, &parent_tree, &commit.tree_oid, &[]) {
+                Ok(d) => d,
+                Err(_) => continue,
+            };
 
-        let diff = match repo.diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), None) {
-            Ok(d) => d,
-            Err(_) => continue,
-        };
-
-        for delta in diff.deltas() {
-            if let Some(path) = delta.new_file().path() {
-                fix_files.insert(path.to_string_lossy().to_string());
-            }
+        for delta in &deltas {
+            fix_files.insert(delta.new_path.clone());
         }
     }
 
@@ -182,70 +169,58 @@ fn find_fix_commit_files(repo: &git2::Repository) -> HashSet<String> {
 /// Walks the last N commits and records the most recent commit time for each
 /// file. Files whose latest modification is older than the threshold are
 /// considered stable.
-fn find_stable_files(repo: &git2::Repository) -> HashSet<String> {
+fn find_stable_files(repo: &crate::git::raw::RawRepo) -> HashSet<String> {
     let mut stable_files = HashSet::new();
-
     let now = chrono::Utc::now().timestamp();
 
-    let mut revwalk = match repo.revwalk() {
-        Ok(rw) => rw,
-        Err(_) => return stable_files,
-    };
-
-    if revwalk.push_head().is_err() {
+    let mut walk = crate::git::raw::RevWalk::new(repo);
+    if walk.push_head().is_err() {
         return stable_files;
     }
-    revwalk.set_sorting(git2::Sort::TIME).ok();
 
-    // Map from file path -> most recent commit timestamp (epoch seconds)
     let mut latest_modification: std::collections::HashMap<String, i64> =
         std::collections::HashMap::new();
 
-    for (count, oid) in revwalk.enumerate() {
+    for (count, oid_result) in walk.enumerate() {
         if count >= MAX_REVWALK_COMMITS {
             break;
         }
-
-        let oid = match oid {
+        let oid = match oid_result {
             Ok(o) => o,
             Err(_) => continue,
         };
-
-        let commit = match repo.find_commit(oid) {
+        let commit = match repo.find_commit(&oid) {
             Ok(c) => c,
             Err(_) => continue,
         };
 
-        let commit_time = commit.time().seconds();
+        let commit_time = commit.committer_time;
 
-        let tree = match commit.tree() {
-            Ok(t) => t,
-            Err(_) => continue,
-        };
+        let parent_tree = commit
+            .parents
+            .first()
+            .and_then(|p| repo.find_commit(p).ok())
+            .map(|c| c.tree_oid)
+            .unwrap_or(crate::git::raw::Oid::ZERO);
 
-        let parent_tree = commit.parent(0).ok().and_then(|p| p.tree().ok());
+        let deltas =
+            match crate::git::raw::diff_trees(repo, &parent_tree, &commit.tree_oid, &[]) {
+                Ok(d) => d,
+                Err(_) => continue,
+            };
 
-        let diff = match repo.diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), None) {
-            Ok(d) => d,
-            Err(_) => continue,
-        };
-
-        for delta in diff.deltas() {
-            if let Some(path) = delta.new_file().path() {
-                let path_str = path.to_string_lossy().to_string();
-                latest_modification
-                    .entry(path_str)
-                    .and_modify(|ts| {
-                        if commit_time > *ts {
-                            *ts = commit_time;
-                        }
-                    })
-                    .or_insert(commit_time);
-            }
+        for delta in &deltas {
+            latest_modification
+                .entry(delta.new_path.clone())
+                .and_modify(|ts| {
+                    if commit_time > *ts {
+                        *ts = commit_time;
+                    }
+                })
+                .or_insert(commit_time);
         }
     }
 
-    // Files whose latest modification is older than 6 months
     for (path, last_modified) in &latest_modification {
         if now - last_modified >= STABLE_THRESHOLD_SECS {
             stable_files.insert(path.clone());
