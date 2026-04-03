@@ -128,7 +128,7 @@ impl Detector for CommunityMisplacementDetector {
 
         // Step 1: Iterate all function NodeIndexes, collect community assignments.
         // Group functions by community → HashMap<usize, Vec<NodeIndex>>.
-        let mut communities: HashMap<usize, Vec<petgraph::graph::NodeIndex>> = HashMap::new();
+        let mut communities: HashMap<usize, Vec<crate::graph::node_index::NodeIndex>> = HashMap::new();
 
         for &idx in graph.functions_idx() {
             if let Some(community_id) = graph.primitives().community.get(&idx).copied() {

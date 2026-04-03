@@ -1,9 +1,14 @@
-//! Graph database for code analysis
+//! Graph database for code analysis.
 //!
-//! Pure Rust implementation using petgraph.
-//! No C++ dependencies - builds everywhere!
+//! Pure Rust CSR-backed graph engine — zero external graph dependencies.
+//! Hand-rolled Tarjan SCC, Lengauer-Tarjan dominators, BFS vertex reordering,
+//! chunk-based string interner. No C++ dependencies — builds everywhere.
 
+pub mod algo;
+pub mod csr;
 pub mod interner;
+pub mod node_index;
+pub mod overlay;
 pub mod store_models;
 pub mod traits;
 
@@ -31,3 +36,4 @@ pub use builder::GraphBuilder;
 pub use frozen::CodeGraph;
 pub use indexes::GraphIndexes;
 pub use metrics_cache::MetricsCache;
+pub use node_index::NodeIndex;

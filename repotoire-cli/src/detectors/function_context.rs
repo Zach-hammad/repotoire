@@ -283,7 +283,7 @@ impl<'a> FunctionContextBuilder<'a> {
     /// NodeIndex-based build path (CodeGraph). Zero Vec<CodeNode> cloning.
     fn build_indexed(
         &self,
-        func_node_idxs: &[petgraph::stable_graph::NodeIndex],
+        func_node_idxs: &[crate::graph::node_index::NodeIndex],
         i: &crate::graph::interner::StringInterner,
     ) -> FunctionContextMap {
         let start = std::time::Instant::now();
@@ -298,7 +298,7 @@ impl<'a> FunctionContextBuilder<'a> {
         );
 
         // Build a local NodeIndex -> usize map for adjacency arrays
-        let ni_to_local: HashMap<petgraph::stable_graph::NodeIndex, usize> = func_node_idxs
+        let ni_to_local: HashMap<crate::graph::node_index::NodeIndex, usize> = func_node_idxs
             .iter()
             .enumerate()
             .map(|(local, &ni)| (ni, local))

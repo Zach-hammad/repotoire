@@ -4,10 +4,11 @@
 //! All queries are O(1) lookups into pre-built indexes — no locks, no scans.
 //! Safe to share across rayon threads via `&CodeGraph`.
 
-use petgraph::stable_graph::{NodeIndex, StableGraph};
+use crate::graph::node_index::NodeIndex;
 use std::collections::{BTreeMap, HashMap};
 
 use super::builder::GraphBuilder;
+use super::csr::CsrStorage;
 use super::indexes::GraphIndexes;
 use super::interner::{global_interner, StrKey, StringInterner};
 use super::store_models::{CodeEdge, CodeNode, EdgeKind, ExtraProps};
@@ -17,13 +18,17 @@ use super::store_models::{CodeEdge, CodeNode, EdgeKind, ExtraProps};
 /// All queries are O(1) lookups. No locks — all methods take `&self`.
 /// Safe to share across rayon threads. Produced by `GraphBuilder::freeze()`.
 pub struct CodeGraph {
-    /// The underlying petgraph directed graph (immutable after freeze).
-    graph: StableGraph<CodeNode, CodeEdge>,
+    /// Compact node array (no tombstones — compacted during build).
+    nodes: Vec<CodeNode>,
+    /// CSR edge storage for O(1) neighbor lookups.
+    csr: CsrStorage,
     /// Node lookup by qualified name (interned StrKey → NodeIndex).
     node_index: HashMap<StrKey, NodeIndex>,
+    /// Edge list (kept for into_parts / persistence).
+    edges: Vec<(NodeIndex, NodeIndex, CodeEdge)>,
     /// Extra (cold) properties stored per qualified_name StrKey.
     extra_props: HashMap<StrKey, ExtraProps>,
-    /// Pre-built indexes computed during freeze().
+    /// Pre-built indexes computed during build().
     indexes: GraphIndexes,
 }
 
@@ -33,17 +38,138 @@ const EMPTY_NODE_SLICE: &[NodeIndex] = &[];
 impl CodeGraph {
     // ==================== Construction (crate-internal) ====================
 
-    /// Create a CodeGraph from its constituent parts.
-    /// Called by `GraphBuilder::freeze()`.
+    /// Build a CodeGraph from raw builder data.
+    ///
+    /// This is the freeze path:
+    /// 1. Compact nodes (remove None tombstones, build old→new remap)
+    /// 2. Remap edge indices
+    /// 3. BFS vertex reordering for cache-friendly traversal
+    /// 4. Build CsrStorage from edges
+    /// 5. Build GraphIndexes
+    /// 6. Compute GraphPrimitives
+    pub(crate) fn build(
+        opt_nodes: Vec<Option<CodeNode>>,
+        old_node_index: HashMap<StrKey, NodeIndex>,
+        old_edges: Vec<(NodeIndex, NodeIndex, CodeEdge)>,
+        extra_props: HashMap<StrKey, ExtraProps>,
+        co_change: Option<&crate::git::co_change::CoChangeMatrix>,
+    ) -> Self {
+        // Step 1: Compact nodes — remove tombstones, build remap
+        let mut nodes = Vec::with_capacity(opt_nodes.len());
+        let mut remap: HashMap<usize, usize> = HashMap::new();
+        for (old_idx, slot) in opt_nodes.into_iter().enumerate() {
+            if let Some(node) = slot {
+                let new_idx = nodes.len();
+                remap.insert(old_idx, new_idx);
+                nodes.push(node);
+            }
+        }
+
+        // Step 2: Remap node_index
+        let mut node_index: HashMap<StrKey, NodeIndex> = old_node_index
+            .into_iter()
+            .filter_map(|(key, old_idx)| {
+                remap
+                    .get(&old_idx.index())
+                    .map(|&new_idx| (key, NodeIndex::new(new_idx as u32)))
+            })
+            .collect();
+
+        // Step 3: Remap and filter edges
+        let mut edges: Vec<(NodeIndex, NodeIndex, CodeEdge)> = old_edges
+            .into_iter()
+            .filter_map(|(src, tgt, edge)| {
+                let new_src = remap.get(&src.index())?;
+                let new_tgt = remap.get(&tgt.index())?;
+                Some((
+                    NodeIndex::new(*new_src as u32),
+                    NodeIndex::new(*new_tgt as u32),
+                    edge,
+                ))
+            })
+            .collect();
+
+        // Step 3b: BFS vertex reordering for cache-friendly traversal
+        let bfs_edges: Vec<(u32, u32, super::store_models::EdgeKind)> = edges
+            .iter()
+            .map(|&(src, tgt, ref e)| (src.as_u32(), tgt.as_u32(), e.kind))
+            .collect();
+        let perm = super::csr::bfs_reorder(nodes.len(), &bfs_edges);
+
+        // Apply permutation to nodes
+        let mut reordered_nodes = vec![CodeNode::file(""); nodes.len()];
+        for (old_idx, node) in nodes.into_iter().enumerate() {
+            reordered_nodes[perm[old_idx] as usize] = node;
+        }
+        nodes = reordered_nodes;
+
+        // Apply permutation to node_index
+        for val in node_index.values_mut() {
+            *val = NodeIndex::new(perm[val.index()]);
+        }
+
+        // Apply permutation to edges
+        for edge in &mut edges {
+            edge.0 = NodeIndex::new(perm[edge.0.index()]);
+            edge.1 = NodeIndex::new(perm[edge.1.index()]);
+        }
+
+        // Step 4: Build CSR from remapped edges
+        let csr_edges: Vec<(u32, u32, EdgeKind)> = edges
+            .iter()
+            .map(|&(src, tgt, ref e)| (src.as_u32(), tgt.as_u32(), e.kind))
+            .collect();
+        let csr = CsrStorage::build(nodes.len(), &csr_edges);
+
+        // Step 5: Build indexes (without primitives — those need &CodeGraph)
+        let indexes = GraphIndexes::build_from_vecs(&nodes, &edges, &node_index, co_change);
+
+        // Step 6: Build CodeGraph struct (without primitives yet)
+        let mut result = Self {
+            nodes,
+            csr,
+            node_index,
+            edges,
+            extra_props,
+            indexes,
+        };
+
+        // Step 7: Compute primitives using &CodeGraph, then assign them.
+        // We extract the index data we need to avoid borrowing &result and &mut result.indexes
+        // simultaneously. GraphPrimitives::compute() reads from CodeGraph (nodes, CSR).
+        let primitives = super::primitives::GraphPrimitives::compute(
+            &result,
+            &result.indexes.functions.clone(),
+            &result.indexes.files.clone(),
+            &result.indexes.all_call_edges.clone(),
+            &result.indexes.all_import_edges.clone(),
+            result.indexes.edge_fingerprint,
+            co_change,
+        );
+        result.indexes.set_primitives(primitives);
+
+        result
+    }
+
+    /// Create a CodeGraph from pre-built parts (used by persistence load).
     pub(crate) fn from_parts(
-        graph: StableGraph<CodeNode, CodeEdge>,
+        nodes: Vec<CodeNode>,
         node_index: HashMap<StrKey, NodeIndex>,
+        edges: Vec<(NodeIndex, NodeIndex, CodeEdge)>,
         extra_props: HashMap<StrKey, ExtraProps>,
         indexes: GraphIndexes,
     ) -> Self {
+        let csr_edges: Vec<(u32, u32, EdgeKind)> = edges
+            .iter()
+            .map(|&(src, tgt, ref e)| (src.as_u32(), tgt.as_u32(), e.kind))
+            .collect();
+        let csr = CsrStorage::build(nodes.len(), &csr_edges);
+
         Self {
-            graph,
+            nodes,
+            csr,
             node_index,
+            edges,
             extra_props,
             indexes,
         }
@@ -54,11 +180,12 @@ impl CodeGraph {
     pub(crate) fn into_parts(
         self,
     ) -> (
-        StableGraph<CodeNode, CodeEdge>,
+        Vec<CodeNode>,
         HashMap<StrKey, NodeIndex>,
+        Vec<(NodeIndex, NodeIndex, CodeEdge)>,
         HashMap<StrKey, ExtraProps>,
     ) {
-        (self.graph, self.node_index, self.extra_props)
+        (self.nodes, self.node_index, self.edges, self.extra_props)
     }
 
     // ==================== String Interner ====================
@@ -72,21 +199,21 @@ impl CodeGraph {
 
     /// Get a node by its graph index.
     pub fn node(&self, idx: NodeIndex) -> Option<&CodeNode> {
-        self.graph.node_weight(idx)
+        self.nodes.get(idx.index())
     }
 
     /// Look up a node by qualified name. Returns both index and reference.
     pub fn node_by_name(&self, qn: &str) -> Option<(NodeIndex, &CodeNode)> {
         let key = self.interner().intern(qn);
         let &idx = self.node_index.get(&key)?;
-        let node = self.graph.node_weight(idx)?;
+        let node = self.nodes.get(idx.index())?;
         Some((idx, node))
     }
 
     /// Look up a node by interned StrKey. Returns both index and reference.
     pub fn node_by_key(&self, key: StrKey) -> Option<(NodeIndex, &CodeNode)> {
         let &idx = self.node_index.get(&key)?;
-        let node = self.graph.node_weight(idx)?;
+        let node = self.nodes.get(idx.index())?;
         Some((idx, node))
     }
 
@@ -107,105 +234,105 @@ impl CodeGraph {
         &self.indexes.files
     }
 
-    // ==================== Adjacency Queries (O(1)) ====================
+    // ==================== Adjacency Queries (O(1) via CSR) ====================
 
     /// Functions that call this node (incoming Calls edges).
     pub fn callers(&self, idx: NodeIndex) -> &[NodeIndex] {
-        self.indexes
-            .call_callers
-            .get(&idx)
-            .map(|v| v.as_slice())
-            .unwrap_or(EMPTY_NODE_SLICE)
+        if idx.index() >= self.nodes.len() {
+            return EMPTY_NODE_SLICE;
+        }
+        self.csr
+            .neighbors_as_node_index(idx.index(), super::csr::slot::CALLS_IN)
     }
 
     /// Functions this node calls (outgoing Calls edges).
     pub fn callees(&self, idx: NodeIndex) -> &[NodeIndex] {
-        self.indexes
-            .call_callees
-            .get(&idx)
-            .map(|v| v.as_slice())
-            .unwrap_or(EMPTY_NODE_SLICE)
+        if idx.index() >= self.nodes.len() {
+            return EMPTY_NODE_SLICE;
+        }
+        self.csr
+            .neighbors_as_node_index(idx.index(), super::csr::slot::CALLS_OUT)
     }
 
     /// Modules/files that import this node (incoming Imports edges).
     pub fn importers(&self, idx: NodeIndex) -> &[NodeIndex] {
-        self.indexes
-            .import_sources
-            .get(&idx)
-            .map(|v| v.as_slice())
-            .unwrap_or(EMPTY_NODE_SLICE)
+        if idx.index() >= self.nodes.len() {
+            return EMPTY_NODE_SLICE;
+        }
+        self.csr
+            .neighbors_as_node_index(idx.index(), super::csr::slot::IMPORTS_IN)
     }
 
     /// Modules/files this node imports (outgoing Imports edges).
     pub fn importees(&self, idx: NodeIndex) -> &[NodeIndex] {
-        self.indexes
-            .import_targets
-            .get(&idx)
-            .map(|v| v.as_slice())
-            .unwrap_or(EMPTY_NODE_SLICE)
+        if idx.index() >= self.nodes.len() {
+            return EMPTY_NODE_SLICE;
+        }
+        self.csr
+            .neighbors_as_node_index(idx.index(), super::csr::slot::IMPORTS_OUT)
     }
 
     /// Parent classes (outgoing Inherits edges).
     pub fn parent_classes(&self, idx: NodeIndex) -> &[NodeIndex] {
-        self.indexes
-            .inherit_parents
-            .get(&idx)
-            .map(|v| v.as_slice())
-            .unwrap_or(EMPTY_NODE_SLICE)
+        if idx.index() >= self.nodes.len() {
+            return EMPTY_NODE_SLICE;
+        }
+        self.csr
+            .neighbors_as_node_index(idx.index(), super::csr::slot::INHERITS_OUT)
     }
 
     /// Child classes (incoming Inherits edges).
     pub fn child_classes(&self, idx: NodeIndex) -> &[NodeIndex] {
-        self.indexes
-            .inherit_children
-            .get(&idx)
-            .map(|v| v.as_slice())
-            .unwrap_or(EMPTY_NODE_SLICE)
+        if idx.index() >= self.nodes.len() {
+            return EMPTY_NODE_SLICE;
+        }
+        self.csr
+            .neighbors_as_node_index(idx.index(), super::csr::slot::INHERITS_IN)
     }
 
     /// Entities contained by this node (outgoing Contains edges).
     pub fn contains_children(&self, idx: NodeIndex) -> &[NodeIndex] {
-        self.indexes
-            .contains_children
-            .get(&idx)
-            .map(|v| v.as_slice())
-            .unwrap_or(EMPTY_NODE_SLICE)
+        if idx.index() >= self.nodes.len() {
+            return EMPTY_NODE_SLICE;
+        }
+        self.csr
+            .neighbors_as_node_index(idx.index(), super::csr::slot::CONTAINS_OUT)
     }
 
     /// Parent container of this node (incoming Contains edges).
     pub fn contains_parent(&self, idx: NodeIndex) -> &[NodeIndex] {
-        self.indexes
-            .contains_parent
-            .get(&idx)
-            .map(|v| v.as_slice())
-            .unwrap_or(EMPTY_NODE_SLICE)
+        if idx.index() >= self.nodes.len() {
+            return EMPTY_NODE_SLICE;
+        }
+        self.csr
+            .neighbors_as_node_index(idx.index(), super::csr::slot::CONTAINS_IN)
     }
 
     /// Entities this node uses (outgoing Uses edges).
     pub fn uses_targets(&self, idx: NodeIndex) -> &[NodeIndex] {
-        self.indexes
-            .uses_targets
-            .get(&idx)
-            .map(|v| v.as_slice())
-            .unwrap_or(EMPTY_NODE_SLICE)
+        if idx.index() >= self.nodes.len() {
+            return EMPTY_NODE_SLICE;
+        }
+        self.csr
+            .neighbors_as_node_index(idx.index(), super::csr::slot::USES_OUT)
     }
 
     /// Entities that use this node (incoming Uses edges).
     pub fn uses_sources(&self, idx: NodeIndex) -> &[NodeIndex] {
-        self.indexes
-            .uses_sources
-            .get(&idx)
-            .map(|v| v.as_slice())
-            .unwrap_or(EMPTY_NODE_SLICE)
+        if idx.index() >= self.nodes.len() {
+            return EMPTY_NODE_SLICE;
+        }
+        self.csr
+            .neighbors_as_node_index(idx.index(), super::csr::slot::USES_IN)
     }
 
     /// Commits that modified this entity (outgoing ModifiedIn edges).
     pub fn modified_in(&self, idx: NodeIndex) -> &[NodeIndex] {
-        self.indexes
-            .modified_in
-            .get(&idx)
-            .map(|v| v.as_slice())
-            .unwrap_or(EMPTY_NODE_SLICE)
+        if idx.index() >= self.nodes.len() {
+            return EMPTY_NODE_SLICE;
+        }
+        self.csr
+            .neighbors_as_node_index(idx.index(), super::csr::slot::MODIFIED_IN_OUT)
     }
 
     /// Number of callers (fan-in). O(1).
@@ -349,10 +476,12 @@ impl CodeGraph {
             .contains(&idx)
     }
 
+    /// Articulation points (our NodeIndex).
     pub fn articulation_points(&self) -> &[NodeIndex] {
         &self.indexes.primitives.articulation_points
     }
 
+    /// Bridges (our NodeIndex pairs).
     pub fn bridges(&self) -> &[(NodeIndex, NodeIndex)] {
         &self.indexes.primitives.bridges
     }
@@ -365,6 +494,7 @@ impl CodeGraph {
             .map(|v| v.as_slice())
     }
 
+    /// Call cycles (our NodeIndex).
     pub fn call_cycles(&self) -> &[Vec<NodeIndex>] {
         &self.indexes.primitives.call_cycles
     }
@@ -422,6 +552,7 @@ impl CodeGraph {
         self.indexes.primitives.modularity
     }
 
+    /// Hidden coupling (our NodeIndex).
     pub fn hidden_coupling(&self) -> &[(NodeIndex, NodeIndex, f32, f32, f32)] {
         &self.indexes.primitives.hidden_coupling
     }
@@ -438,8 +569,8 @@ impl CodeGraph {
             "total_classes".to_string(),
             self.indexes.classes.len() as i64,
         );
-        stats.insert("total_nodes".to_string(), self.graph.node_count() as i64);
-        stats.insert("total_edges".to_string(), self.graph.edge_count() as i64);
+        stats.insert("total_nodes".to_string(), self.nodes.len() as i64);
+        stats.insert("total_edges".to_string(), self.edges.len() as i64);
         stats
     }
 
@@ -467,39 +598,41 @@ impl CodeGraph {
         self.extra_props.get(&qn)
     }
 
-    // ==================== Raw Graph Access ====================
-
-    /// Direct access to the underlying petgraph for custom traversals
-    /// (BFS, DFS, Dijkstra, etc.) that don't fit the indexed query API.
-    ///
-    /// Only available on the concrete type, not through trait objects.
-    pub fn raw_graph(&self) -> &StableGraph<CodeNode, CodeEdge> {
-        &self.graph
-    }
+    // ==================== Raw Access ====================
 
     /// Access the node_index map (qualified_name → NodeIndex).
     pub fn node_index_map(&self) -> &HashMap<StrKey, NodeIndex> {
         &self.node_index
     }
 
+    /// Access the compact node array.
+    pub fn nodes(&self) -> &[CodeNode] {
+        &self.nodes
+    }
+
+    /// Access the edge list.
+    pub fn edge_list(&self) -> &[(NodeIndex, NodeIndex, CodeEdge)] {
+        &self.edges
+    }
+
     // ==================== Node/Edge Counts ====================
 
     /// Total node count.
     pub fn node_count(&self) -> usize {
-        self.graph.node_count()
+        self.nodes.len()
     }
 
     /// Total edge count.
     pub fn edge_count(&self) -> usize {
-        self.graph.edge_count()
+        self.edges.len()
     }
 
     // ==================== Lifecycle ====================
 
     /// Convert back to a mutable builder for incremental patching.
     ///
-    /// Moves the StableGraph without copying nodes/edges.
-    /// Rebuilds edge_set from graph edges — O(E).
+    /// Moves nodes and edges without copying.
+    /// Rebuilds edge_set from edges — O(E).
     /// Indexes are dropped (rebuilt on re-freeze).
     pub fn into_builder(self) -> GraphBuilder {
         GraphBuilder::from_frozen(self)
@@ -509,29 +642,18 @@ impl CodeGraph {
     ///
     /// O(N + E) — clones all nodes and edges.
     pub fn clone_into_builder(&self) -> GraphBuilder {
-        use petgraph::visit::{EdgeRef, IntoEdgeReferences};
-        let edge_set: std::collections::HashSet<(NodeIndex, NodeIndex, EdgeKind)> = self
-            .graph
-            .edge_references()
-            .map(|e| (e.source(), e.target(), e.weight().kind))
-            .collect();
-
-        // We need to reconstruct a GraphBuilder with cloned data
-        // Since GraphBuilder::new() creates empty fields, we build manually
-        // via from_frozen on a clone.
-        let cloned_graph = self.graph.clone();
+        let cloned_edges = self.edges.clone();
         let cloned_node_index = self.node_index.clone();
         let cloned_extra_props = self.extra_props.clone();
 
-        // Build a temporary CodeGraph just to pass to from_frozen
-        // (avoids duplicating the edge_set rebuild logic)
-        let _ = edge_set; // not needed, from_frozen rebuilds it
-        let temp = CodeGraph {
-            graph: cloned_graph,
-            node_index: cloned_node_index,
-            extra_props: cloned_extra_props,
-            indexes: GraphIndexes::default(),
-        };
+        // Build a temporary CodeGraph to pass to from_frozen
+        let temp = CodeGraph::from_parts(
+            self.nodes.clone(),
+            cloned_node_index,
+            cloned_edges,
+            cloned_extra_props,
+            GraphIndexes::default(),
+        );
         GraphBuilder::from_frozen(temp)
     }
 }
@@ -548,14 +670,13 @@ mod tests {
         let idx = builder.add_node(CodeNode::function("foo", "a.py"));
         let graph = builder.freeze();
 
-        // By index
-        let node = graph.node(idx).unwrap();
-        assert_eq!(node.kind, NodeKind::Function);
+        // By index — note: index may be remapped after compaction
+        let (found_idx, found_node) = graph.node_by_name("a.py::foo").unwrap();
+        assert_eq!(found_node.kind, NodeKind::Function);
 
         // By name
-        let (found_idx, found_node) = graph.node_by_name("a.py::foo").unwrap();
-        assert_eq!(found_idx, idx);
-        assert_eq!(found_node.kind, NodeKind::Function);
+        let node = graph.node(found_idx).unwrap();
+        assert_eq!(node.kind, NodeKind::Function);
 
         // Non-existent
         assert!(graph.node_by_name("nonexistent").is_none());
@@ -587,12 +708,17 @@ mod tests {
 
         let graph = builder.freeze();
 
-        assert_eq!(graph.callees(f1).len(), 2);
-        assert_eq!(graph.callers(f2).len(), 1);
-        assert_eq!(graph.callers(f3).len(), 1);
-        assert!(graph.callers(f1).is_empty());
-        assert_eq!(graph.call_fan_out(f1), 2);
-        assert_eq!(graph.call_fan_in(f2), 1);
+        // Look up by name since indices may be remapped
+        let (new_f1, _) = graph.node_by_name("a.py::foo").unwrap();
+        let (new_f2, _) = graph.node_by_name("a.py::bar").unwrap();
+        let (new_f3, _) = graph.node_by_name("a.py::baz").unwrap();
+
+        assert_eq!(graph.callees(new_f1).len(), 2);
+        assert_eq!(graph.callers(new_f2).len(), 1);
+        assert_eq!(graph.callers(new_f3).len(), 1);
+        assert!(graph.callers(new_f1).is_empty());
+        assert_eq!(graph.call_fan_out(new_f1), 2);
+        assert_eq!(graph.call_fan_in(new_f2), 1);
     }
 
     #[test]
@@ -616,10 +742,13 @@ mod tests {
     #[test]
     fn test_function_at() {
         let mut builder = GraphBuilder::new();
-        let f1 = builder.add_node(CodeNode::function("foo", "a.py").with_lines(1, 10));
-        let f2 = builder.add_node(CodeNode::function("bar", "a.py").with_lines(12, 20));
+        builder.add_node(CodeNode::function("foo", "a.py").with_lines(1, 10));
+        builder.add_node(CodeNode::function("bar", "a.py").with_lines(12, 20));
 
         let graph = builder.freeze();
+
+        let (f1, _) = graph.node_by_name("a.py::foo").unwrap();
+        let (f2, _) = graph.node_by_name("a.py::bar").unwrap();
 
         assert_eq!(graph.function_at("a.py", 5), Some(f1));
         assert_eq!(graph.function_at("a.py", 15), Some(f2));
@@ -676,11 +805,13 @@ mod tests {
 
         // Add more data
         let f3 = builder.add_node(CodeNode::function("baz", "a.py"));
-        builder.add_edge(f2, f3, CodeEdge::calls());
+        let f1_new = builder.get_node_index("a.py::foo").unwrap();
+        builder.add_edge(f1_new, f3, CodeEdge::calls());
 
         let graph = builder.freeze();
         assert_eq!(graph.functions().len(), 3);
-        assert_eq!(graph.callees(f2).len(), 1);
+        let (f1_frozen, _) = graph.node_by_name("a.py::foo").unwrap();
+        assert_eq!(graph.callees(f1_frozen).len(), 2);
     }
 
     #[test]
@@ -745,11 +876,15 @@ mod tests {
 
         let graph = builder.freeze();
 
-        assert_eq!(graph.parent_classes(child).len(), 1);
-        assert_eq!(graph.parent_classes(child)[0], parent);
+        // Look up by name since indices may remap
+        let (new_child, _) = graph.node_by_name("a.py::Child").unwrap();
+        let (new_parent, _) = graph.node_by_name("a.py::Parent").unwrap();
 
-        assert_eq!(graph.child_classes(parent).len(), 1);
-        assert_eq!(graph.child_classes(parent)[0], child);
+        assert_eq!(graph.parent_classes(new_child).len(), 1);
+        assert_eq!(graph.parent_classes(new_child)[0], new_parent);
+
+        assert_eq!(graph.child_classes(new_parent).len(), 1);
+        assert_eq!(graph.child_classes(new_parent)[0], new_child);
     }
 
     #[test]

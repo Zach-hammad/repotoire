@@ -95,7 +95,7 @@ impl Detector for TemporalBottleneckDetector {
         }
 
         // Step 1-2: Collect weighted betweenness for all functions.
-        let entries: Vec<(petgraph::graph::NodeIndex, f64)> = functions
+        let entries: Vec<(crate::graph::node_index::NodeIndex, f64)> = functions
             .iter()
             .map(|&idx| {
                 let wbw = graph

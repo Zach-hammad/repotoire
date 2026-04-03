@@ -99,7 +99,7 @@ impl Detector for PageRankDriftDetector {
         }
 
         // Collect static and weighted PageRank for each function.
-        let entries: Vec<(petgraph::graph::NodeIndex, f64, f64)> = functions
+        let entries: Vec<(crate::graph::node_index::NodeIndex, f64, f64)> = functions
             .iter()
             .map(|&idx| {
                 let static_pr = graph

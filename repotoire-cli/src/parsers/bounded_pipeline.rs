@@ -560,7 +560,7 @@ impl FlushingGraphBuilder {
         self.flush_edges()?;
 
         // Defer graph.save() to background — redb persistence is NOT needed for
-        // in-memory analysis (detect, score, postprocess all use petgraph directly).
+        // in-memory analysis (detect, score, postprocess all use the graph directly).
         // This saves ~780ms from the critical path on large repos.
         let graph_for_save = Arc::clone(&self.graph);
         std::thread::spawn(move || {

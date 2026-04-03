@@ -4,13 +4,12 @@
 //! SCCs, PageRank, dominators, articulation points, call depths, betweenness.
 
 use std::collections::HashMap;
-use petgraph::algo::{dominators, tarjan_scc};
-use petgraph::stable_graph::{NodeIndex, StableGraph};
 use rayon::prelude::*;
 use std::collections::{HashSet, VecDeque};
 
+use crate::graph::frozen::CodeGraph;
 use crate::graph::interner::global_interner;
-use crate::graph::store_models::{CodeEdge, CodeNode};
+use crate::graph::node_index::NodeIndex;
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Algorithm 1: Call-graph SCCs
@@ -20,7 +19,7 @@ use crate::graph::store_models::{CodeEdge, CodeNode};
 /// Returns SCCs with >1 node (actual cycles), sorted by size descending.
 pub(super) fn compute_call_cycles(
     all_call_edges: &[(NodeIndex, NodeIndex)],
-    graph: &StableGraph<CodeNode, CodeEdge>,
+    code_graph: &CodeGraph,
 ) -> Vec<Vec<NodeIndex>> {
     let si = global_interner();
 
@@ -32,29 +31,26 @@ pub(super) fn compute_call_cycles(
     }
 
     // Build filtered subgraph with idx_map/reverse_map pattern
-    let mut filtered_graph: StableGraph<NodeIndex, ()> = StableGraph::new();
-    let mut idx_map: HashMap<NodeIndex, NodeIndex> = HashMap::default();
-    let mut reverse_map: HashMap<NodeIndex, NodeIndex> = HashMap::default();
-
-    // Sort by NodeIndex for deterministic construction
     let mut sorted_nodes: Vec<NodeIndex> = relevant_nodes.into_iter().collect();
     sorted_nodes.sort_by_key(|idx| idx.index());
 
-    for orig_idx in sorted_nodes {
-        let new_idx = filtered_graph.add_node(orig_idx);
-        idx_map.insert(orig_idx, new_idx);
-        reverse_map.insert(new_idx, orig_idx);
-    }
+    let idx_map: HashMap<NodeIndex, u32> = sorted_nodes
+        .iter()
+        .enumerate()
+        .map(|(i, &ni)| (ni, i as u32))
+        .collect();
+    let n = sorted_nodes.len();
 
-    // Add call edges to filtered graph
+    // Build adjacency list for the filtered subgraph
+    let mut adj: Vec<Vec<u32>> = vec![vec![]; n];
     for &(src, tgt) in all_call_edges {
         if let (Some(&from), Some(&to)) = (idx_map.get(&src), idx_map.get(&tgt)) {
-            filtered_graph.add_edge(from, to, ());
+            adj[from as usize].push(to);
         }
     }
 
-    // Run Tarjan SCC
-    let sccs = tarjan_scc(&filtered_graph);
+    // Run hand-rolled Tarjan SCC
+    let sccs = crate::graph::algo::tarjan_scc(n, |v| &adj[v as usize]);
 
     // Convert back to original NodeIndexes, keep only cycles (>1 node)
     let mut cycles: Vec<Vec<NodeIndex>> = sccs
@@ -63,17 +59,17 @@ pub(super) fn compute_call_cycles(
         .map(|scc| {
             let mut orig_indices: Vec<NodeIndex> = scc
                 .iter()
-                .filter_map(|&filtered_idx| reverse_map.get(&filtered_idx).copied())
+                .filter_map(|&i| sorted_nodes.get(i as usize).copied())
                 .collect();
 
             // Sort by qualified name for consistent ordering
             orig_indices.sort_by(|a, b| {
-                let a_qn = graph
-                    .node_weight(*a)
+                let a_qn = code_graph
+                    .node(*a)
                     .map(|n| si.resolve(n.qualified_name))
                     .unwrap_or("");
-                let b_qn = graph
-                    .node_weight(*b)
+                let b_qn = code_graph
+                    .node(*b)
                     .map(|n| si.resolve(n.qualified_name))
                     .unwrap_or("");
                 a_qn.cmp(b_qn)
@@ -87,12 +83,12 @@ pub(super) fn compute_call_cycles(
         b.len().cmp(&a.len()).then_with(|| {
             let a_qn = a
                 .first()
-                .and_then(|idx| graph.node_weight(*idx))
+                .and_then(|idx| code_graph.node(*idx))
                 .map(|n| si.resolve(n.qualified_name))
                 .unwrap_or("");
             let b_qn = b
                 .first()
-                .and_then(|idx| graph.node_weight(*idx))
+                .and_then(|idx| code_graph.node(*idx))
                 .map(|n| si.resolve(n.qualified_name))
                 .unwrap_or("");
             a_qn.cmp(b_qn)
@@ -111,8 +107,7 @@ pub(super) fn compute_call_cycles(
 /// NOT petgraph's dense O(V^2) built-in.
 pub(super) fn compute_page_rank(
     functions: &[NodeIndex],
-    call_callees: &HashMap<NodeIndex, Vec<NodeIndex>>,
-    _call_callers: &HashMap<NodeIndex, Vec<NodeIndex>>,
+    code_graph: &CodeGraph,
     max_iterations: usize,
     damping: f64,
     tolerance: f64,
@@ -137,7 +132,7 @@ pub(super) fn compute_page_rank(
     // Pre-compute out-degrees for each function
     let out_degree: Vec<usize> = functions
         .iter()
-        .map(|ni| call_callees.get(ni).map(|v| v.len()).unwrap_or(0))
+        .map(|ni| code_graph.callees(*ni).len())
         .collect();
 
     let teleport = (1.0 - damping) * inv_n;
@@ -166,11 +161,10 @@ pub(super) fn compute_page_rank(
                 continue;
             }
             let contribution = damping * rank[i] / out_degree[i] as f64;
-            if let Some(callees) = call_callees.get(&ni) {
-                for &callee in callees {
-                    if let Some(&j) = node_to_idx.get(&callee) {
-                        new_rank[j] += contribution;
-                    }
+            let callees = code_graph.callees(ni);
+            for &callee in callees {
+                if let Some(&j) = node_to_idx.get(&callee) {
+                    new_rank[j] += contribution;
                 }
             }
         }
@@ -201,15 +195,13 @@ pub(super) fn compute_page_rank(
 // Algorithm 3: Dominator tree + frontiers
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/// Compute dominator tree using petgraph's simple_fast with a virtual root.
+/// Compute dominator tree using hand-rolled iterative dominator with a virtual root.
 /// Returns (idom, dominated, frontier, dom_depth).
 pub(super) fn compute_dominators(
     functions: &[NodeIndex],
     all_call_edges: &[(NodeIndex, NodeIndex)],
-    call_callers: &HashMap<NodeIndex, Vec<NodeIndex>>,
-    call_callees: &HashMap<NodeIndex, Vec<NodeIndex>>,
     call_cycles: &[Vec<NodeIndex>],
-    graph: &StableGraph<CodeNode, CodeEdge>,
+    code_graph: &CodeGraph,
 ) -> (
     HashMap<NodeIndex, NodeIndex>,
     HashMap<NodeIndex, Vec<NodeIndex>>,
@@ -219,53 +211,46 @@ pub(super) fn compute_dominators(
     let si = global_interner();
     let func_set: HashSet<NodeIndex> = functions.iter().copied().collect();
 
-    // Build a temporary directed graph for dominator computation
-    let mut dom_graph: StableGraph<(), ()> = StableGraph::new();
-    let mut idx_map: HashMap<NodeIndex, NodeIndex> = HashMap::default();
-    let mut reverse_map: HashMap<NodeIndex, NodeIndex> = HashMap::default();
-
     // Sort functions for deterministic node insertion
     let mut sorted_functions: Vec<NodeIndex> = functions.to_vec();
     sorted_functions.sort_by(|a, b| {
-        let a_qn = graph
-            .node_weight(*a)
+        let a_qn = code_graph
+            .node(*a)
             .map(|n| si.resolve(n.qualified_name))
             .unwrap_or("");
-        let b_qn = graph
-            .node_weight(*b)
+        let b_qn = code_graph
+            .node(*b)
             .map(|n| si.resolve(n.qualified_name))
             .unwrap_or("");
         a_qn.cmp(b_qn)
     });
 
-    for &orig in &sorted_functions {
-        let new_idx = dom_graph.add_node(());
-        idx_map.insert(orig, new_idx);
-        reverse_map.insert(new_idx, orig);
+    // Build idx_map: original NodeIndex -> dense index (0..n-1)
+    let mut idx_map: HashMap<NodeIndex, u32> = HashMap::default();
+    let mut reverse_map: Vec<NodeIndex> = Vec::with_capacity(sorted_functions.len());
+    for (i, &orig) in sorted_functions.iter().enumerate() {
+        idx_map.insert(orig, i as u32);
+        reverse_map.push(orig);
     }
 
-    // Add call edges (only between functions)
+    let n = sorted_functions.len();
+
+    // Build forward adjacency for the dominator subgraph (only between functions)
+    // +1 for virtual root
+    let mut fwd_adj: Vec<Vec<u32>> = vec![vec![]; n + 1];
     for &(src, tgt) in all_call_edges {
         if let (Some(&from), Some(&to)) = (idx_map.get(&src), idx_map.get(&tgt)) {
-            dom_graph.add_edge(from, to, ());
+            fwd_adj[from as usize].push(to);
         }
     }
 
-    // Add virtual root connected to entry points
-    let virtual_root = dom_graph.add_node(());
-
-    // Entry points: in-degree 0 functions that have outgoing calls
+    // Determine entry points
     let mut entry_points: Vec<NodeIndex> = sorted_functions
         .iter()
         .filter(|&&ni| {
-            let has_callers = call_callers
-                .get(&ni)
-                .map(|v| v.iter().any(|c| func_set.contains(c)))
-                .unwrap_or(false);
-            let has_callees = call_callees
-                .get(&ni)
-                .map(|v| !v.is_empty())
-                .unwrap_or(false);
+            let callers = code_graph.callers(ni);
+            let has_callers = callers.iter().any(|c| func_set.contains(c));
+            let has_callees = !code_graph.callees(ni).is_empty();
             !has_callers && has_callees
         })
         .copied()
@@ -281,11 +266,9 @@ pub(super) fn compute_dominators(
             reachable.insert(ep);
         }
         while let Some(node) = queue.pop_front() {
-            if let Some(callees) = call_callees.get(&node) {
-                for &callee in callees {
-                    if func_set.contains(&callee) && reachable.insert(callee) {
-                        queue.push_back(callee);
-                    }
+            for &callee in code_graph.callees(node) {
+                if func_set.contains(&callee) && reachable.insert(callee) {
+                    queue.push_back(callee);
                 }
             }
         }
@@ -295,24 +278,20 @@ pub(super) fn compute_dominators(
     for scc in call_cycles {
         if !scc.is_empty() && !reachable.contains(&scc[0]) {
             entry_points.push(scc[0]);
-            // BFS from this representative
             let mut queue: VecDeque<NodeIndex> = VecDeque::new();
             queue.push_back(scc[0]);
             reachable.insert(scc[0]);
             while let Some(node) = queue.pop_front() {
-                if let Some(callees) = call_callees.get(&node) {
-                    for &callee in callees {
-                        if func_set.contains(&callee) && reachable.insert(callee) {
-                            queue.push_back(callee);
-                        }
+                for &callee in code_graph.callees(node) {
+                    if func_set.contains(&callee) && reachable.insert(callee) {
+                        queue.push_back(callee);
                     }
                 }
             }
         }
     }
 
-    // Also handle isolated functions that are not in any SCC and not reachable
-    // (these are leaf functions with callers that are themselves unreachable)
+    // Also handle isolated functions
     for &f in &sorted_functions {
         if !reachable.contains(&f) {
             entry_points.push(f);
@@ -320,36 +299,50 @@ pub(super) fn compute_dominators(
         }
     }
 
-    // Connect virtual root to all entry points
+    // Add virtual root = n, connected to all entry points
+    let virtual_root = n as u32;
     for &ep in &entry_points {
         if let Some(&mapped) = idx_map.get(&ep) {
-            dom_graph.add_edge(virtual_root, mapped, ());
+            fwd_adj[virtual_root as usize].push(mapped);
         }
     }
 
-    // Run dominator analysis
-    let dom_result = dominators::simple_fast(&dom_graph, virtual_root);
-
-    // Build idom map (skip virtual root)
-    let mut idom: HashMap<NodeIndex, NodeIndex> = HashMap::default();
-    for &orig in &sorted_functions {
-        if let Some(&mapped) = idx_map.get(&orig) {
-            if let Some(dom_node) = dom_result.immediate_dominator(mapped) {
-                if dom_node == virtual_root {
-                    // Entry point: no real dominator, skip
-                    continue;
-                }
-                if let Some(&orig_dom) = reverse_map.get(&dom_node) {
-                    idom.insert(orig, orig_dom);
-                }
+    // Build reverse adjacency for the dominator computation
+    let total_nodes = n + 1;
+    let mut rev_adj: Vec<Vec<u32>> = vec![vec![]; total_nodes];
+    for (src, succs) in fwd_adj.iter().enumerate() {
+        for &tgt in succs {
+            if (tgt as usize) < total_nodes {
+                rev_adj[tgt as usize].push(src as u32);
             }
         }
     }
 
-    // Build dominated sets (transitive: node -> all nodes it dominates)
+    // Run hand-rolled dominator computation
+    let idom_raw = crate::graph::algo::compute_dominators(
+        total_nodes,
+        virtual_root,
+        |v| &fwd_adj[v as usize],
+        |v| &rev_adj[v as usize],
+    );
+
+    // Build idom map (skip virtual root)
+    let mut idom: HashMap<NodeIndex, NodeIndex> = HashMap::default();
+    for (dense_idx, orig) in reverse_map.iter().enumerate() {
+        if let Some(Some(dom_dense)) = idom_raw.get(dense_idx) {
+            let dom_dense = *dom_dense;
+            if dom_dense == virtual_root {
+                continue;
+            }
+            if let Some(&orig_dom) = reverse_map.get(dom_dense as usize) {
+                idom.insert(*orig, orig_dom);
+            }
+        }
+    }
+
+    // Build dominated sets (transitive)
     let mut dominated: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::default();
     for (&node, &dominator) in &idom {
-        // Walk up the dominator tree, adding `node` to each ancestor's dominated set
         let mut current = Some(dominator);
         let mut visited: HashSet<NodeIndex> = HashSet::new();
         while let Some(dom) = current {
@@ -364,12 +357,12 @@ pub(super) fn compute_dominators(
     // Sort dominated sets by qualified name for determinism
     for v in dominated.values_mut() {
         v.sort_by(|a, b| {
-            let a_qn = graph
-                .node_weight(*a)
+            let a_qn = code_graph
+                .node(*a)
                 .map(|n| si.resolve(n.qualified_name))
                 .unwrap_or("");
-            let b_qn = graph
-                .node_weight(*b)
+            let b_qn = code_graph
+                .node(*b)
                 .map(|n| si.resolve(n.qualified_name))
                 .unwrap_or("");
             a_qn.cmp(b_qn)
@@ -410,12 +403,12 @@ pub(super) fn compute_dominators(
     // Dedup frontier entries
     for v in frontier.values_mut() {
         v.sort_by(|a, b| {
-            let a_qn = graph
-                .node_weight(*a)
+            let a_qn = code_graph
+                .node(*a)
                 .map(|n| si.resolve(n.qualified_name))
                 .unwrap_or("");
-            let b_qn = graph
-                .node_weight(*b)
+            let b_qn = code_graph
+                .node(*b)
                 .map(|n| si.resolve(n.qualified_name))
                 .unwrap_or("");
             a_qn.cmp(b_qn)
@@ -425,15 +418,12 @@ pub(super) fn compute_dominators(
 
     // Compute dominator tree depths
     let mut dom_depth: HashMap<NodeIndex, usize> = HashMap::default();
-    // Entry points (not in idom) have depth 0
     for &f in &sorted_functions {
         if !idom.contains_key(&f) {
             dom_depth.insert(f, 0);
         }
     }
-    // BFS through dominator tree to assign depths
     let mut queue: VecDeque<NodeIndex> = dom_depth.keys().copied().collect();
-    // Build children map from idom
     let mut dom_children: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::default();
     for (&child, &parent) in &idom {
         dom_children.entry(parent).or_default().push(child);
@@ -511,7 +501,7 @@ pub(super) fn compute_articulation_points(
 
     let mut disc = vec![0u32; n];
     let mut low = vec![0u32; n];
-    let mut parent = vec![usize::MAX; n]; // MAX = no parent
+    let mut parent = vec![usize::MAX; n];
     let mut visited = vec![false; n];
     let mut subtree_size = vec![1u32; n];
     let mut timer: u32 = 0;
@@ -519,15 +509,12 @@ pub(super) fn compute_articulation_points(
     let mut ap_set: HashSet<NodeIndex> = HashSet::new();
     let mut bridges: Vec<(NodeIndex, NodeIndex)> = Vec::new();
 
-    // Iterative DFS for each connected component
-    // Stack entry: (node_local_idx, neighbor_iterator_position, is_root)
     for &start_node in &sorted_nodes {
         let start_idx = node_to_idx[&start_node];
         if visited[start_idx] {
             continue;
         }
 
-        // Stack: (local_idx, next_neighbor_pos)
         let mut stack: Vec<(usize, usize)> = Vec::new();
         visited[start_idx] = true;
         timer += 1;
@@ -551,40 +538,31 @@ pub(super) fn compute_articulation_points(
                         disc[v_idx] = timer;
                         low[v_idx] = timer;
                         stack.push((v_idx, 0));
-                    } else if v_idx != parent[u_idx] {
-                        // Back edge: update low-link
-                        if disc[v_idx] < low[u_idx] {
-                            low[u_idx] = disc[v_idx];
-                        }
+                    } else if v_idx != parent[u_idx] && disc[v_idx] < low[u_idx] {
+                        low[u_idx] = disc[v_idx];
                     }
                 }
             } else {
-                // All neighbors processed, backtrack
                 let u_idx_copy = u_idx;
                 stack.pop();
 
                 if let Some(&mut (p_idx, _)) = stack.last_mut() {
-                    // Update parent's low-link
                     if low[u_idx_copy] < low[p_idx] {
                         low[p_idx] = low[u_idx_copy];
                     }
 
-                    // Accumulate subtree size
                     subtree_size[p_idx] += subtree_size[u_idx_copy];
 
-                    // Bridge detection: if low[child] > disc[parent]
                     if low[u_idx_copy] > disc[p_idx] {
                         let p_node = sorted_nodes[p_idx];
                         let u_node_copy = sorted_nodes[u_idx_copy];
                         bridges.push((p_node, u_node_copy));
                     }
 
-                    // Articulation point detection
                     let p_node = sorted_nodes[p_idx];
                     let is_root = parent[p_idx] == usize::MAX;
 
                     if is_root {
-                        // Root is AP if it has >1 children in DFS tree
                         let child_count = adj
                             .get(&p_node)
                             .map(|v| {
@@ -609,13 +587,10 @@ pub(super) fn compute_articulation_points(
         }
     }
 
-    // Compute component sizes for each articulation point
     let component_sizes = compute_ap_component_sizes(&ap_set, &adj, &node_to_idx, &sorted_nodes);
 
-    // Sort articulation points by subtree size descending for determinism
     let mut ap_vec: Vec<NodeIndex> = ap_set.iter().copied().collect();
     ap_vec.sort_by(|a, b| {
-        // Sort by subtree size descending, then by QN
         let a_st = node_to_idx.get(a).map(|&i| subtree_size[i]).unwrap_or(0);
         let b_st = node_to_idx.get(b).map(|&i| subtree_size[i]).unwrap_or(0);
         b_st.cmp(&a_st).then_with(|| a.index().cmp(&b.index()))
@@ -700,34 +675,27 @@ pub(super) fn bfs_component_size(
 /// BFS from entry points (in-degree 0 on call graph) to compute shortest-path depth.
 pub(super) fn compute_call_depths(
     functions: &[NodeIndex],
-    call_callees: &HashMap<NodeIndex, Vec<NodeIndex>>,
-    call_callers: &HashMap<NodeIndex, Vec<NodeIndex>>,
+    code_graph: &CodeGraph,
 ) -> HashMap<NodeIndex, usize> {
     let func_set: HashSet<NodeIndex> = functions.iter().copied().collect();
     let mut depth: HashMap<NodeIndex, usize> = HashMap::default();
     let mut queue: VecDeque<NodeIndex> = VecDeque::new();
 
-    // Entry points: functions with no callers (among functions)
     for &f in functions {
-        let has_callers = call_callers
-            .get(&f)
-            .map(|v| v.iter().any(|c| func_set.contains(c)))
-            .unwrap_or(false);
+        let callers = code_graph.callers(f);
+        let has_callers = callers.iter().any(|c| func_set.contains(c));
         if !has_callers {
             depth.insert(f, 0);
             queue.push_back(f);
         }
     }
 
-    // BFS
     while let Some(node) = queue.pop_front() {
         let d = depth[&node];
-        if let Some(callees) = call_callees.get(&node) {
-            for &callee in callees {
-                if func_set.contains(&callee) && !depth.contains_key(&callee) {
-                    depth.insert(callee, d + 1);
-                    queue.push_back(callee);
-                }
+        for &callee in code_graph.callees(node) {
+            if func_set.contains(&callee) && !depth.contains_key(&callee) {
+                depth.insert(callee, d + 1);
+                queue.push_back(callee);
             }
         }
     }
@@ -743,7 +711,7 @@ pub(super) fn compute_call_depths(
 /// Uses rayon::par_iter for parallel BFS. Stores RAW (unnormalized) values.
 pub(super) fn compute_betweenness(
     functions: &[NodeIndex],
-    call_callees: &HashMap<NodeIndex, Vec<NodeIndex>>,
+    code_graph: &CodeGraph,
     edge_fingerprint: u64,
 ) -> HashMap<NodeIndex, f64> {
     let n = functions.len();
@@ -753,10 +721,8 @@ pub(super) fn compute_betweenness(
 
     let func_set: HashSet<NodeIndex> = functions.iter().copied().collect();
 
-    // Determine sample size: min(n, max(64, n/4))
     let sample_size = n.min(64.max(n / 4));
 
-    // Deterministic sampling via Fisher-Yates shuffle with seed from edge_fingerprint
     let mut shuffled: Vec<NodeIndex> = functions.to_vec();
     let mut seed = edge_fingerprint;
     for i in (1..shuffled.len()).rev() {
@@ -766,14 +732,12 @@ pub(super) fn compute_betweenness(
     }
     let sources: Vec<NodeIndex> = shuffled.into_iter().take(sample_size).collect();
 
-    // Map NodeIndex -> local index for accumulation
     let node_to_idx: HashMap<NodeIndex, usize> = functions
         .iter()
         .enumerate()
         .map(|(i, &ni)| (ni, i))
         .collect();
 
-    // Parallel Brandes: each source computes partial betweenness
     let partial_results: Vec<Vec<f64>> = sources
         .par_iter()
         .map(|&source| {
@@ -790,32 +754,28 @@ pub(super) fn compute_betweenness(
             let mut queue: VecDeque<usize> = VecDeque::new();
             queue.push_back(s_idx);
 
-            // BFS phase
             while let Some(v) = queue.pop_front() {
                 stack.push(v);
                 let v_node = functions[v];
                 let v_dist = dist[v];
 
-                if let Some(callees) = call_callees.get(&v_node) {
-                    for &callee in callees {
-                        if !func_set.contains(&callee) {
-                            continue;
+                for &callee in code_graph.callees(v_node) {
+                    if !func_set.contains(&callee) {
+                        continue;
+                    }
+                    if let Some(&w) = node_to_idx.get(&callee) {
+                        if dist[w] < 0 {
+                            dist[w] = v_dist + 1;
+                            queue.push_back(w);
                         }
-                        if let Some(&w) = node_to_idx.get(&callee) {
-                            if dist[w] < 0 {
-                                dist[w] = v_dist + 1;
-                                queue.push_back(w);
-                            }
-                            if dist[w] == v_dist + 1 {
-                                sigma[w] += sigma[v];
-                                predecessors[w].push(v);
-                            }
+                        if dist[w] == v_dist + 1 {
+                            sigma[w] += sigma[v];
+                            predecessors[w].push(v);
                         }
                     }
                 }
             }
 
-            // Accumulation phase (reverse BFS order)
             while let Some(w) = stack.pop() {
                 for &v in &predecessors[w] {
                     let contrib = (sigma[v] / sigma[w]) * (1.0 + delta[w]);
@@ -827,7 +787,6 @@ pub(super) fn compute_betweenness(
         })
         .collect();
 
-    // Aggregate partial results
     let mut betweenness = vec![0.0f64; n];
     for partial in &partial_results {
         for (i, &val) in partial.iter().enumerate() {
@@ -835,7 +794,6 @@ pub(super) fn compute_betweenness(
         }
     }
 
-    // Convert to HashMap (raw, unnormalized)
     functions
         .iter()
         .enumerate()

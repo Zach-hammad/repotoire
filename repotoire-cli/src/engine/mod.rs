@@ -16,7 +16,7 @@
 //!
 //! 1. **Collect** — walk the repo, hash file contents, determine deltas
 //! 2. **Parse** — tree-sitter parse source files in parallel
-//! 3. **Graph** — build the in-memory petgraph code graph
+//! 3. **Graph** — build the in-memory CSR code graph
 //! 4. **Git enrich** — add churn/blame/commit metadata to graph nodes
 //! 5. **Calibrate** — learn adaptive thresholds + n-gram language model
 //! 6. **Detect** — run all detectors in parallel (with incremental reuse)

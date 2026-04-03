@@ -686,7 +686,7 @@ fn build_value_store(
     }
 
     // 3. Compute topological order of call graph for cross-function propagation.
-    //    We use the function QNs in arbitrary order since the internal petgraph
+    //    We use the function QNs in arbitrary order since the internal graph
     //    is not directly exposed. The propagation module's cycle detection and
     //    depth limiting handle cycles safely, so arbitrary order is correct
     //    (just potentially less efficient than true topo order).

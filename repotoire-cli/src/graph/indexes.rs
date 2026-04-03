@@ -6,15 +6,13 @@
 //! lookups instead of O(N) or O(E) graph scans.
 
 use std::collections::HashMap as FoldHashMap;
-use petgraph::algo::tarjan_scc;
-use petgraph::stable_graph::{NodeIndex, StableGraph};
-use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 
 use super::interner::{global_interner, StrKey};
 use super::store_models::{CodeEdge, CodeNode, EdgeKind, NodeKind};
 use crate::git::co_change::CoChangeMatrix;
+use crate::graph::node_index::NodeIndex;
 
 /// All pre-built indexes, computed once during `freeze()`.
 ///
@@ -26,25 +24,6 @@ pub struct GraphIndexes {
     pub(crate) functions: Vec<NodeIndex>,
     pub(crate) classes: Vec<NodeIndex>,
     pub(crate) files: Vec<NodeIndex>,
-
-    // ── Adjacency per edge kind (FoldHashMap for fast lookups on hot path) ──
-    // Calls
-    pub(crate) call_callers: FoldHashMap<NodeIndex, Vec<NodeIndex>>,
-    pub(crate) call_callees: FoldHashMap<NodeIndex, Vec<NodeIndex>>,
-    // Imports
-    pub(crate) import_sources: FoldHashMap<NodeIndex, Vec<NodeIndex>>,
-    pub(crate) import_targets: FoldHashMap<NodeIndex, Vec<NodeIndex>>,
-    // Inherits
-    pub(crate) inherit_parents: FoldHashMap<NodeIndex, Vec<NodeIndex>>,
-    pub(crate) inherit_children: FoldHashMap<NodeIndex, Vec<NodeIndex>>,
-    // Contains
-    pub(crate) contains_children: FoldHashMap<NodeIndex, Vec<NodeIndex>>,
-    pub(crate) contains_parent: FoldHashMap<NodeIndex, Vec<NodeIndex>>,
-    // Uses
-    pub(crate) uses_targets: FoldHashMap<NodeIndex, Vec<NodeIndex>>,
-    pub(crate) uses_sources: FoldHashMap<NodeIndex, Vec<NodeIndex>>,
-    // ModifiedIn (one-directional: entity → commit)
-    pub(crate) modified_in: FoldHashMap<NodeIndex, Vec<NodeIndex>>,
 
     // ── Spatial indexes: per-file node lookups ──
     pub(crate) functions_by_file: FoldHashMap<StrKey, Vec<NodeIndex>>,
@@ -65,280 +44,180 @@ pub struct GraphIndexes {
 }
 
 impl GraphIndexes {
-    /// Build all indexes from a graph and node_index in one pass.
+    /// Build all indexes from node/edge data in one pass.
     ///
-    /// This is called by `GraphBuilder::freeze()`. It scans nodes once (populating
-    /// kind indexes and spatial indexes), scans edges once (populating adjacency
-    /// indexes and bulk edge lists), sorts adjacency vectors by qualified name for
-    /// determinism, computes import cycles via Tarjan SCC, and computes the edge
-    /// fingerprint for topology change detection.
-    pub fn build(
-        graph: &StableGraph<CodeNode, CodeEdge>,
+    /// Scans nodes once (populating kind/spatial indexes), scans edges once
+    /// (bulk edge lists), computes import cycles via Tarjan SCC, and computes
+    /// the edge fingerprint for topology change detection.
+    pub fn build_from_vecs(
+        nodes: &[CodeNode],
+        edges: &[(NodeIndex, NodeIndex, CodeEdge)],
         _node_index: &HashMap<StrKey, NodeIndex>,
-        co_change: Option<&CoChangeMatrix>,
+        _co_change: Option<&CoChangeMatrix>,
     ) -> Self {
         let mut indexes = Self::default();
-
-        // Steps 1-2: Populate kind/spatial indexes and adjacency maps
-        indexes.build_kind_indexes(graph);
-        indexes.build_adjacency_maps(graph);
-        indexes.build_spatial_indexes(graph);
-
-        // Steps 5-9: Expensive analyses
-        indexes.import_cycles = compute_import_cycles(graph);
-        indexes.edge_fingerprint = compute_edge_fingerprint(graph);
-        indexes.primitives = super::primitives::GraphPrimitives::compute(
-            graph,
-            &indexes.functions,
-            &indexes.files,
-            &indexes.all_call_edges,
-            &indexes.all_import_edges,
-            &indexes.call_callers,
-            &indexes.call_callees,
-            indexes.edge_fingerprint,
-            co_change,
-        );
-
-        indexes
-    }
-
-    /// Scan all nodes and categorize by kind, populating kind indexes and
-    /// per-file node lookups. Sorts kind vectors by qualified name for determinism.
-    fn build_kind_indexes(&mut self, graph: &StableGraph<CodeNode, CodeEdge>) {
         let si = global_interner();
 
-        for idx in graph.node_indices() {
-            let node = &graph[idx];
+        // Step 1: Build kind indexes from node array
+        for (i, node) in nodes.iter().enumerate() {
+            let idx = NodeIndex::new(i as u32);
             match node.kind {
                 NodeKind::Function => {
-                    self.functions.push(idx);
-                    self.functions_by_file
+                    indexes.functions.push(idx);
+                    indexes
+                        .functions_by_file
                         .entry(node.file_path)
                         .or_default()
                         .push(idx);
-                    self.function_spatial
+                    indexes
+                        .function_spatial
                         .entry(node.file_path)
                         .or_default()
                         .push((node.line_start, node.line_end, idx));
                 }
                 NodeKind::Class => {
-                    self.classes.push(idx);
-                    self.classes_by_file
+                    indexes.classes.push(idx);
+                    indexes
+                        .classes_by_file
                         .entry(node.file_path)
                         .or_default()
                         .push(idx);
                 }
                 NodeKind::File => {
-                    self.files.push(idx);
+                    indexes.files.push(idx);
                 }
                 _ => {}
             }
-            self.all_nodes_by_file
+            indexes
+                .all_nodes_by_file
                 .entry(node.file_path)
                 .or_default()
                 .push(idx);
         }
 
         // Sort kind vectors by qualified name for determinism
-        let sort_by_qn = |nodes: &mut Vec<NodeIndex>| {
-            nodes.sort_by(|a, b| {
-                let a_qn = graph
-                    .node_weight(*a)
+        let sort_by_qn_vec = |idxs: &mut Vec<NodeIndex>| {
+            idxs.sort_by(|a, b| {
+                let a_qn = nodes
+                    .get(a.index())
                     .map(|n| si.resolve(n.qualified_name))
                     .unwrap_or("");
-                let b_qn = graph
-                    .node_weight(*b)
+                let b_qn = nodes
+                    .get(b.index())
                     .map(|n| si.resolve(n.qualified_name))
                     .unwrap_or("");
                 a_qn.cmp(b_qn)
             });
         };
-
-        sort_by_qn(&mut self.functions);
-        sort_by_qn(&mut self.classes);
-        sort_by_qn(&mut self.files);
-
-        // Sort per-file indexes by QN
-        for v in self.functions_by_file.values_mut() {
-            sort_by_qn(v);
+        sort_by_qn_vec(&mut indexes.functions);
+        sort_by_qn_vec(&mut indexes.classes);
+        sort_by_qn_vec(&mut indexes.files);
+        for v in indexes.functions_by_file.values_mut() {
+            sort_by_qn_vec(v);
         }
-        for v in self.classes_by_file.values_mut() {
-            sort_by_qn(v);
+        for v in indexes.classes_by_file.values_mut() {
+            sort_by_qn_vec(v);
         }
-    }
 
-    /// Scan all edges to build caller/callee, importer/importee, and other
-    /// adjacency maps plus bulk edge lists. Sorts adjacency vectors by qualified
-    /// name for determinism.
-    fn build_adjacency_maps(&mut self, graph: &StableGraph<CodeNode, CodeEdge>) {
-        let si = global_interner();
-
-        for edge_ref in graph.edge_references() {
-            let src = edge_ref.source();
-            let tgt = edge_ref.target();
-            match edge_ref.weight().kind {
+        // Step 2: Build bulk edge lists from edge array
+        for &(src, tgt, ref edge) in edges {
+            match edge.kind {
                 EdgeKind::Calls => {
-                    self.call_callees.entry(src).or_default().push(tgt);
-                    self.call_callers.entry(tgt).or_default().push(src);
-                    self.all_call_edges.push((src, tgt));
+                    indexes.all_call_edges.push((src, tgt));
                 }
                 EdgeKind::Imports => {
-                    self.import_targets.entry(src).or_default().push(tgt);
-                    self.import_sources.entry(tgt).or_default().push(src);
-                    self.all_import_edges.push((src, tgt));
+                    indexes.all_import_edges.push((src, tgt));
                 }
                 EdgeKind::Inherits => {
-                    self.inherit_parents.entry(src).or_default().push(tgt);
-                    self.inherit_children.entry(tgt).or_default().push(src);
-                    self.all_inheritance_edges.push((src, tgt));
+                    indexes.all_inheritance_edges.push((src, tgt));
                 }
-                EdgeKind::Contains => {
-                    self.contains_children.entry(src).or_default().push(tgt);
-                    self.contains_parent.entry(tgt).or_default().push(src);
-                }
-                EdgeKind::Uses => {
-                    self.uses_targets.entry(src).or_default().push(tgt);
-                    self.uses_sources.entry(tgt).or_default().push(src);
-                }
-                EdgeKind::ModifiedIn => {
-                    self.modified_in.entry(src).or_default().push(tgt);
-                }
+                _ => {}
             }
         }
 
-        // Sort all adjacency vectors by qualified name for determinism
-        let sort_by_qn = |nodes: &mut Vec<NodeIndex>| {
-            nodes.sort_by(|a, b| {
-                let a_qn = graph
-                    .node_weight(*a)
-                    .map(|n| si.resolve(n.qualified_name))
-                    .unwrap_or("");
-                let b_qn = graph
-                    .node_weight(*b)
-                    .map(|n| si.resolve(n.qualified_name))
-                    .unwrap_or("");
-                a_qn.cmp(b_qn)
-            });
-        };
-
-        for v in self.call_callers.values_mut() {
-            sort_by_qn(v);
-        }
-        for v in self.call_callees.values_mut() {
-            sort_by_qn(v);
-        }
-        for v in self.import_sources.values_mut() {
-            sort_by_qn(v);
-        }
-        for v in self.import_targets.values_mut() {
-            sort_by_qn(v);
-        }
-        for v in self.inherit_parents.values_mut() {
-            sort_by_qn(v);
-        }
-        for v in self.inherit_children.values_mut() {
-            sort_by_qn(v);
-        }
-        for v in self.contains_children.values_mut() {
-            sort_by_qn(v);
-        }
-        for v in self.contains_parent.values_mut() {
-            sort_by_qn(v);
-        }
-        for v in self.uses_targets.values_mut() {
-            sort_by_qn(v);
-        }
-        for v in self.uses_sources.values_mut() {
-            sort_by_qn(v);
-        }
-        for v in self.modified_in.values_mut() {
-            sort_by_qn(v);
-        }
-    }
-
-    /// Sort spatial indexes (function_spatial) by line_start for binary search
-    /// in `function_at()`.
-    fn build_spatial_indexes(&mut self, _graph: &StableGraph<CodeNode, CodeEdge>) {
-        for spans in self.function_spatial.values_mut() {
+        // Step 3: Sort spatial indexes
+        for spans in indexes.function_spatial.values_mut() {
             spans.sort_unstable_by_key(|(start, _, _)| *start);
         }
+
+        // Step 4: Compute expensive analyses
+        indexes.import_cycles = compute_import_cycles(nodes, edges);
+        indexes.edge_fingerprint = compute_edge_fingerprint(nodes, edges);
+
+        // Primitives are computed later in CodeGraph::build() after the CSR is ready.
+
+        indexes
+    }
+
+    /// Set the pre-computed GraphPrimitives.
+    /// Called by CodeGraph::build() after primitives are computed.
+    pub(crate) fn set_primitives(&mut self, primitives: super::primitives::GraphPrimitives) {
+        self.primitives = primitives;
     }
 }
 
-/// Compute import cycles using Tarjan's SCC algorithm.
-///
-/// Builds a filtered subgraph containing only Import edges (excluding type-only imports),
-/// runs Tarjan SCC, and returns SCCs with >1 node (actual cycles) as Vec<Vec<NodeIndex>>.
-/// Results are sorted by cycle size descending, then by node names for determinism.
-fn compute_import_cycles(graph: &StableGraph<CodeNode, CodeEdge>) -> Vec<Vec<NodeIndex>> {
+/// Compute import cycles using Tarjan SCC.
+fn compute_import_cycles(
+    nodes: &[CodeNode],
+    edges: &[(NodeIndex, NodeIndex, CodeEdge)],
+) -> Vec<Vec<NodeIndex>> {
     let si = global_interner();
 
-    // Build a filtered subgraph with only non-type-only Import edges
-    let mut filtered_graph: StableGraph<NodeIndex, ()> = StableGraph::new();
-    let mut idx_map: HashMap<NodeIndex, NodeIndex> = HashMap::default();
-    let mut reverse_map: HashMap<NodeIndex, NodeIndex> = HashMap::default();
-
-    // Collect nodes that have at least one non-type-only import edge
-    let relevant_nodes: HashSet<NodeIndex> = graph
-        .edge_references()
-        .filter(|e| {
-            if e.weight().kind != EdgeKind::Imports {
-                return false;
-            }
-            // Skip type-only imports (matches existing behavior)
-            if e.weight().is_type_only() {
-                return false;
-            }
-            true
-        })
-        .flat_map(|e| [e.source(), e.target()])
+    // Collect import edges (excluding type-only)
+    let import_edges: Vec<(NodeIndex, NodeIndex)> = edges
+        .iter()
+        .filter(|(_, _, e)| e.kind == EdgeKind::Imports && !e.is_type_only())
+        .map(|&(src, tgt, _)| (src, tgt))
         .collect();
 
-    // Sort by NodeIndex for deterministic filtered-graph construction
+    if import_edges.is_empty() {
+        return Vec::new();
+    }
+
+    // Build adjacency list for import subgraph
+    let mut relevant_nodes: HashSet<NodeIndex> = HashSet::new();
+    for &(src, tgt) in &import_edges {
+        relevant_nodes.insert(src);
+        relevant_nodes.insert(tgt);
+    }
+
+    // Map our NodeIndex to sequential indices for Tarjan
     let mut sorted_nodes: Vec<NodeIndex> = relevant_nodes.into_iter().collect();
-    sorted_nodes.sort_by_key(|idx| idx.index());
+    sorted_nodes.sort();
+    let idx_map: HashMap<NodeIndex, usize> = sorted_nodes
+        .iter()
+        .enumerate()
+        .map(|(i, &idx)| (idx, i))
+        .collect();
+    let n = sorted_nodes.len();
 
-    for orig_idx in sorted_nodes {
-        let new_idx = filtered_graph.add_node(orig_idx);
-        idx_map.insert(orig_idx, new_idx);
-        reverse_map.insert(new_idx, orig_idx);
-    }
-
-    // Add filtered edges
-    for edge in graph.edge_references() {
-        if edge.weight().kind != EdgeKind::Imports {
-            continue;
-        }
-        if edge.weight().is_type_only() {
-            continue;
-        }
-        if let (Some(&from), Some(&to)) = (idx_map.get(&edge.source()), idx_map.get(&edge.target()))
-        {
-            filtered_graph.add_edge(from, to, ());
+    // Build adjacency list
+    let mut adj: Vec<Vec<u32>> = vec![vec![]; n];
+    for &(src, tgt) in &import_edges {
+        if let (Some(&from), Some(&to)) = (idx_map.get(&src), idx_map.get(&tgt)) {
+            adj[from].push(to as u32);
         }
     }
 
-    // Run Tarjan's SCC
-    let sccs = tarjan_scc(&filtered_graph);
+    // Run Tarjan SCC
+    let sccs = crate::graph::algo::tarjan_scc(n, |v| &adj[v as usize]);
 
-    // Convert SCCs back to original NodeIndexes, keep only cycles (>1 node)
+    // Convert back, keep only cycles (>1 node)
     let mut cycles: Vec<Vec<NodeIndex>> = sccs
         .into_iter()
         .filter(|scc| scc.len() > 1)
         .map(|scc| {
             let mut orig_indices: Vec<NodeIndex> = scc
                 .iter()
-                .filter_map(|&filtered_idx| reverse_map.get(&filtered_idx).copied())
+                .filter_map(|&i| sorted_nodes.get(i as usize).copied())
                 .collect();
-
-            // Sort by qualified name for consistent ordering
             orig_indices.sort_by(|a, b| {
-                let a_qn = graph
-                    .node_weight(*a)
+                let a_qn = nodes
+                    .get(a.index())
                     .map(|n| si.resolve(n.qualified_name))
                     .unwrap_or("");
-                let b_qn = graph
-                    .node_weight(*b)
+                let b_qn = nodes
+                    .get(b.index())
                     .map(|n| si.resolve(n.qualified_name))
                     .unwrap_or("");
                 a_qn.cmp(b_qn)
@@ -347,57 +226,55 @@ fn compute_import_cycles(graph: &StableGraph<CodeNode, CodeEdge>) -> Vec<Vec<Nod
         })
         .collect();
 
-    // Sort cycles: largest first, then by first node's QN for determinism
+    // Sort cycles: largest first, then by first node's QN
     cycles.sort_by(|a, b| {
         b.len().cmp(&a.len()).then_with(|| {
             let a_qn = a
                 .first()
-                .and_then(|idx| graph.node_weight(*idx))
+                .and_then(|idx| nodes.get(idx.index()))
                 .map(|n| si.resolve(n.qualified_name))
                 .unwrap_or("");
             let b_qn = b
                 .first()
-                .and_then(|idx| graph.node_weight(*idx))
+                .and_then(|idx| nodes.get(idx.index()))
                 .map(|n| si.resolve(n.qualified_name))
                 .unwrap_or("");
             a_qn.cmp(b_qn)
         })
     });
 
-    // Dedup
     cycles.dedup();
-
     cycles
 }
 
-/// Compute a fingerprint of all cross-file edges for topology change detection.
-///
-/// Hashes (source_qn, target_qn, kind) tuples for edges where source and target
-/// are in different files. Replicates the logic from `GraphBuilder::compute_edge_fingerprint()`.
-fn compute_edge_fingerprint(graph: &StableGraph<CodeNode, CodeEdge>) -> u64 {
+/// Compute edge fingerprint for topology change detection.
+fn compute_edge_fingerprint(nodes: &[CodeNode], edges: &[(NodeIndex, NodeIndex, CodeEdge)]) -> u64 {
     use std::collections::hash_map::DefaultHasher;
 
-    let mut edges: Vec<(u32, u32, u8)> = graph
-        .edge_references()
-        .filter(|e| {
-            let src = &graph[e.source()];
-            let tgt = &graph[e.target()];
-            src.file_path != tgt.file_path
+    let mut fp_edges: Vec<(u32, u32, u8)> = edges
+        .iter()
+        .filter(|&&(src, tgt, _)| {
+            let s = nodes.get(src.index());
+            let t = nodes.get(tgt.index());
+            match (s, t) {
+                (Some(s), Some(t)) => s.file_path != t.file_path,
+                _ => false,
+            }
         })
-        .map(|e| {
-            let src = &graph[e.source()];
-            let tgt = &graph[e.target()];
+        .map(|&(src, tgt, ref e)| {
+            let s = &nodes[src.index()];
+            let t = &nodes[tgt.index()];
             (
-                src.qualified_name.into_inner().get(),
-                tgt.qualified_name.into_inner().get(),
-                e.weight().kind as u8,
+                s.qualified_name.as_u32(),
+                t.qualified_name.as_u32(),
+                e.kind as u8,
             )
         })
         .collect();
-    edges.sort_unstable();
+    fp_edges.sort_unstable();
 
     let mut hasher = DefaultHasher::new();
-    for (src, tgt, kind) in &edges {
+    for (src, tgt, kind) in &fp_edges {
         src.hash(&mut hasher);
         tgt.hash(&mut hasher);
         kind.hash(&mut hasher);
@@ -408,128 +285,117 @@ fn compute_edge_fingerprint(graph: &StableGraph<CodeNode, CodeEdge>) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::graph::builder::GraphBuilder;
 
     #[test]
     fn test_build_empty_graph() {
-        let graph = StableGraph::new();
-        let node_index = HashMap::default();
-        let indexes = GraphIndexes::build(&graph, &node_index, None);
-        assert!(indexes.functions.is_empty());
-        assert!(indexes.classes.is_empty());
-        assert!(indexes.files.is_empty());
-        assert!(indexes.import_cycles.is_empty());
-        // Empty graph has no cross-file edges, so fingerprint is just the
-        // DefaultHasher's initial state (not necessarily 0)
+        let graph = GraphBuilder::new().freeze();
+        assert!(graph.functions().is_empty());
+        assert!(graph.classes().is_empty());
+        assert!(graph.files().is_empty());
+        assert!(graph.import_cycles().is_empty());
     }
 
     #[test]
     fn test_build_kind_indexes() {
-        let mut graph = StableGraph::new();
-        let f1 = graph.add_node(CodeNode::function("foo", "a.py"));
-        let f2 = graph.add_node(CodeNode::function("bar", "a.py"));
-        let c1 = graph.add_node(CodeNode::class("MyClass", "a.py"));
-        let file = graph.add_node(CodeNode::file("a.py"));
+        let mut builder = GraphBuilder::new();
+        builder.add_node(CodeNode::function("foo", "a.py"));
+        builder.add_node(CodeNode::function("bar", "a.py"));
+        builder.add_node(CodeNode::class("MyClass", "a.py"));
+        builder.add_node(CodeNode::file("a.py"));
 
-        let si = global_interner();
-        let mut node_index = HashMap::default();
-        node_index.insert(si.intern("a.py::foo"), f1);
-        node_index.insert(si.intern("a.py::bar"), f2);
-        node_index.insert(si.intern("a.py::MyClass"), c1);
-        node_index.insert(si.intern("a.py"), file);
-
-        let indexes = GraphIndexes::build(&graph, &node_index, None);
-        assert_eq!(indexes.functions.len(), 2);
-        assert_eq!(indexes.classes.len(), 1);
-        assert_eq!(indexes.files.len(), 1);
+        let graph = builder.freeze();
+        assert_eq!(graph.functions().len(), 2);
+        assert_eq!(graph.classes().len(), 1);
+        assert_eq!(graph.files().len(), 1);
     }
 
     #[test]
     fn test_build_adjacency_indexes() {
-        let mut graph = StableGraph::new();
-        let f1 = graph.add_node(CodeNode::function("foo", "a.py"));
-        let f2 = graph.add_node(CodeNode::function("bar", "a.py"));
-        graph.add_edge(f1, f2, CodeEdge::calls());
+        let mut builder = GraphBuilder::new();
+        let f1 = builder.add_node(CodeNode::function("foo", "a.py"));
+        let f2 = builder.add_node(CodeNode::function("bar", "a.py"));
+        builder.add_edge(f1, f2, CodeEdge::calls());
 
-        let node_index = HashMap::default();
-        let indexes = GraphIndexes::build(&graph, &node_index, None);
+        let graph = builder.freeze();
 
-        // f1 calls f2
-        assert_eq!(indexes.call_callees.get(&f1).map(|v| v.len()), Some(1));
-        assert_eq!(indexes.call_callers.get(&f2).map(|v| v.len()), Some(1));
+        let (new_f1, _) = graph.node_by_name("a.py::foo").expect("foo");
+        let (new_f2, _) = graph.node_by_name("a.py::bar").expect("bar");
 
-        // f2 doesn't call anything
-        assert!(indexes.call_callees.get(&f2).is_none());
-        // f1 has no callers
-        assert!(indexes.call_callers.get(&f1).is_none());
-
-        // Bulk edge list
-        assert_eq!(indexes.all_call_edges.len(), 1);
+        assert_eq!(graph.callees(new_f1).len(), 1);
+        assert_eq!(graph.callers(new_f2).len(), 1);
+        assert!(graph.callees(new_f2).is_empty());
+        assert!(graph.callers(new_f1).is_empty());
+        assert_eq!(graph.all_call_edges().len(), 1);
     }
 
     #[test]
     fn test_import_cycle_detection() {
-        let mut graph = StableGraph::new();
-        let a = graph.add_node(CodeNode::file("a.py"));
-        let b = graph.add_node(CodeNode::file("b.py"));
-        let c = graph.add_node(CodeNode::file("c.py"));
+        let mut builder = GraphBuilder::new();
+        let a = builder.add_node(CodeNode::file("a.py"));
+        let b = builder.add_node(CodeNode::file("b.py"));
+        let c = builder.add_node(CodeNode::file("c.py"));
 
         // a -> b -> c -> a (cycle)
-        graph.add_edge(a, b, CodeEdge::imports());
-        graph.add_edge(b, c, CodeEdge::imports());
-        graph.add_edge(c, a, CodeEdge::imports());
+        builder.add_edge(a, b, CodeEdge::imports());
+        builder.add_edge(b, c, CodeEdge::imports());
+        builder.add_edge(c, a, CodeEdge::imports());
 
-        let node_index = HashMap::default();
-        let indexes = GraphIndexes::build(&graph, &node_index, None);
-
-        assert_eq!(indexes.import_cycles.len(), 1);
-        assert_eq!(indexes.import_cycles[0].len(), 3);
+        let graph = builder.freeze();
+        assert_eq!(graph.import_cycles().len(), 1);
+        assert_eq!(graph.import_cycles()[0].len(), 3);
     }
 
     #[test]
     fn test_spatial_index_sorted() {
-        let si = global_interner();
-        let fp = si.intern("test.py");
-        let mut graph = StableGraph::new();
-
+        let mut builder = GraphBuilder::new();
         // Add functions out of order
-        let f2 = graph.add_node(CodeNode::function("bar", "test.py").with_lines(20, 30));
-        let f1 = graph.add_node(CodeNode::function("foo", "test.py").with_lines(1, 10));
-        let _ = (f1, f2);
+        builder.add_node(CodeNode::function("bar", "test.py").with_lines(20, 30));
+        builder.add_node(CodeNode::function("foo", "test.py").with_lines(1, 10));
 
-        let node_index = HashMap::default();
-        let indexes = GraphIndexes::build(&graph, &node_index, None);
-
-        let spatial = indexes.function_spatial.get(&fp).unwrap();
-        // Should be sorted by line_start
-        assert!(spatial[0].0 <= spatial[1].0);
+        let graph = builder.freeze();
+        // function_at should find the first function (lines 1-10) not the second
+        let idx = graph.function_at("test.py", 5);
+        assert!(idx.is_some());
+        let node = graph.node(idx.unwrap()).expect("node");
+        assert_eq!(
+            graph.interner().resolve(node.qualified_name),
+            "test.py::foo"
+        );
     }
 
     #[test]
     fn test_edge_fingerprint_deterministic() {
-        let mut graph = StableGraph::new();
-        let f1 = graph.add_node(CodeNode::function("foo", "a.py"));
-        let f2 = graph.add_node(CodeNode::function("bar", "b.py"));
-        graph.add_edge(f1, f2, CodeEdge::calls());
+        let mut builder = GraphBuilder::new();
+        let f1 = builder.add_node(CodeNode::function("foo", "a.py"));
+        let f2 = builder.add_node(CodeNode::function("bar", "b.py"));
+        builder.add_edge(f1, f2, CodeEdge::calls());
+        let graph = builder.freeze();
 
-        let fp1 = compute_edge_fingerprint(&graph);
-        let fp2 = compute_edge_fingerprint(&graph);
-        assert_eq!(fp1, fp2);
-        assert_ne!(fp1, 0); // cross-file edge should produce non-zero fingerprint
+        let fp = graph.edge_fingerprint();
+        assert_ne!(fp, 0);
+
+        // Rebuild same graph — fingerprint should be identical
+        let mut builder2 = GraphBuilder::new();
+        let g1 = builder2.add_node(CodeNode::function("foo", "a.py"));
+        let g2 = builder2.add_node(CodeNode::function("bar", "b.py"));
+        builder2.add_edge(g1, g2, CodeEdge::calls());
+        let graph2 = builder2.freeze();
+        assert_eq!(fp, graph2.edge_fingerprint());
     }
 
     #[test]
     fn test_edge_fingerprint_ignores_same_file() {
-        // Graph with only same-file edges should produce the same fingerprint
-        // as an empty graph (no cross-file edges to hash)
-        let empty_graph: StableGraph<CodeNode, CodeEdge> = StableGraph::new();
-        let empty_fp = compute_edge_fingerprint(&empty_graph);
+        let empty = GraphBuilder::new().freeze();
+        let empty_fp = empty.edge_fingerprint();
 
-        let mut graph = StableGraph::new();
-        let f1 = graph.add_node(CodeNode::function("foo", "a.py"));
-        let f2 = graph.add_node(CodeNode::function("bar", "a.py"));
-        graph.add_edge(f1, f2, CodeEdge::calls());
+        // Graph with only same-file edges should match empty fingerprint
+        let mut builder = GraphBuilder::new();
+        let f1 = builder.add_node(CodeNode::function("foo", "a.py"));
+        let f2 = builder.add_node(CodeNode::function("bar", "a.py"));
+        builder.add_edge(f1, f2, CodeEdge::calls());
+        let graph = builder.freeze();
 
-        let fp = compute_edge_fingerprint(&graph);
-        assert_eq!(fp, empty_fp); // same-file edge → same as empty hash
+        assert_eq!(graph.edge_fingerprint(), empty_fp);
     }
 }

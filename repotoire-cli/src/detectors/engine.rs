@@ -47,7 +47,7 @@ pub struct PrecomputedAnalysis {
     /// Per-file git churn data (empty if git history unavailable).
     pub git_churn: Arc<HashMap<String, super::analysis_context::FileChurnInfo>>,
     /// Per-node aggregate co-change score (empty if no co-change data).
-    pub co_change_summary: Arc<HashMap<petgraph::graph::NodeIndex, f64>>,
+    pub co_change_summary: Arc<HashMap<crate::graph::NodeIndex, f64>>,
     /// Full co-change matrix for pairwise file coupling queries.
     pub co_change_matrix: Option<Arc<crate::git::co_change::CoChangeMatrix>>,
     /// DOA-based file ownership model for bus factor analysis.

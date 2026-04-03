@@ -28,7 +28,7 @@ pub struct FileChurnInfo {
 ///
 /// All fields are `Arc`-wrapped for zero-cost sharing across parallel detectors.
 pub struct AnalysisContext<'g> {
-    /// Read-only access to the code graph (petgraph backend).
+    /// Read-only access to the code graph.
     pub graph: &'g dyn GraphQuery,
 
     /// Pre-indexed files with lazy lowercased content and word sets.
@@ -69,7 +69,7 @@ pub struct AnalysisContext<'g> {
     pub git_churn: Arc<HashMap<String, FileChurnInfo>>,
 
     /// Per-node aggregate co-change score (empty if no co-change data).
-    pub co_change_summary: Arc<HashMap<petgraph::graph::NodeIndex, f64>>,
+    pub co_change_summary: Arc<HashMap<crate::graph::NodeIndex, f64>>,
 
     /// Full co-change matrix for pairwise file coupling queries.
     /// `None` when git history is unavailable or co-change was not computed.
