@@ -2,7 +2,7 @@
 
 /// Tarjan's strongly connected components algorithm.
 ///
-/// Returns SCCs in reverse topological order (matches petgraph's behavior).
+/// Returns SCCs in reverse topological order.
 /// Uses struct-of-arrays layout for cache efficiency.
 pub fn tarjan_scc<'a>(node_count: usize, successors: impl Fn(u32) -> &'a [u32]) -> Vec<Vec<u32>> {
     if node_count == 0 {

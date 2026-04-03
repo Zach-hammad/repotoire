@@ -104,7 +104,7 @@ pub(super) fn compute_call_cycles(
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /// Custom sparse power iteration PageRank using adjacency indexes directly.
-/// NOT petgraph's dense O(V^2) built-in.
+/// Sparse power iteration, not dense O(V^2).
 pub(super) fn compute_page_rank(
     functions: &[NodeIndex],
     code_graph: &CodeGraph,

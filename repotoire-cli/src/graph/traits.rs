@@ -47,7 +47,7 @@ pub trait GraphQuery: Send + Sync {
 
     // ==================== NodeIndex-based API ====================
     //
-    // Zero-copy, O(1) access using petgraph NodeIndex.
+    // Zero-copy, O(1) access using NodeIndex.
     // CodeGraph implements all of these via pre-built indexes.
     // GraphBuilder implements them via a lazily-built QuerySnapshot.
     // Default implementations return empty results for lightweight

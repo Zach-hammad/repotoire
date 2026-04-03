@@ -26,7 +26,7 @@ pub fn map_changed_nodes(
         for &(start, end) in hunks {
             // Check each line in the hunk for a containing function.
             // function_at_idx uses a spatial index, so per-line lookups are fast.
-            let mut matched_functions: HashSet<petgraph::stable_graph::NodeIndex> = HashSet::new();
+            let mut matched_functions: HashSet<crate::graph::NodeIndex> = HashSet::new();
             for line in start..=end {
                 if let Some(idx) = graph.function_at_idx(file_path, line) {
                     matched_functions.insert(idx);
