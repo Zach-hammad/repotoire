@@ -146,6 +146,70 @@ impl CsrStorage {
     }
 }
 
+/// Compute a BFS vertex permutation for cache-friendly traversal order.
+///
+/// Seeds BFS from the highest-degree node. Returns a permutation array where
+/// `perm[old_idx] = new_idx`. Disconnected components are handled by finding
+/// a new seed among unvisited nodes.
+///
+/// Degree ties are broken by lowest original index for determinism.
+pub fn bfs_reorder(node_count: usize, edges: &[(u32, u32, EdgeKind)]) -> Vec<u32> {
+    if node_count == 0 {
+        return Vec::new();
+    }
+
+    // Count total degree per node (all edge kinds, both directions)
+    let mut degree = vec![0u32; node_count];
+    for &(src, dst, _) in edges {
+        degree[src as usize] += 1;
+        degree[dst as usize] += 1;
+    }
+
+    // Build undirected adjacency list for BFS
+    let mut adj: Vec<Vec<u32>> = vec![vec![]; node_count];
+    for &(src, dst, _) in edges {
+        adj[src as usize].push(dst);
+        adj[dst as usize].push(src);
+    }
+    // Sort neighbors for determinism
+    for list in &mut adj {
+        list.sort_unstable();
+        list.dedup();
+    }
+
+    let mut perm = vec![u32::MAX; node_count];
+    let mut visited = vec![false; node_count];
+    let mut next_id = 0u32;
+    let mut queue = std::collections::VecDeque::with_capacity(node_count);
+
+    while (next_id as usize) < node_count {
+        // Find unvisited node with highest degree (ties: lowest index)
+        let seed = (0..node_count)
+            .filter(|&i| !visited[i])
+            .max_by_key(|&i| (degree[i], std::cmp::Reverse(i)))
+            .expect("unvisited node must exist");
+
+        visited[seed] = true;
+        perm[seed] = next_id;
+        next_id += 1;
+        queue.push_back(seed);
+
+        while let Some(v) = queue.pop_front() {
+            for &neighbor in &adj[v] {
+                let n = neighbor as usize;
+                if !visited[n] {
+                    visited[n] = true;
+                    perm[n] = next_id;
+                    next_id += 1;
+                    queue.push_back(n);
+                }
+            }
+        }
+    }
+
+    perm
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -242,5 +306,64 @@ mod tests {
         assert_eq!(csr.neighbors(1, slot::CALLS_IN), &[0]);
         assert_eq!(csr.neighbors(1, slot::CONTAINS_IN), &[0]);
         assert_eq!(csr.neighbors(1, slot::IMPORTS_IN), &[0]);
+    }
+
+    #[test]
+    fn test_bfs_reorder_highest_degree_first() {
+        // Node 2 has highest degree (5 edges), should get index 0
+        let edges = vec![
+            (0u32, 2, EdgeKind::Calls),
+            (1, 2, EdgeKind::Calls),
+            (2, 0, EdgeKind::Calls),
+            (2, 1, EdgeKind::Calls),
+            (2, 3, EdgeKind::Calls),
+        ];
+        let perm = bfs_reorder(4, &edges);
+        assert_eq!(perm[2], 0); // highest degree → new index 0
+    }
+
+    #[test]
+    fn test_bfs_reorder_deterministic() {
+        let edges = vec![
+            (0u32, 1, EdgeKind::Calls),
+            (1, 2, EdgeKind::Calls),
+        ];
+        let perm1 = bfs_reorder(3, &edges);
+        let perm2 = bfs_reorder(3, &edges);
+        assert_eq!(perm1, perm2);
+    }
+
+    #[test]
+    fn test_bfs_reorder_empty() {
+        let perm = bfs_reorder(0, &[]);
+        assert!(perm.is_empty());
+    }
+
+    #[test]
+    fn test_bfs_reorder_disconnected() {
+        // Two disconnected components: {0,1} and {2,3}
+        let edges = vec![
+            (0u32, 1, EdgeKind::Calls),
+            (2, 3, EdgeKind::Calls),
+        ];
+        let perm = bfs_reorder(4, &edges);
+        // All nodes assigned unique indices 0..4
+        let mut sorted = perm.clone();
+        sorted.sort();
+        assert_eq!(sorted, vec![0, 1, 2, 3]);
+    }
+
+    #[test]
+    fn test_bfs_reorder_is_permutation() {
+        let edges = vec![
+            (0u32, 1, EdgeKind::Calls),
+            (1, 2, EdgeKind::Imports),
+            (2, 3, EdgeKind::Contains),
+            (3, 0, EdgeKind::Uses),
+        ];
+        let perm = bfs_reorder(4, &edges);
+        let mut sorted = perm.clone();
+        sorted.sort();
+        assert_eq!(sorted, vec![0, 1, 2, 3]);
     }
 }

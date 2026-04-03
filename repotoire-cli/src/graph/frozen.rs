@@ -43,9 +43,10 @@ impl CodeGraph {
     /// This is the freeze path:
     /// 1. Compact nodes (remove None tombstones, build old→new remap)
     /// 2. Remap edge indices
-    /// 3. Build CsrStorage from edges
-    /// 4. Build GraphIndexes
-    /// 5. Compute GraphPrimitives (via shim StableGraph for now)
+    /// 3. BFS vertex reordering for cache-friendly traversal
+    /// 4. Build CsrStorage from edges
+    /// 5. Build GraphIndexes
+    /// 6. Compute GraphPrimitives
     pub(crate) fn build(
         opt_nodes: Vec<Option<CodeNode>>,
         old_node_index: HashMap<StrKey, NodeIndex>,
@@ -65,7 +66,7 @@ impl CodeGraph {
         }
 
         // Step 2: Remap node_index
-        let node_index: HashMap<StrKey, NodeIndex> = old_node_index
+        let mut node_index: HashMap<StrKey, NodeIndex> = old_node_index
             .into_iter()
             .filter_map(|(key, old_idx)| {
                 remap
@@ -75,7 +76,7 @@ impl CodeGraph {
             .collect();
 
         // Step 3: Remap and filter edges
-        let edges: Vec<(NodeIndex, NodeIndex, CodeEdge)> = old_edges
+        let mut edges: Vec<(NodeIndex, NodeIndex, CodeEdge)> = old_edges
             .into_iter()
             .filter_map(|(src, tgt, edge)| {
                 let new_src = remap.get(&src.index())?;
@@ -87,6 +88,31 @@ impl CodeGraph {
                 ))
             })
             .collect();
+
+        // Step 3b: BFS vertex reordering for cache-friendly traversal
+        let bfs_edges: Vec<(u32, u32, super::store_models::EdgeKind)> = edges
+            .iter()
+            .map(|&(src, tgt, ref e)| (src.as_u32(), tgt.as_u32(), e.kind))
+            .collect();
+        let perm = super::csr::bfs_reorder(nodes.len(), &bfs_edges);
+
+        // Apply permutation to nodes
+        let mut reordered_nodes = vec![CodeNode::file(""); nodes.len()];
+        for (old_idx, node) in nodes.into_iter().enumerate() {
+            reordered_nodes[perm[old_idx] as usize] = node;
+        }
+        nodes = reordered_nodes;
+
+        // Apply permutation to node_index
+        for val in node_index.values_mut() {
+            *val = NodeIndex::new(perm[val.index()]);
+        }
+
+        // Apply permutation to edges
+        for edge in &mut edges {
+            edge.0 = NodeIndex::new(perm[edge.0.index()]);
+            edge.1 = NodeIndex::new(perm[edge.1.index()]);
+        }
 
         // Step 4: Build CSR from remapped edges
         let csr_edges: Vec<(u32, u32, EdgeKind)> = edges
