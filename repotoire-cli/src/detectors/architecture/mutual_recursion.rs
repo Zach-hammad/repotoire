@@ -109,7 +109,7 @@ impl Detector for MutualRecursionDetector {
             }
 
             // Sum complexity across all functions in the cycle.
-            // Note: call_cycles uses petgraph::NodeIndex; convert to ours for node_idx lookups.
+            // Note: call_cycles uses NodeIndex; convert to QN for node_idx lookups.
             let total_complexity: u32 = cycle
                 .iter()
                 .filter_map(|&idx| graph.node_idx(idx))
