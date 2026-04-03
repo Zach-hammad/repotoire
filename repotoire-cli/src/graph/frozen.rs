@@ -117,8 +117,6 @@ impl CodeGraph {
             &result.indexes.files.clone(),
             &result.indexes.all_call_edges.clone(),
             &result.indexes.all_import_edges.clone(),
-            &result.indexes.call_callers.clone(),
-            &result.indexes.call_callees.clone(),
             result.indexes.edge_fingerprint,
             co_change,
         );

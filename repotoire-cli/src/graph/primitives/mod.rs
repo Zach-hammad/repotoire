@@ -70,8 +70,6 @@ impl GraphPrimitives {
         files: &[NodeIndex],
         all_call_edges: &[(NodeIndex, NodeIndex)],
         all_import_edges: &[(NodeIndex, NodeIndex)],
-        call_callers: &HashMap<NodeIndex, Vec<NodeIndex>>,
-        call_callees: &HashMap<NodeIndex, Vec<NodeIndex>>,
         edge_fingerprint: u64,
         co_change: Option<&CoChangeMatrix>,
     ) -> Self {
@@ -91,10 +89,10 @@ impl GraphPrimitives {
 
         // 2. PageRank, betweenness, articulation points in parallel
         let (page_rank, (betweenness, ap_result)) = rayon::join(
-            || compute_page_rank(functions, call_callees, call_callers, 20, 0.85, 1e-6),
+            || compute_page_rank(functions, code_graph, 20, 0.85, 1e-6),
             || {
                 rayon::join(
-                    || compute_betweenness(functions, call_callees, edge_fingerprint),
+                    || compute_betweenness(functions, code_graph, edge_fingerprint),
                     || {
                         compute_articulation_points(
                             functions,
@@ -112,14 +110,12 @@ impl GraphPrimitives {
         let (idom, dominated, frontier, dom_depth) = compute_dominators(
             functions,
             all_call_edges,
-            call_callers,
-            call_callees,
             &call_cycles,
             code_graph,
         );
 
         // 4. BFS call depths
-        let call_depth = compute_call_depths(functions, call_callees, call_callers);
+        let call_depth = compute_call_depths(functions, code_graph);
 
         // Phase B: Weighted overlay + weighted algorithms
         let (weighted_page_rank, weighted_betweenness, community, modularity, hidden_coupling) =
@@ -251,8 +247,6 @@ mod tests {
             &[],
             &[],
             &[],
-            &HashMap::default(),
-            &HashMap::default(),
             0,
             None,
         );
@@ -308,19 +302,8 @@ mod tests {
 
         let [f1, f2, f3, hub, leaf] = [funcs[0], funcs[1], funcs[2], funcs[3], funcs[4]];
 
-        let mut call_callees: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::default();
-        let mut call_callers: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::default();
-
-        call_callees.insert(f1, vec![hub]);
-        call_callees.insert(f2, vec![hub]);
-        call_callees.insert(f3, vec![hub]);
-        call_callees.insert(hub, vec![leaf]);
-
-        call_callers.insert(hub, vec![f1, f2, f3]);
-        call_callers.insert(leaf, vec![hub]);
-
         let functions = vec![f1, f2, f3, hub, leaf];
-        let pr = compute_page_rank(&functions, &call_callees, &call_callers, 20, 0.85, 1e-6);
+        let pr = compute_page_rank(&functions, &graph, 20, 0.85, 1e-6);
 
         assert!(pr.len() == 5);
         let hub_rank = pr[&hub];
@@ -348,18 +331,8 @@ mod tests {
 
         let [f1, f2, f3] = [funcs[0], funcs[1], funcs[2]];
         let functions = vec![f1, f2, f3];
-        let mut call_callees: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::default();
-        let mut call_callers: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::default();
 
-        call_callees.insert(f1, vec![f2]);
-        call_callees.insert(f2, vec![f3]);
-        call_callees.insert(f3, vec![f1]);
-
-        call_callers.insert(f2, vec![f1]);
-        call_callers.insert(f3, vec![f2]);
-        call_callers.insert(f1, vec![f3]);
-
-        let pr = compute_page_rank(&functions, &call_callees, &call_callers, 100, 0.85, 1e-10);
+        let pr = compute_page_rank(&functions, &graph, 100, 0.85, 1e-10);
         let sum: f64 = pr.values().sum();
         assert!(
             (sum - 1.0).abs() < 0.01,
@@ -382,20 +355,9 @@ mod tests {
         let call_edges = vec![(entry, a), (a, b), (b, c)];
         let functions = vec![entry, a, b, c];
 
-        let mut call_callees: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::default();
-        let mut call_callers: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::default();
-        call_callees.insert(entry, vec![a]);
-        call_callees.insert(a, vec![b]);
-        call_callees.insert(b, vec![c]);
-        call_callers.insert(a, vec![entry]);
-        call_callers.insert(b, vec![a]);
-        call_callers.insert(c, vec![b]);
-
         let (idom, dominated, _frontier, dom_depth) = compute_dominators(
             &functions,
             &call_edges,
-            &call_callers,
-            &call_callees,
             &[],
             &graph,
         );
@@ -428,20 +390,9 @@ mod tests {
         let call_edges = vec![(entry, a), (entry, b), (a, join), (b, join)];
         let functions = vec![entry, a, b, join];
 
-        let mut call_callees: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::default();
-        let mut call_callers: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::default();
-        call_callees.insert(entry, vec![a, b]);
-        call_callees.insert(a, vec![join]);
-        call_callees.insert(b, vec![join]);
-        call_callers.insert(a, vec![entry]);
-        call_callers.insert(b, vec![entry]);
-        call_callers.insert(join, vec![a, b]);
-
         let (idom, _dominated, _frontier, _dom_depth) = compute_dominators(
             &functions,
             &call_edges,
-            &call_callers,
-            &call_callees,
             &[],
             &graph,
         );
@@ -519,7 +470,7 @@ mod tests {
 
     #[test]
     fn test_call_depths_linear_chain() {
-        let (_graph, funcs, _files) = build_test_graph(
+        let (graph, funcs, _files) = build_test_graph(
             &[("entry", "a.py"), ("mid", "a.py"), ("leaf", "a.py")],
             &[],
             &[(0, 1), (1, 2)],
@@ -528,15 +479,8 @@ mod tests {
 
         let [entry, mid, leaf] = [funcs[0], funcs[1], funcs[2]];
         let functions = vec![entry, mid, leaf];
-        let mut call_callees: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::default();
-        let mut call_callers: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::default();
 
-        call_callees.insert(entry, vec![mid]);
-        call_callees.insert(mid, vec![leaf]);
-        call_callers.insert(mid, vec![entry]);
-        call_callers.insert(leaf, vec![mid]);
-
-        let depths = compute_call_depths(&functions, &call_callees, &call_callers);
+        let depths = compute_call_depths(&functions, &graph);
 
         assert_eq!(depths.get(&entry), Some(&0), "Entry should be depth 0");
         assert_eq!(depths.get(&mid), Some(&1), "Mid should be depth 1");
@@ -545,7 +489,7 @@ mod tests {
 
     #[test]
     fn test_call_depths_multiple_entries() {
-        let (_graph, funcs, _files) = build_test_graph(
+        let (graph, funcs, _files) = build_test_graph(
             &[("entry1", "a.py"), ("entry2", "a.py"), ("shared", "a.py")],
             &[],
             &[(0, 2), (1, 2)],
@@ -554,14 +498,8 @@ mod tests {
 
         let [e1, e2, shared] = [funcs[0], funcs[1], funcs[2]];
         let functions = vec![e1, e2, shared];
-        let mut call_callees: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::default();
-        let mut call_callers: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::default();
 
-        call_callees.insert(e1, vec![shared]);
-        call_callees.insert(e2, vec![shared]);
-        call_callers.insert(shared, vec![e1, e2]);
-
-        let depths = compute_call_depths(&functions, &call_callees, &call_callers);
+        let depths = compute_call_depths(&functions, &graph);
 
         assert_eq!(depths.get(&e1), Some(&0));
         assert_eq!(depths.get(&e2), Some(&0));
@@ -572,7 +510,7 @@ mod tests {
 
     #[test]
     fn test_betweenness_star_through_bridge() {
-        let (_graph, funcs, _files) = build_test_graph(
+        let (graph, funcs, _files) = build_test_graph(
             &[("s1", "a.py"), ("s2", "a.py"), ("s3", "a.py"), ("bridge", "a.py"), ("t1", "a.py"), ("t2", "a.py"), ("t3", "a.py")],
             &[],
             &[(0, 3), (1, 3), (2, 3), (3, 4), (3, 5), (3, 6)],
@@ -581,14 +519,8 @@ mod tests {
 
         let [s1, _s2, _s3, bridge, t1, _t2, _t3] = [funcs[0], funcs[1], funcs[2], funcs[3], funcs[4], funcs[5], funcs[6]];
         let functions = funcs.clone();
-        let mut call_callees: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::default();
 
-        call_callees.insert(funcs[0], vec![bridge]);
-        call_callees.insert(funcs[1], vec![bridge]);
-        call_callees.insert(funcs[2], vec![bridge]);
-        call_callees.insert(bridge, vec![funcs[4], funcs[5], funcs[6]]);
-
-        let bc = compute_betweenness(&functions, &call_callees, 42);
+        let bc = compute_betweenness(&functions, &graph, 42);
 
         let bridge_bc = bc[&bridge];
         let s1_bc = bc[&s1];
@@ -619,21 +551,12 @@ mod tests {
         let all_call_edges = vec![(f1, f2), (f2, f3)];
         let all_import_edges = vec![(files[0], files[1])];
 
-        let mut call_callees: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::default();
-        let mut call_callers: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::default();
-        call_callees.insert(f1, vec![f2]);
-        call_callees.insert(f2, vec![f3]);
-        call_callers.insert(f2, vec![f1]);
-        call_callers.insert(f3, vec![f2]);
-
         let p = GraphPrimitives::compute(
             &graph,
             &funcs,
             &files,
             &all_call_edges,
             &all_import_edges,
-            &call_callers,
-            &call_callees,
             12345,
             None,
         );

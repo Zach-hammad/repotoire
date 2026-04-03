@@ -107,8 +107,7 @@ pub(super) fn compute_call_cycles(
 /// NOT petgraph's dense O(V^2) built-in.
 pub(super) fn compute_page_rank(
     functions: &[NodeIndex],
-    call_callees: &HashMap<NodeIndex, Vec<NodeIndex>>,
-    _call_callers: &HashMap<NodeIndex, Vec<NodeIndex>>,
+    code_graph: &CodeGraph,
     max_iterations: usize,
     damping: f64,
     tolerance: f64,
@@ -133,7 +132,7 @@ pub(super) fn compute_page_rank(
     // Pre-compute out-degrees for each function
     let out_degree: Vec<usize> = functions
         .iter()
-        .map(|ni| call_callees.get(ni).map(|v| v.len()).unwrap_or(0))
+        .map(|ni| code_graph.callees(*ni).len())
         .collect();
 
     let teleport = (1.0 - damping) * inv_n;
@@ -162,11 +161,10 @@ pub(super) fn compute_page_rank(
                 continue;
             }
             let contribution = damping * rank[i] / out_degree[i] as f64;
-            if let Some(callees) = call_callees.get(&ni) {
-                for &callee in callees {
-                    if let Some(&j) = node_to_idx.get(&callee) {
-                        new_rank[j] += contribution;
-                    }
+            let callees = code_graph.callees(ni);
+            for &callee in callees {
+                if let Some(&j) = node_to_idx.get(&callee) {
+                    new_rank[j] += contribution;
                 }
             }
         }
@@ -202,8 +200,6 @@ pub(super) fn compute_page_rank(
 pub(super) fn compute_dominators(
     functions: &[NodeIndex],
     all_call_edges: &[(NodeIndex, NodeIndex)],
-    call_callers: &HashMap<NodeIndex, Vec<NodeIndex>>,
-    call_callees: &HashMap<NodeIndex, Vec<NodeIndex>>,
     call_cycles: &[Vec<NodeIndex>],
     code_graph: &CodeGraph,
 ) -> (
@@ -252,14 +248,9 @@ pub(super) fn compute_dominators(
     let mut entry_points: Vec<NodeIndex> = sorted_functions
         .iter()
         .filter(|&&ni| {
-            let has_callers = call_callers
-                .get(&ni)
-                .map(|v| v.iter().any(|c| func_set.contains(c)))
-                .unwrap_or(false);
-            let has_callees = call_callees
-                .get(&ni)
-                .map(|v| !v.is_empty())
-                .unwrap_or(false);
+            let callers = code_graph.callers(ni);
+            let has_callers = callers.iter().any(|c| func_set.contains(c));
+            let has_callees = !code_graph.callees(ni).is_empty();
             !has_callers && has_callees
         })
         .copied()
@@ -275,11 +266,9 @@ pub(super) fn compute_dominators(
             reachable.insert(ep);
         }
         while let Some(node) = queue.pop_front() {
-            if let Some(callees) = call_callees.get(&node) {
-                for &callee in callees {
-                    if func_set.contains(&callee) && reachable.insert(callee) {
-                        queue.push_back(callee);
-                    }
+            for &callee in code_graph.callees(node) {
+                if func_set.contains(&callee) && reachable.insert(callee) {
+                    queue.push_back(callee);
                 }
             }
         }
@@ -293,11 +282,9 @@ pub(super) fn compute_dominators(
             queue.push_back(scc[0]);
             reachable.insert(scc[0]);
             while let Some(node) = queue.pop_front() {
-                if let Some(callees) = call_callees.get(&node) {
-                    for &callee in callees {
-                        if func_set.contains(&callee) && reachable.insert(callee) {
-                            queue.push_back(callee);
-                        }
+                for &callee in code_graph.callees(node) {
+                    if func_set.contains(&callee) && reachable.insert(callee) {
+                        queue.push_back(callee);
                     }
                 }
             }
@@ -688,18 +675,15 @@ pub(super) fn bfs_component_size(
 /// BFS from entry points (in-degree 0 on call graph) to compute shortest-path depth.
 pub(super) fn compute_call_depths(
     functions: &[NodeIndex],
-    call_callees: &HashMap<NodeIndex, Vec<NodeIndex>>,
-    call_callers: &HashMap<NodeIndex, Vec<NodeIndex>>,
+    code_graph: &CodeGraph,
 ) -> HashMap<NodeIndex, usize> {
     let func_set: HashSet<NodeIndex> = functions.iter().copied().collect();
     let mut depth: HashMap<NodeIndex, usize> = HashMap::default();
     let mut queue: VecDeque<NodeIndex> = VecDeque::new();
 
     for &f in functions {
-        let has_callers = call_callers
-            .get(&f)
-            .map(|v| v.iter().any(|c| func_set.contains(c)))
-            .unwrap_or(false);
+        let callers = code_graph.callers(f);
+        let has_callers = callers.iter().any(|c| func_set.contains(c));
         if !has_callers {
             depth.insert(f, 0);
             queue.push_back(f);
@@ -708,12 +692,10 @@ pub(super) fn compute_call_depths(
 
     while let Some(node) = queue.pop_front() {
         let d = depth[&node];
-        if let Some(callees) = call_callees.get(&node) {
-            for &callee in callees {
-                if func_set.contains(&callee) && !depth.contains_key(&callee) {
-                    depth.insert(callee, d + 1);
-                    queue.push_back(callee);
-                }
+        for &callee in code_graph.callees(node) {
+            if func_set.contains(&callee) && !depth.contains_key(&callee) {
+                depth.insert(callee, d + 1);
+                queue.push_back(callee);
             }
         }
     }
@@ -729,7 +711,7 @@ pub(super) fn compute_call_depths(
 /// Uses rayon::par_iter for parallel BFS. Stores RAW (unnormalized) values.
 pub(super) fn compute_betweenness(
     functions: &[NodeIndex],
-    call_callees: &HashMap<NodeIndex, Vec<NodeIndex>>,
+    code_graph: &CodeGraph,
     edge_fingerprint: u64,
 ) -> HashMap<NodeIndex, f64> {
     let n = functions.len();
@@ -777,20 +759,18 @@ pub(super) fn compute_betweenness(
                 let v_node = functions[v];
                 let v_dist = dist[v];
 
-                if let Some(callees) = call_callees.get(&v_node) {
-                    for &callee in callees {
-                        if !func_set.contains(&callee) {
-                            continue;
+                for &callee in code_graph.callees(v_node) {
+                    if !func_set.contains(&callee) {
+                        continue;
+                    }
+                    if let Some(&w) = node_to_idx.get(&callee) {
+                        if dist[w] < 0 {
+                            dist[w] = v_dist + 1;
+                            queue.push_back(w);
                         }
-                        if let Some(&w) = node_to_idx.get(&callee) {
-                            if dist[w] < 0 {
-                                dist[w] = v_dist + 1;
-                                queue.push_back(w);
-                            }
-                            if dist[w] == v_dist + 1 {
-                                sigma[w] += sigma[v];
-                                predecessors[w].push(v);
-                            }
+                        if dist[w] == v_dist + 1 {
+                            sigma[w] += sigma[v];
+                            predecessors[w].push(v);
                         }
                     }
                 }

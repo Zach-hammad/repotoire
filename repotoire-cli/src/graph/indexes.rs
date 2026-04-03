@@ -43,25 +43,6 @@ pub struct GraphIndexes {
     pub(crate) classes: Vec<NodeIndex>,
     pub(crate) files: Vec<NodeIndex>,
 
-    // ── Adjacency per edge kind (FoldHashMap for fast lookups on hot path) ──
-    // Calls
-    pub(crate) call_callers: FoldHashMap<NodeIndex, Vec<NodeIndex>>,
-    pub(crate) call_callees: FoldHashMap<NodeIndex, Vec<NodeIndex>>,
-    // Imports
-    pub(crate) import_sources: FoldHashMap<NodeIndex, Vec<NodeIndex>>,
-    pub(crate) import_targets: FoldHashMap<NodeIndex, Vec<NodeIndex>>,
-    // Inherits
-    pub(crate) inherit_parents: FoldHashMap<NodeIndex, Vec<NodeIndex>>,
-    pub(crate) inherit_children: FoldHashMap<NodeIndex, Vec<NodeIndex>>,
-    // Contains
-    pub(crate) contains_children: FoldHashMap<NodeIndex, Vec<NodeIndex>>,
-    pub(crate) contains_parent: FoldHashMap<NodeIndex, Vec<NodeIndex>>,
-    // Uses
-    pub(crate) uses_targets: FoldHashMap<NodeIndex, Vec<NodeIndex>>,
-    pub(crate) uses_sources: FoldHashMap<NodeIndex, Vec<NodeIndex>>,
-    // ModifiedIn (one-directional: entity → commit)
-    pub(crate) modified_in: FoldHashMap<NodeIndex, Vec<NodeIndex>>,
-
     // ── Spatial indexes: per-file node lookups ──
     pub(crate) functions_by_file: FoldHashMap<StrKey, Vec<NodeIndex>>,
     pub(crate) classes_by_file: FoldHashMap<StrKey, Vec<NodeIndex>>,
@@ -95,9 +76,9 @@ impl GraphIndexes {
     ) -> Self {
         let mut indexes = Self::default();
 
-        // Steps 1-2: Populate kind/spatial indexes and adjacency maps
+        // Steps 1-2: Populate kind/spatial indexes and bulk edge lists
         indexes.build_kind_indexes(graph);
-        indexes.build_adjacency_maps(graph);
+        indexes.build_bulk_edge_lists(graph);
         indexes.build_spatial_indexes(graph);
 
         // Steps 5-9: Expensive analyses
@@ -175,92 +156,24 @@ impl GraphIndexes {
         }
     }
 
-    /// Scan all edges to build caller/callee, importer/importee, and other
-    /// adjacency maps plus bulk edge lists. Sorts adjacency vectors by qualified
-    /// name for determinism.
-    fn build_adjacency_maps(&mut self, graph: &StableGraph<CodeNode, CodeEdge>) {
-        let si = global_interner();
-
+    /// Scan all edges to build bulk edge lists (call, import, inheritance).
+    /// Adjacency per-node lookups are handled by the CSR in CodeGraph.
+    fn build_bulk_edge_lists(&mut self, graph: &StableGraph<CodeNode, CodeEdge>) {
         for edge_ref in graph.edge_references() {
             let src = from_pg(edge_ref.source());
             let tgt = from_pg(edge_ref.target());
             match edge_ref.weight().kind {
                 EdgeKind::Calls => {
-                    self.call_callees.entry(src).or_default().push(tgt);
-                    self.call_callers.entry(tgt).or_default().push(src);
                     self.all_call_edges.push((src, tgt));
                 }
                 EdgeKind::Imports => {
-                    self.import_targets.entry(src).or_default().push(tgt);
-                    self.import_sources.entry(tgt).or_default().push(src);
                     self.all_import_edges.push((src, tgt));
                 }
                 EdgeKind::Inherits => {
-                    self.inherit_parents.entry(src).or_default().push(tgt);
-                    self.inherit_children.entry(tgt).or_default().push(src);
                     self.all_inheritance_edges.push((src, tgt));
                 }
-                EdgeKind::Contains => {
-                    self.contains_children.entry(src).or_default().push(tgt);
-                    self.contains_parent.entry(tgt).or_default().push(src);
-                }
-                EdgeKind::Uses => {
-                    self.uses_targets.entry(src).or_default().push(tgt);
-                    self.uses_sources.entry(tgt).or_default().push(src);
-                }
-                EdgeKind::ModifiedIn => {
-                    self.modified_in.entry(src).or_default().push(tgt);
-                }
+                _ => {}
             }
-        }
-
-        // Sort all adjacency vectors by qualified name for determinism
-        let sort_by_qn = |nodes: &mut Vec<NodeIndex>| {
-            nodes.sort_by(|a, b| {
-                let a_qn = graph
-                    .node_weight(to_pg(*a))
-                    .map(|n| si.resolve(n.qualified_name))
-                    .unwrap_or("");
-                let b_qn = graph
-                    .node_weight(to_pg(*b))
-                    .map(|n| si.resolve(n.qualified_name))
-                    .unwrap_or("");
-                a_qn.cmp(b_qn)
-            });
-        };
-
-        for v in self.call_callers.values_mut() {
-            sort_by_qn(v);
-        }
-        for v in self.call_callees.values_mut() {
-            sort_by_qn(v);
-        }
-        for v in self.import_sources.values_mut() {
-            sort_by_qn(v);
-        }
-        for v in self.import_targets.values_mut() {
-            sort_by_qn(v);
-        }
-        for v in self.inherit_parents.values_mut() {
-            sort_by_qn(v);
-        }
-        for v in self.inherit_children.values_mut() {
-            sort_by_qn(v);
-        }
-        for v in self.contains_children.values_mut() {
-            sort_by_qn(v);
-        }
-        for v in self.contains_parent.values_mut() {
-            sort_by_qn(v);
-        }
-        for v in self.uses_targets.values_mut() {
-            sort_by_qn(v);
-        }
-        for v in self.uses_sources.values_mut() {
-            sort_by_qn(v);
-        }
-        for v in self.modified_in.values_mut() {
-            sort_by_qn(v);
         }
     }
 
@@ -350,71 +263,20 @@ impl GraphIndexes {
             sort_by_qn_vec(v);
         }
 
-        // Step 2: Build adjacency maps from edge list
+        // Step 2: Build bulk edge lists from edge array
         for &(src, tgt, ref edge) in edges {
             match edge.kind {
                 EdgeKind::Calls => {
-                    indexes.call_callees.entry(src).or_default().push(tgt);
-                    indexes.call_callers.entry(tgt).or_default().push(src);
                     indexes.all_call_edges.push((src, tgt));
                 }
                 EdgeKind::Imports => {
-                    indexes.import_targets.entry(src).or_default().push(tgt);
-                    indexes.import_sources.entry(tgt).or_default().push(src);
                     indexes.all_import_edges.push((src, tgt));
                 }
                 EdgeKind::Inherits => {
-                    indexes.inherit_parents.entry(src).or_default().push(tgt);
-                    indexes.inherit_children.entry(tgt).or_default().push(src);
                     indexes.all_inheritance_edges.push((src, tgt));
                 }
-                EdgeKind::Contains => {
-                    indexes.contains_children.entry(src).or_default().push(tgt);
-                    indexes.contains_parent.entry(tgt).or_default().push(src);
-                }
-                EdgeKind::Uses => {
-                    indexes.uses_targets.entry(src).or_default().push(tgt);
-                    indexes.uses_sources.entry(tgt).or_default().push(src);
-                }
-                EdgeKind::ModifiedIn => {
-                    indexes.modified_in.entry(src).or_default().push(tgt);
-                }
+                _ => {}
             }
-        }
-
-        // Sort adjacency vectors by qualified name for determinism
-        for v in indexes.call_callers.values_mut() {
-            sort_by_qn_vec(v);
-        }
-        for v in indexes.call_callees.values_mut() {
-            sort_by_qn_vec(v);
-        }
-        for v in indexes.import_sources.values_mut() {
-            sort_by_qn_vec(v);
-        }
-        for v in indexes.import_targets.values_mut() {
-            sort_by_qn_vec(v);
-        }
-        for v in indexes.inherit_parents.values_mut() {
-            sort_by_qn_vec(v);
-        }
-        for v in indexes.inherit_children.values_mut() {
-            sort_by_qn_vec(v);
-        }
-        for v in indexes.contains_children.values_mut() {
-            sort_by_qn_vec(v);
-        }
-        for v in indexes.contains_parent.values_mut() {
-            sort_by_qn_vec(v);
-        }
-        for v in indexes.uses_targets.values_mut() {
-            sort_by_qn_vec(v);
-        }
-        for v in indexes.uses_sources.values_mut() {
-            sort_by_qn_vec(v);
-        }
-        for v in indexes.modified_in.values_mut() {
-            sort_by_qn_vec(v);
         }
 
         // Step 3: Sort spatial indexes
@@ -741,27 +603,30 @@ mod tests {
 
     #[test]
     fn test_build_adjacency_indexes() {
-        let mut graph = StableGraph::new();
-        let pg_f1 = graph.add_node(CodeNode::function("foo", "a.py"));
-        let pg_f2 = graph.add_node(CodeNode::function("bar", "a.py"));
-        graph.add_edge(pg_f1, pg_f2, CodeEdge::calls());
-        let f1: NodeIndex = from_pg(pg_f1);
-        let f2: NodeIndex = from_pg(pg_f2);
+        use crate::graph::builder::GraphBuilder;
 
-        let node_index = HashMap::default();
-        let indexes = GraphIndexes::build(&graph, &node_index, None);
+        let mut builder = GraphBuilder::new();
+        let f1 = builder.add_node(CodeNode::function("foo", "a.py"));
+        let f2 = builder.add_node(CodeNode::function("bar", "a.py"));
+        builder.add_edge(f1, f2, CodeEdge::calls());
+
+        let graph = builder.freeze();
+
+        // Resolve indices after freeze (they may be remapped)
+        let (new_f1, _) = graph.node_by_name("a.py::foo").unwrap();
+        let (new_f2, _) = graph.node_by_name("a.py::bar").unwrap();
 
         // f1 calls f2
-        assert_eq!(indexes.call_callees.get(&f1).map(|v| v.len()), Some(1));
-        assert_eq!(indexes.call_callers.get(&f2).map(|v| v.len()), Some(1));
+        assert_eq!(graph.callees(new_f1).len(), 1);
+        assert_eq!(graph.callers(new_f2).len(), 1);
 
         // f2 doesn't call anything
-        assert!(indexes.call_callees.get(&f2).is_none());
+        assert!(graph.callees(new_f2).is_empty());
         // f1 has no callers
-        assert!(indexes.call_callers.get(&f1).is_none());
+        assert!(graph.callers(new_f1).is_empty());
 
         // Bulk edge list
-        assert_eq!(indexes.all_call_edges.len(), 1);
+        assert_eq!(graph.all_call_edges().len(), 1);
     }
 
     #[test]
