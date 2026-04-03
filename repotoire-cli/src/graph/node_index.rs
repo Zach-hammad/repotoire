@@ -2,8 +2,7 @@ use serde::{Deserialize, Serialize};
 
 /// A node index into the graph's node array.
 ///
-/// Transparent wrapper around `u32`. Drop-in replacement for
-/// `petgraph::stable_graph::NodeIndex` with identical size and Copy semantics.
+/// Transparent wrapper around `u32` with Copy semantics.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[repr(transparent)]
 pub struct NodeIndex(u32);
@@ -30,22 +29,6 @@ impl NodeIndex {
 impl From<usize> for NodeIndex {
     fn from(idx: usize) -> Self {
         Self(idx as u32)
-    }
-}
-
-// ── Petgraph interop (temporary, removed in Task 11) ──
-
-impl From<petgraph::stable_graph::NodeIndex> for NodeIndex {
-    #[inline]
-    fn from(idx: petgraph::stable_graph::NodeIndex) -> Self {
-        Self(idx.index() as u32)
-    }
-}
-
-impl From<NodeIndex> for petgraph::stable_graph::NodeIndex {
-    #[inline]
-    fn from(idx: NodeIndex) -> Self {
-        petgraph::stable_graph::NodeIndex::new(idx.0 as usize)
     }
 }
 
