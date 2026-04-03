@@ -1,7 +1,8 @@
-//! Graph database for code analysis
+//! Graph database for code analysis.
 //!
-//! CSR-backed graph engine with petgraph shim for primitives.
-//! No C++ dependencies - builds everywhere!
+//! Pure Rust CSR-backed graph engine — zero external graph dependencies.
+//! Hand-rolled Tarjan SCC, Lengauer-Tarjan dominators, BFS vertex reordering,
+//! chunk-based string interner. No C++ dependencies — builds everywhere.
 
 pub mod algo;
 pub mod csr;

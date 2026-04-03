@@ -116,7 +116,10 @@ impl CsrStorage {
     #[inline]
     pub fn neighbors(&self, node: u32, s: usize) -> &[u32] {
         let slot_idx = node as usize * STRIDE + s;
-        debug_assert!(slot_idx + 1 < self.offsets.len(), "slot index out of bounds");
+        debug_assert!(
+            slot_idx + 1 < self.offsets.len(),
+            "slot index out of bounds"
+        );
         let start = self.offsets[slot_idx] as usize;
         let end = self.offsets[slot_idx + 1] as usize;
         &self.neighbors[start..end]
@@ -240,10 +243,7 @@ mod tests {
     #[test]
     fn test_bidirectional_consistency() {
         // A calls B, B calls C
-        let edges = vec![
-            (0u32, 1u32, EdgeKind::Calls),
-            (1u32, 2u32, EdgeKind::Calls),
-        ];
+        let edges = vec![(0u32, 1u32, EdgeKind::Calls), (1u32, 2u32, EdgeKind::Calls)];
         let csr = CsrStorage::build(3, &edges);
 
         // A's callees: [B]
@@ -324,10 +324,7 @@ mod tests {
 
     #[test]
     fn test_bfs_reorder_deterministic() {
-        let edges = vec![
-            (0u32, 1, EdgeKind::Calls),
-            (1, 2, EdgeKind::Calls),
-        ];
+        let edges = vec![(0u32, 1, EdgeKind::Calls), (1, 2, EdgeKind::Calls)];
         let perm1 = bfs_reorder(3, &edges);
         let perm2 = bfs_reorder(3, &edges);
         assert_eq!(perm1, perm2);
@@ -342,10 +339,7 @@ mod tests {
     #[test]
     fn test_bfs_reorder_disconnected() {
         // Two disconnected components: {0,1} and {2,3}
-        let edges = vec![
-            (0u32, 1, EdgeKind::Calls),
-            (2, 3, EdgeKind::Calls),
-        ];
+        let edges = vec![(0u32, 1, EdgeKind::Calls), (2, 3, EdgeKind::Calls)];
         let perm = bfs_reorder(4, &edges);
         // All nodes assigned unique indices 0..4
         let mut sorted = perm.clone();

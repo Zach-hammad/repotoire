@@ -9,10 +9,10 @@ use std::collections::HashMap as FoldHashMap;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 
-use crate::graph::node_index::NodeIndex;
 use super::interner::{global_interner, StrKey};
 use super::store_models::{CodeEdge, CodeNode, EdgeKind, NodeKind};
 use crate::git::co_change::CoChangeMatrix;
+use crate::graph::node_index::NodeIndex;
 
 /// All pre-built indexes, computed once during `freeze()`.
 ///
@@ -248,10 +248,7 @@ fn compute_import_cycles(
 }
 
 /// Compute edge fingerprint for topology change detection.
-fn compute_edge_fingerprint(
-    nodes: &[CodeNode],
-    edges: &[(NodeIndex, NodeIndex, CodeEdge)],
-) -> u64 {
+fn compute_edge_fingerprint(nodes: &[CodeNode], edges: &[(NodeIndex, NodeIndex, CodeEdge)]) -> u64 {
     use std::collections::hash_map::DefaultHasher;
 
     let mut fp_edges: Vec<(u32, u32, u8)> = edges
@@ -361,7 +358,10 @@ mod tests {
         let idx = graph.function_at("test.py", 5);
         assert!(idx.is_some());
         let node = graph.node(idx.unwrap()).expect("node");
-        assert_eq!(graph.interner().resolve(node.qualified_name), "test.py::foo");
+        assert_eq!(
+            graph.interner().resolve(node.qualified_name),
+            "test.py::foo"
+        );
     }
 
     #[test]

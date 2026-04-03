@@ -259,7 +259,10 @@ impl super::traits::GraphQuery for GraphBuilder {
         self.snapshot().node(idx)
     }
 
-    fn node_by_name_idx(&self, qn: &str) -> Option<(crate::graph::node_index::NodeIndex, &CodeNode)> {
+    fn node_by_name_idx(
+        &self,
+        qn: &str,
+    ) -> Option<(crate::graph::node_index::NodeIndex, &CodeNode)> {
         self.snapshot().node_by_name(qn)
     }
 
