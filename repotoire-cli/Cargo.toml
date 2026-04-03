@@ -61,7 +61,6 @@ tree-sitter-cpp = "0.23"
 
 rayon = "1.11"
 rustc-hash = "2"
-petgraph = { version = "0.7", features = ["serde-1"] }
 bitcode = { version = "0.6", features = ["serde"] }
 
 # Parallel pipeline channels
@@ -94,7 +93,6 @@ memchr = "2"  # SIMD-accelerated string searching
 chrono = { version = "0.4", features = ["serde"] }
 libc = "0.2"
 dirs = "6.0.0"
-lasso = { version = "0.7.3", features = ["multi-threaded", "serialize"] }
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 
 # Profiling / allocator (optional)
