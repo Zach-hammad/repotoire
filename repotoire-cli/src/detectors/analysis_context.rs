@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 /// Per-file git churn summary for detectors that need change-frequency data.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct FileChurnInfo {
     /// Commits touching this file in the last 90 days.
     pub commits_90d: u32,

@@ -38,7 +38,7 @@ const ALL_CATEGORIES: &[TaintCategory] = &[
 ];
 
 /// Pre-computed taint results for all categories.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CentralizedTaintResults {
     /// Cross-function BFS taint paths, keyed by category.
     pub cross_function: HashMap<TaintCategory, Vec<TaintPath>>,

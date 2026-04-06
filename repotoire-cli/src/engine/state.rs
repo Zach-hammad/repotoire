@@ -74,7 +74,7 @@ pub(crate) struct EngineState {
     pub co_change: Option<Arc<crate::git::co_change::CoChangeMatrix>>,
 
     /// Expensive precomputed data (~3.9s to rebuild).
-    /// Option because it's not persisted — rebuilt on first analyze() after load().
+    /// Persisted as precomputed.json; loaded from disk when available.
     pub precomputed: Option<PrecomputedAnalysis>,
 
     /// Calibration profile (stable across incremental runs).

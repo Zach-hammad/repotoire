@@ -13,7 +13,7 @@ use std::collections::{HashMap, HashSet};
 use tracing::{debug, info};
 
 /// Inferred role of a function in the architecture
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum FunctionRole {
     /// High in-degree, called from many modules — shared helper
     Utility,
@@ -47,7 +47,7 @@ impl FunctionRole {
 }
 
 /// Rich context for a function computed from graph analysis
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct FunctionContext {
     /// Qualified name (graph key)
     pub qualified_name: String,

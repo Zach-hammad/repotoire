@@ -8,6 +8,7 @@ use crate::graph::{GraphQuery, GraphQueryExt};
 use std::collections::{HashMap, HashSet, VecDeque};
 
 /// Index of functions reachable from entry points via BFS on the call graph.
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct ReachabilityIndex {
     reachable: HashSet<String>,
 }

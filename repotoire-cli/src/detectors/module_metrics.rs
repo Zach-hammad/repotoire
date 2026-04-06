@@ -8,6 +8,7 @@ use crate::graph::{GraphQuery, GraphQueryExt};
 use std::collections::{HashMap, HashSet};
 
 /// Per-module metrics computed from the call graph.
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct ModuleMetrics {
     pub function_count: usize,
     pub class_count: usize,

@@ -334,7 +334,7 @@ pub use base::{
     DetectionSummary, Detector, DetectorConfig, DetectorResult, DetectorScope, ProgressCallback,
 };
 pub use detector_context::{ContentFlags, DetectorContext};
-pub use engine::{precompute_gd_startup, PrecomputedAnalysis};
+pub use engine::{precompute_gd_startup, PrecomputedAnalysis, SerializablePrecomputed};
 pub use file_cache::FileContentCache;
 pub use file_index::{FileEntry, FileIndex};
 pub use file_provider::{FileProvider, SourceFiles};

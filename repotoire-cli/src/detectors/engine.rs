@@ -13,6 +13,7 @@ use crate::detectors::context_hmm::{
 };
 use crate::detectors::function_context::{FunctionContextBuilder, FunctionContextMap};
 use crate::graph::GraphQueryExt;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
@@ -79,7 +80,68 @@ impl Clone for PrecomputedAnalysis {
     }
 }
 
+/// Subset of PrecomputedAnalysis that can be persisted to disk.
+/// Excludes detector_context (contains file content), file_index (OnceLock),
+/// and co_change_summary (NodeIndex is graph-local).
+#[derive(Serialize, Deserialize)]
+pub struct SerializablePrecomputed {
+    pub contexts: HashMap<String, crate::detectors::function_context::FunctionContext>,
+    pub hmm_contexts: HashMap<String, crate::detectors::context_hmm::FunctionContext>,
+    pub hmm_with_confidence: HashMap<String, (crate::detectors::context_hmm::FunctionContext, f64)>,
+    pub taint_results: crate::detectors::taint::centralized::CentralizedTaintResults,
+    pub reachability: crate::detectors::reachability::ReachabilityIndex,
+    pub public_api: HashSet<String>,
+    pub module_metrics: HashMap<String, crate::detectors::module_metrics::ModuleMetrics>,
+    pub class_cohesion: HashMap<String, f64>,
+    pub decorator_index: HashMap<String, Vec<String>>,
+    pub git_churn: HashMap<String, crate::detectors::analysis_context::FileChurnInfo>,
+}
+
 impl PrecomputedAnalysis {
+    /// Extract the serializable subset for disk persistence.
+    pub fn to_serializable(&self) -> SerializablePrecomputed {
+        SerializablePrecomputed {
+            contexts: (*self.contexts).clone(),
+            hmm_contexts: (*self.hmm_contexts).clone(),
+            hmm_with_confidence: (*self.hmm_with_confidence).clone(),
+            taint_results: (*self.taint_results).clone(),
+            reachability: (*self.reachability).clone(),
+            public_api: (*self.public_api).clone(),
+            module_metrics: (*self.module_metrics).clone(),
+            class_cohesion: (*self.class_cohesion).clone(),
+            decorator_index: (*self.decorator_index).clone(),
+            git_churn: (*self.git_churn).clone(),
+        }
+    }
+
+    /// Reconstruct from serialized subset — lazy, no file I/O.
+    ///
+    /// `detector_context` and `file_index` are left empty; the detect stage
+    /// will build a FileIndex scoped to only the changed files, avoiding the
+    /// cost of reading all source files from disk.
+    pub fn from_serializable(
+        cached: SerializablePrecomputed,
+    ) -> Self {
+        Self {
+            contexts: Arc::new(cached.contexts),
+            hmm_contexts: Arc::new(cached.hmm_contexts),
+            hmm_with_confidence: Arc::new(cached.hmm_with_confidence),
+            taint_results: Arc::new(cached.taint_results),
+            detector_context: Arc::new(super::DetectorContext::empty()),
+            file_index: Arc::new(super::FileIndex::new(vec![])),
+            reachability: Arc::new(cached.reachability),
+            public_api: Arc::new(cached.public_api),
+            module_metrics: Arc::new(cached.module_metrics),
+            class_cohesion: Arc::new(cached.class_cohesion),
+            decorator_index: Arc::new(cached.decorator_index),
+            git_churn: Arc::new(cached.git_churn),
+            co_change_summary: Arc::new(HashMap::new()),
+            co_change_matrix: None,
+            ownership: None,
+            cached_embeddings: None,
+        }
+    }
+
     /// Convert pre-computed data into an [`AnalysisContext`] ready for detector
     /// execution.
     ///

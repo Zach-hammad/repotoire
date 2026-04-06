@@ -16,7 +16,7 @@
 # Usage:
 #   ./scripts/seed-benchmarks.sh
 
-set -euo pipefail
+set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -189,8 +189,8 @@ for REPO_URL in "${REPOS[@]}"; do
     cpp|cc|cxx|hpp) LANGUAGE="cpp" ;;
   esac
 
-  printf "%-4s %5.1f (%s) %4d findings  %6dms  %6dMB\n" \
-    "$GRADE" "$SCORE" "$LANGUAGE" "$FINDINGS" "$DURATION_MS" "$((MEMORY_KB / 1024))"
+  MEMORY_MB=$((MEMORY_KB / 1024))
+  echo "  $GRADE  $SCORE ($LANGUAGE)  ${FINDINGS} findings  ${DURATION_MS}ms  ${MEMORY_MB}MB"
 
   echo "$REPO_NAME,$LANGUAGE,$SCORE,$GRADE,$FINDINGS,$CRITICAL,$HIGH,$MEDIUM,$LOW,$FILES,$LOC,$DURATION_MS,$MEMORY_KB,$EXIT_CODE" >> "$RESULTS_DIR/summary.csv"
 

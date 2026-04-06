@@ -35,7 +35,7 @@ pub(super) fn word_boundary_match(text: &str, pattern: &str) -> bool {
 }
 
 /// Categories of taint analysis
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum TaintCategory {
     /// SQL injection (CWE-89)
     SqlInjection,
@@ -171,7 +171,7 @@ impl TaintCategory {
 }
 
 /// A path from a taint source to a sink through the call graph
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TaintPath {
     /// The source function where taint originates (e.g., route handler)
     pub source_function: String,
