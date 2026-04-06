@@ -735,6 +735,38 @@ impl AnalysisEngine {
 
         // Stage 7.5: Filter — baseline matching, config overrides, delta attribution
         let baseline = crate::baseline::Baseline::load(&self.repo_path).ok();
+
+        // Compute changed node qualified names from delta files
+        let mut changed_qnames = std::collections::HashSet::new();
+        let mut caller_qnames = std::collections::HashSet::new();
+        let interner = frozen.graph.interner();
+        for file in &delta_files {
+            let file_str = file.to_string_lossy();
+            for &idx in frozen.graph.functions_in_file_idx(&file_str) {
+                if let Some(node) = frozen.graph.node_idx(idx) {
+                    let qn = interner.resolve(node.qualified_name).to_string();
+                    changed_qnames.insert(qn);
+                    // Collect direct callers of changed nodes
+                    for &caller_idx in frozen.graph.callers(idx) {
+                        if let Some(caller_node) = frozen.graph.node_idx(caller_idx) {
+                            caller_qnames.insert(
+                                interner.resolve(caller_node.qualified_name).to_string(),
+                            );
+                        }
+                    }
+                }
+            }
+            for &idx in frozen.graph.classes_in_file_idx(&file_str) {
+                if let Some(node) = frozen.graph.node_idx(idx) {
+                    changed_qnames.insert(
+                        interner.resolve(node.qualified_name).to_string(),
+                    );
+                }
+            }
+        }
+        // Remove changed nodes from caller set (they're already InChangedNode)
+        caller_qnames.retain(|qn| !changed_qnames.contains(qn));
+
         let graph_for_filter = Arc::clone(&frozen.graph);
         let resolve_qn = move |f: &crate::models::Finding| -> Option<String> {
             let file = f.affected_files.first()?;
@@ -759,8 +791,8 @@ impl AnalysisEngine {
             findings: final_findings,
             baseline: baseline.as_ref(),
             detector_overrides: &self.project_config.detectors,
-            changed_node_qnames: None,
-            caller_of_changed_qnames: None,
+            changed_node_qnames: Some(&changed_qnames),
+            caller_of_changed_qnames: Some(&caller_qnames),
             resolve_qualified_name: Some(&resolve_qn),
         });
         let final_findings = filter_output.findings;
@@ -879,6 +911,7 @@ impl AnalysisEngine {
                     self.all_detectors,
                 ))
             },
+            precomputed: state.precomputed.as_ref().map(|p| p.to_serializable()),
         };
 
         let json = serde_json::to_string(&meta).context("Failed to serialize engine session")?;
@@ -976,7 +1009,9 @@ impl AnalysisEngine {
             mutable_graph: None, // Rebuilt from CodeGraph on first incremental
             edge_fingerprint: meta.edge_fingerprint,
             co_change: None, // Not persisted — rebuilt on next git enrichment
-            precomputed: None,
+            precomputed: meta.precomputed.map(|sp| {
+                crate::detectors::PrecomputedAnalysis::from_serializable(sp)
+            }),
             style_profile: crate::calibrate::StyleProfile {
                 version: crate::calibrate::StyleProfile::VERSION,
                 generated_at: String::new(),

@@ -6,7 +6,7 @@
 use crate::config::ProjectConfig;
 use crate::detectors::api_surface::is_api_surface;
 use crate::graph::{GraphQuery, GraphQueryExt};
-use crate::models::{Finding, Grade, Severity};
+use crate::models::{Finding, FindingStatus, Grade, Severity};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
 use tracing::{debug, info};
@@ -309,6 +309,9 @@ impl<'a> GraphScorer<'a> {
         let mut architecture_count = 0;
 
         for finding in findings {
+            if finding.status == FindingStatus::Baselined {
+                continue;
+            }
             let base = severity_weight(&finding.severity);
 
             let category = finding.category.as_deref().unwrap_or("");
@@ -383,12 +386,13 @@ impl<'a> GraphScorer<'a> {
 
         let overall = overall.max(5.0);
 
-        // Never report 100.0 if there are medium+ findings — cap at 99.9
+        // Never report 100.0 if there are active medium+ findings — cap at 99.9
         let has_medium_plus = findings.iter().any(|f| {
-            matches!(
-                f.severity,
-                Severity::Critical | Severity::High | Severity::Medium
-            )
+            f.status != FindingStatus::Baselined
+                && matches!(
+                    f.severity,
+                    Severity::Critical | Severity::High | Severity::Medium
+                )
         });
         let overall = if has_medium_plus && overall >= 99.95 {
             99.9
@@ -1028,6 +1032,31 @@ mod tests {
             (mod_bonus - 0.05).abs() < 0.001,
             "Expected ~0.05, got {}",
             mod_bonus
+        );
+    }
+
+    #[test]
+    fn test_baselined_findings_excluded_from_score() {
+        let graph = GraphBuilder::new().freeze();
+        let (dir, config) = make_config(None);
+        let scorer = GraphScorer::new(&graph, &config, dir.path());
+
+        // Score with no findings
+        let baseline_score = scorer.calculate(&[]);
+
+        // Score with a baselined finding — should be identical
+        let findings = vec![Finding {
+            severity: Severity::High,
+            detector: "test".to_string(),
+            title: "Accepted issue".to_string(),
+            status: FindingStatus::Baselined,
+            ..Default::default()
+        }];
+        let with_baselined = scorer.calculate(&findings);
+
+        assert_eq!(
+            baseline_score.overall_score, with_baselined.overall_score,
+            "Baselined findings should not affect the score"
         );
     }
 }

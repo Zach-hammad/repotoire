@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 /// Schema version for `SessionMeta`.
 /// Bump when any field is added/removed/retyped.
-pub(crate) const SESSION_VERSION: u32 = 3;
+pub(crate) const SESSION_VERSION: u32 = 4;
 
 /// Serializable snapshot of `EngineState` — written to `engine_session.json`.
 ///
@@ -47,6 +47,10 @@ pub(crate) struct SessionMeta {
     /// Old sessions without this field deserialize as None and trigger cold run.
     #[serde(default)]
     pub fingerprint: Option<u64>,
+    /// Serialized precomputed analysis data (contexts, taint, reachability, etc.).
+    /// Avoids the ~3.9s rebuild cost on warm starts.
+    #[serde(default)]
+    pub precomputed: Option<crate::detectors::SerializablePrecomputed>,
 }
 
 /// Cached state from a previous analysis run.
