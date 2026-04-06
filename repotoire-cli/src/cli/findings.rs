@@ -243,6 +243,87 @@ pub fn run(
     Ok(())
 }
 
+/// Accept one or all findings into the baseline.
+///
+/// - `index = Some(n)` → accept finding #n from the last analysis
+/// - `index = None` → accept all current findings
+pub fn accept_findings(path: &Path, index: Option<usize>, reason: Option<String>) -> Result<()> {
+    use crate::baseline::{Baseline, BaselineEntry};
+
+    let findings = load_findings(path)?;
+    if findings.is_empty() {
+        println!("{}", style("No findings to accept.").green());
+        return Ok(());
+    }
+
+    // Resolve repo root (baseline lives next to repotoire.toml / .git)
+    let repo_root = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let mut baseline = Baseline::load(&repo_root)?;
+
+    let to_accept: Vec<(usize, &Finding)> = if let Some(idx) = index {
+        if idx == 0 || idx > findings.len() {
+            anyhow::bail!(
+                "Invalid finding index: {}. Valid range: 1-{}",
+                idx,
+                findings.len()
+            );
+        }
+        vec![(idx, &findings[idx - 1])]
+    } else {
+        findings.iter().enumerate().map(|(i, f)| (i + 1, f)).collect()
+    };
+
+    let mut added = 0;
+    for (_idx, finding) in &to_accept {
+        let fingerprint = crate::baseline::fingerprint::file_fingerprint(
+            &finding.detector,
+            &finding
+                .affected_files
+                .first()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_default(),
+            finding.description.lines().next().unwrap_or(""),
+        );
+        if baseline.add(BaselineEntry {
+            detector: finding.detector.clone(),
+            fingerprint,
+            qualified_name: None,
+            file: finding
+                .affected_files
+                .first()
+                .map(|p| p.to_string_lossy().to_string()),
+            first_line_content: finding.description.lines().next().map(|s| s.to_string()),
+            accepted_by: None,
+            reason: reason.clone(),
+        }) {
+            added += 1;
+        }
+    }
+
+    let path = baseline.save(&repo_root)?;
+
+    if let Some(idx) = index {
+        let finding = &to_accept[0].1;
+        if added > 0 {
+            println!(
+                "Accepted finding #{} ({}: {}) into baseline",
+                idx, finding.detector, finding.title
+            );
+        } else {
+            println!("Finding #{} already in baseline", idx);
+        }
+    } else {
+        println!(
+            "Accepted {} new findings into baseline ({} total)",
+            added,
+            baseline.findings.len()
+        );
+    }
+    println!("Baseline: {}", style(path.display()).dim());
+
+    Ok(())
+}
+
 fn print_finding_detail(finding: &Finding, index: usize) {
     let severity_str = match finding.severity {
         Severity::Critical => style("CRITICAL").red().bold(),

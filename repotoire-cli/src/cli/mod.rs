@@ -1,7 +1,6 @@
 //! CLI command definitions and handlers
 
 pub(crate) mod analyze;
-mod baseline;
 mod benchmark;
 mod debt;
 pub(crate) mod diff;
@@ -27,27 +26,6 @@ pub enum TelemetryAction {
     On,
     Off,
     Status,
-}
-
-/// Baseline management subcommands
-#[derive(Subcommand, Debug)]
-pub enum BaselineAction {
-    /// Accept all current findings into the baseline (suppresses them in future runs)
-    Update {
-        /// Replace the entire baseline instead of merging
-        #[arg(long)]
-        replace: bool,
-    },
-    /// Add a single finding to the baseline by fingerprint
-    Add {
-        /// Finding fingerprint (from JSON output)
-        fingerprint: String,
-        /// Reason for accepting this finding
-        #[arg(long)]
-        reason: Option<String>,
-    },
-    /// Remove stale entries whose findings no longer reproduce
-    Prune,
 }
 
 /// Log verbosity levels
@@ -335,6 +313,16 @@ Examples:
         /// Interactive TUI mode
         #[arg(long, short = 'i')]
         interactive: bool,
+
+        /// Accept finding(s) into the baseline (suppresses in future runs).
+        /// Use with a finding index: `findings 3 --accept`
+        /// Use alone to accept all: `findings --accept`
+        #[arg(long)]
+        accept: bool,
+
+        /// Reason for accepting (used with --accept)
+        #[arg(long, requires = "accept")]
+        reason: Option<String>,
     },
 
     /// Generate a fix for a finding (AI-powered with API key, or rule-based with --no-ai)
@@ -484,18 +472,6 @@ Examples:
         top: usize,
     },
 
-    /// Manage the findings baseline (suppress known issues)
-    #[command(after_help = "\
-Examples:
-  repotoire baseline update                Accept all current findings into the baseline
-  repotoire baseline update --replace      Replace the baseline entirely
-  repotoire baseline add <fingerprint>     Accept a single finding by fingerprint
-  repotoire baseline prune                 Remove stale entries that no longer reproduce")]
-    Baseline {
-        #[command(subcommand)]
-        action: BaselineAction,
-    },
-
     /// Internal: analysis worker process (not user-facing)
     #[command(name = "__worker", hide = true)]
     Worker,
@@ -540,7 +516,6 @@ fn extract_command_name(cmd: &Option<Commands>) -> (String, Option<String>) {
         Some(Commands::Train { .. }) => ("train".into(), None),
         Some(Commands::Benchmark { .. }) => ("benchmark".into(), None),
         Some(Commands::Debt { .. }) => ("debt".into(), None),
-        Some(Commands::Baseline { .. }) => ("baseline".into(), None),
         Some(Commands::Config { action }) => match action {
             ConfigAction::Telemetry { .. } => ("config".into(), Some("telemetry".into())),
             ConfigAction::Init => ("config".into(), Some("init".into())),
@@ -697,10 +672,14 @@ pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> {
             page,
             per_page,
             interactive,
+            accept,
+            reason,
         }) => {
             // Merge positional and --index flag; positional takes precedence (#45)
             let effective_index = positional_index.or(index);
-            if interactive {
+            if accept {
+                findings::accept_findings(&cli.path, effective_index, reason)
+            } else if interactive {
                 findings::run_interactive(&cli.path)
             } else {
                 findings::run(
@@ -904,8 +883,6 @@ pub fn run(cli: Cli, telemetry: crate::telemetry::Telemetry) -> Result<()> {
         Some(Commands::Benchmark { format }) => benchmark::run(&cli.path, format, &telemetry),
 
         Some(Commands::Debt { filter, top }) => debt::run(&cli.path, filter.as_deref(), top),
-
-        Some(Commands::Baseline { action }) => baseline::run(&cli.path, action),
 
         Some(Commands::Worker) => crate::cli::worker::run(),
 
