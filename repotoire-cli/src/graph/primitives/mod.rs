@@ -408,7 +408,7 @@ mod tests {
 
     #[test]
     fn test_articulation_points_two_triangles_bridge() {
-        let (graph, funcs, _files) = build_test_graph(
+        let (_graph, funcs, _files) = build_test_graph(
             &[("a", "x.py"), ("b", "x.py"), ("c", "x.py"), ("d", "x.py"), ("e", "x.py"), ("f", "x.py")],
             &[],
             &[
@@ -442,7 +442,7 @@ mod tests {
 
     #[test]
     fn test_articulation_points_fully_connected() {
-        let (graph, funcs, _files) = build_test_graph(
+        let (_graph, funcs, _files) = build_test_graph(
             &[("a", "x.py"), ("b", "x.py"), ("c", "x.py"), ("d", "x.py")],
             &[],
             &[

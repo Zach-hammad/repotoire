@@ -667,7 +667,7 @@ mod tests {
     #[test]
     fn test_node_access() {
         let mut builder = GraphBuilder::new();
-        let idx = builder.add_node(CodeNode::function("foo", "a.py"));
+        let _idx = builder.add_node(CodeNode::function("foo", "a.py"));
         let graph = builder.freeze();
 
         // By index — note: index may be remapped after compaction

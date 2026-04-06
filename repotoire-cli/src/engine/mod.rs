@@ -445,6 +445,7 @@ impl AnalysisEngine {
         final_findings.extend(detect_out.cached_findings);
 
         // Stage 7.5: Filter — baseline matching, config overrides, delta attribution
+        let baseline = crate::baseline::Baseline::load(&self.repo_path).ok();
         let graph_for_filter = Arc::clone(&frozen.graph);
         let resolve_qn = move |f: &crate::models::Finding| -> Option<String> {
             let file = f.affected_files.first()?;
@@ -467,7 +468,7 @@ impl AnalysisEngine {
         };
         let filter_output = filter::filter_stage(filter::FilterInput {
             findings: final_findings,
-            baseline: None,
+            baseline: baseline.as_ref(),
             detector_overrides: &self.project_config.detectors,
             changed_node_qnames: None,
             caller_of_changed_qnames: None,
@@ -733,6 +734,7 @@ impl AnalysisEngine {
         final_findings.extend(detect_out.cached_findings);
 
         // Stage 7.5: Filter — baseline matching, config overrides, delta attribution
+        let baseline = crate::baseline::Baseline::load(&self.repo_path).ok();
         let graph_for_filter = Arc::clone(&frozen.graph);
         let resolve_qn = move |f: &crate::models::Finding| -> Option<String> {
             let file = f.affected_files.first()?;
@@ -755,7 +757,7 @@ impl AnalysisEngine {
         };
         let filter_output = filter::filter_stage(filter::FilterInput {
             findings: final_findings,
-            baseline: None,
+            baseline: baseline.as_ref(),
             detector_overrides: &self.project_config.detectors,
             changed_node_qnames: None,
             caller_of_changed_qnames: None,
