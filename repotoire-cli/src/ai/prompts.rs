@@ -440,6 +440,9 @@ mod tests {
             confidence: None,
             deterministic: false,
             threshold_metadata: Default::default(),
+            status: Default::default(),
+            attribution: Default::default(),
+            original_severity: None,
         };
 
         let prompt = FixPromptBuilder::new(finding, FixType::Simplify, "python")

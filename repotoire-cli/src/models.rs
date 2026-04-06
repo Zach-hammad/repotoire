@@ -105,6 +105,49 @@ where
     Ok(opt.unwrap_or_default())
 }
 
+/// Status of a finding relative to the baseline.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum FindingStatus {
+    #[default]
+    New,
+    Baselined,
+    Fixed,
+    Stale,
+}
+
+/// Attribution of a finding to a delta (changed code vs unrelated).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Attribution {
+    InChangedNode,
+    InCallerOfChanged,
+    #[default]
+    InUnrelated,
+}
+
+/// Confidence level for a finding (Low < Medium < High).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Confidence {
+    Low,
+    Medium,
+    High,
+}
+
+impl Confidence {
+    /// Map a numeric score (0.0–1.0) to a confidence level.
+    pub fn from_score(score: f64) -> Self {
+        if score >= 0.75 {
+            Confidence::High
+        } else if score >= 0.5 {
+            Confidence::Medium
+        } else {
+            Confidence::Low
+        }
+    }
+}
+
 /// A code smell or issue finding
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Finding {
@@ -149,6 +192,15 @@ pub struct Finding {
         deserialize_with = "deserialize_null_as_empty_map"
     )]
     pub threshold_metadata: std::collections::BTreeMap<String, String>,
+    /// Finding status relative to baseline (New, Baselined, Fixed, Stale).
+    #[serde(default)]
+    pub status: FindingStatus,
+    /// Attribution to delta analysis (changed node, caller, or unrelated).
+    #[serde(default)]
+    pub attribution: Attribution,
+    /// Original severity before config remap (if remapped).
+    #[serde(default)]
+    pub original_severity: Option<Severity>,
 }
 
 /// Default confidence value when no category-specific default applies.
