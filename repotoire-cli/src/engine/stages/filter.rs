@@ -100,13 +100,13 @@ pub fn filter_stage(input: FilterInput) -> FilterOutput {
         }
 
         // 6. Delta attribution
-        if let Some(ref changed) = input.changed_node_qnames {
+        if let Some(changed) = input.changed_node_qnames {
             if let Some(ref qn) = qname {
                 if changed.contains(qn) {
                     finding.attribution = Attribution::InChangedNode;
                 } else if input
                     .caller_of_changed_qnames
-                    .map_or(false, |c| c.contains(qn))
+                    .is_some_and(|c| c.contains(qn))
                 {
                     finding.attribution = Attribution::InCallerOfChanged;
                 } else {
@@ -125,7 +125,7 @@ pub fn filter_stage(input: FilterInput) -> FilterOutput {
         let mut stale = Vec::new();
         for entry in &baseline.findings {
             if !active_fingerprints.contains(&entry.fingerprint) {
-                let entity_exists = entry.qualified_name.as_ref().map_or(false, |qn| {
+                let entity_exists = entry.qualified_name.as_ref().is_some_and(|qn| {
                     if let Some(resolve) = &input.resolve_qualified_name {
                         let dummy = Finding {
                             detector: entry.detector.clone(),

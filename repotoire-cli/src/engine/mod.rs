@@ -21,7 +21,7 @@
 //! 5. **Calibrate** — learn adaptive thresholds + n-gram language model
 //! 6. **Detect** — run all detectors in parallel (with incremental reuse)
 //! 7. **Postprocess** — deduplicate, suppress, filter findings
-//! 7.5. **Filter** — baseline matching, config overrides, delta attribution
+//!    7.5. **Filter** — baseline matching, config overrides, delta attribution
 //! 8. **Score** — compute three-pillar health score
 //!
 //! # Incremental analysis
