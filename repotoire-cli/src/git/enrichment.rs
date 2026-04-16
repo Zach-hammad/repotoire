@@ -91,8 +91,16 @@ impl<'a> GitEnricher<'a> {
             }
         }
 
-        // Pre-warm blame cache in parallel (uses disk cache for unchanged files)
-        let file_list: Vec<String> = unique_files.into_iter().collect();
+        // Pre-warm blame cache in parallel (uses disk cache for unchanged files).
+        // Filter out paths that we never want blame metadata for — vendored
+        // code, dependency lockfiles, build artifacts, minified bundles. These
+        // routinely end up in the graph (an AST parser will still produce
+        // entities for a vendored Python file or a lockfile), but blaming them
+        // burns commit walks on noise that no detector will use downstream.
+        let file_list: Vec<String> = unique_files
+            .into_iter()
+            .filter(|p| !is_blame_skip_path(p))
+            .collect();
         let (cache_hits, cache_misses) = if !file_list.is_empty() {
             info!(
                 "Pre-warming git blame cache for {} files...",
@@ -347,4 +355,76 @@ pub fn enrich_graph_with_git(
     let history = GitHistory::new(repo_path)?;
     let mut enricher = GitEnricher::new(&history, graph)?;
     enricher.enrich_all()
+}
+
+/// Path patterns that never warrant a blame walk. Vendored and generated code
+/// ends up in the graph because the AST parsers happily produce entities for
+/// it, but blaming it burns commit walks on files whose history isn't a signal
+/// any downstream detector consumes. Lockfiles and minified bundles are here
+/// for the same reason — their blame is either noise or single-committer spam.
+fn is_blame_skip_path(path: &str) -> bool {
+    const SKIP_SEGMENTS: &[&str] = &[
+        "/vendor/",
+        "/node_modules/",
+        "/dist/",
+        "/build/",
+        "/target/",
+        "/.venv/",
+        "/__pycache__/",
+        "/third_party/",
+        "/third-party/",
+    ];
+    const SKIP_SUFFIXES: &[&str] = &[
+        ".lock",
+        ".min.js",
+        ".min.css",
+        ".map",
+        "package-lock.json",
+        "yarn.lock",
+        "pnpm-lock.yaml",
+        "Cargo.lock",
+        "poetry.lock",
+        "composer.lock",
+        "Gemfile.lock",
+    ];
+    // Check vendor/build segments anywhere in the path, and suffix matches.
+    // Normalize separators so we catch both Unix and Windows-style paths.
+    let normalized = path.replace('\\', "/");
+    let with_boundary = format!("/{normalized}");
+    if SKIP_SEGMENTS.iter().any(|seg| with_boundary.contains(seg)) {
+        return true;
+    }
+    SKIP_SUFFIXES.iter().any(|suffix| normalized.ends_with(suffix))
+}
+
+#[cfg(test)]
+mod skip_path_tests {
+    use super::is_blame_skip_path;
+
+    #[test]
+    fn skips_vendor_and_node_modules() {
+        assert!(is_blame_skip_path("vendor/foo/bar.py"));
+        assert!(is_blame_skip_path("src/vendor/x.rs"));
+        assert!(is_blame_skip_path("app/node_modules/react/index.js"));
+    }
+
+    #[test]
+    fn skips_lockfiles_and_minified() {
+        assert!(is_blame_skip_path("yarn.lock"));
+        assert!(is_blame_skip_path("src/bundle.min.js"));
+        assert!(is_blame_skip_path("Cargo.lock"));
+    }
+
+    #[test]
+    fn keeps_normal_sources() {
+        assert!(!is_blame_skip_path("src/main.rs"));
+        assert!(!is_blame_skip_path("app/foo.py"));
+        assert!(!is_blame_skip_path("pkg/auth/session.go"));
+    }
+
+    #[test]
+    fn does_not_false_positive_on_substrings() {
+        // "vendors" (plural) should not match "/vendor/"
+        assert!(!is_blame_skip_path("src/vendors/v.rs"));
+    }
 }
