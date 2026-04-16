@@ -143,7 +143,12 @@ pub struct BlameInfo {
 
 /// Git blame analyzer with file-level caching.
 pub struct GitBlame {
-    repo: RawRepo,
+    /// Shared repo handle. Wrapped in `Arc` so rayon workers in
+    /// `prewarm_cache` can reuse a single `RawRepo` (and its
+    /// concurrent object cache) instead of each thread paying the
+    /// cost of `RawRepo::discover`. Safe because `RawRepo`'s internal
+    /// mutable state is a lock-free `DashMap`.
+    repo: Arc<RawRepo>,
     repo_path: PathBuf,
     /// In-memory cache of file blame results
     file_cache: Arc<DashMap<String, Vec<LineBlame>>>,
@@ -165,7 +170,7 @@ impl GitBlame {
         let disk_cache = GitCache::load(&cache_path);
 
         Ok(Self {
-            repo,
+            repo: Arc::new(repo),
             repo_path,
             file_cache: Arc::new(DashMap::new()),
             disk_cache: Arc::new(std::sync::RwLock::new(disk_cache)),
@@ -187,6 +192,7 @@ impl GitBlame {
     pub fn prewarm_cache(&self, file_paths: &[String]) -> (usize, usize) {
         let mem_cache = Arc::clone(&self.file_cache);
         let disk_cache = Arc::clone(&self.disk_cache);
+        let repo = Arc::clone(&self.repo);
         let repo_path = self.repo_path.clone();
 
         let cache_hits = std::sync::atomic::AtomicUsize::new(0);
@@ -214,14 +220,12 @@ impl GitBlame {
                 return;
             }
 
-            // Each worker discovers its own RawRepo. Attempting to share a
-            // single Arc<RawRepo> across rayon workers regressed performance
-            // on measured benchmarks — RawRepo's internal Mutex<LruCache>
-            // serialized blame work under 8-16 parallel threads, and the
-            // added sys time dwarfed the discover savings.
-            let Ok(repo) = RawRepo::discover(&repo_path) else {
-                return;
-            };
+            // All workers share a single `Arc<RawRepo>`. Its internal
+            // object cache is a lock-free `DashMap` (sharded admission,
+            // soft 64MB cap), so concurrent blame calls don't serialize
+            // on a shared mutex the way the prior `Mutex<LruCache>`
+            // forced them to. Sharing also reclaims the per-worker
+            // `RawRepo::discover` cost (pack-index open + packed-refs).
             let Ok(entries) = blame_file_with_repo(&repo, file_path) else {
                 return;
             };
