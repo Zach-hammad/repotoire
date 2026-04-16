@@ -100,7 +100,11 @@ dhat = { version = "0.3", optional = true }
 tikv-jemallocator = { version = "0.6", optional = true }
 
 [features]
-default = []
+# jemalloc ships on by default — measured ~10% cold-start improvement on
+# the multithreaded rayon workload (heavy short-lived HashMap/Vec/String
+# churn in parsers and detectors, where glibc malloc's arena lock limits
+# throughput on many-core machines).
+default = ["jemalloc"]
 dhat = ["dep:dhat"]
 jemalloc = ["dep:tikv-jemallocator"]
 
