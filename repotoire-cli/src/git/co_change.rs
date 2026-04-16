@@ -33,6 +33,11 @@ pub struct CoChangeConfig {
     pub max_files_per_commit: usize,
     /// Maximum number of commits to analyze (newest first).
     pub max_commits: usize,
+    /// Minimum per-commit decay weight. Because commits are iterated newest-first
+    /// and decay is monotonically decreasing with age, once the weight falls below
+    /// this threshold all remaining commits contribute negligibly and we break.
+    /// Set to `0.0` to disable the early-exit and walk the full window.
+    pub min_decay: f32,
 }
 
 impl Default for CoChangeConfig {
@@ -42,6 +47,10 @@ impl Default for CoChangeConfig {
             min_weight: 0.5,
             max_files_per_commit: 30,
             max_commits: 5000,
+            // With a 90-day half-life, decay 0.001 corresponds to ~900 days old —
+            // a commit that contributes 0.1% of a fresh commit's weight. Walking
+            // further is just burning CPU on noise.
+            min_decay: 0.001,
         }
     }
 }
@@ -240,16 +249,25 @@ impl CoChangeMatrix {
         let limit = commits.len().min(config.max_commits);
 
         for (ts, files) in commits.iter().take(limit) {
-            // Skip large commits (merge noise)
+            // Compute age-based decay weight first so we can early-exit.
+            let age_days = (now - *ts).num_seconds().max(0) as f64 / 86_400.0;
+            let decay = (-ln2 * age_days / config.half_life_days).exp() as f32;
+
+            // Commits are iterated newest-first, so decay is monotonically
+            // decreasing. Once we fall below `min_decay` every subsequent
+            // commit would contribute less — break instead of continuing.
+            if config.min_decay > 0.0 && decay < config.min_decay {
+                break;
+            }
+
+            // Skip large commits (merge noise) AFTER the decay check so a big
+            // old merge can still terminate the walk rather than skipping it
+            // and wasting time on even older commits.
             if files.len() > config.max_files_per_commit {
                 continue;
             }
 
             commits_analyzed += 1;
-
-            // Compute age-based decay weight
-            let age_days = (now - *ts).num_seconds().max(0) as f64 / 86_400.0;
-            let decay = (-ln2 * age_days / config.half_life_days).exp() as f32;
 
             // Intern all file paths and sort for canonical pairing
             let mut keys: Vec<StrKey> = files.iter().map(|f| si.intern(f)).collect();
@@ -451,6 +469,11 @@ mod tests {
         let config = CoChangeConfig {
             half_life_days: 10.0,
             min_weight: 0.5,
+            // Disable decay early-exit — this test exercises pair-pruning
+            // (min_weight), not the walk bound. With the default min_decay
+            // the old-age commit below would be short-circuited before any
+            // pruning could happen.
+            min_decay: 0.0,
             ..default_config()
         };
 

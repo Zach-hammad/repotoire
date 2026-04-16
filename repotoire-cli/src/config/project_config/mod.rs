@@ -188,6 +188,7 @@ impl CoChangeConfigToml {
                 .max_files_per_commit
                 .unwrap_or(defaults.max_files_per_commit),
             max_commits: self.max_commits.unwrap_or(defaults.max_commits),
+            min_decay: defaults.min_decay,
         }
     }
 }
