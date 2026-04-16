@@ -1,6 +1,8 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+use dashmap::DashMap;
 
 use super::commit::RawCommit;
 use super::error::GitError;
@@ -11,12 +13,31 @@ use super::pack_index::PackIndex;
 use super::tree::{self, TreeEntry};
 
 const MAX_SYMREF_DEPTH: usize = 10;
-const CACHE_CAPACITY: usize = 256;
+
+/// Soft upper bound on total bytes held in the object cache.
+///
+/// Once we cross this threshold we stop caching new objects for the
+/// rest of the `RawRepo`'s lifetime. This is a deliberately simple
+/// bound — no per-entry eviction — because under parallel blame
+/// workloads an LRU behind a `Mutex` serialized every cache hit (see
+/// the prior `Arc<RawRepo>` sharing attempt: a single global mutex
+/// dwarfed the per-worker `discover()` savings by ~5x on an ARM64
+/// bench). At the limit the cache degrades to "no caching" for new
+/// Oids while still serving hits on everything cached before the cap.
+///
+/// 64MB mirrors the prior LRU ceiling and empirically covers the
+/// commit+tree working set for repos in the ~100k-LOC range.
+const CACHE_SOFT_CAP_BYTES: usize = 64 * 1024 * 1024;
 
 /// A pure-Rust read-only git repository handle.
 ///
 /// Supports loose objects, packfiles, packed-refs, worktrees,
-/// alternates, and shallow clones. Thread-safe via `Mutex<LruCache>`.
+/// alternates, and shallow clones.
+///
+/// Thread-safety: all internal state is read-only after construction
+/// except `cache`, which is a lock-free sharded `DashMap`. A single
+/// `RawRepo` can be shared across rayon workers via `Arc` without
+/// serialization bottlenecks.
 pub struct RawRepo {
     git_dir: PathBuf,
     common_dir: PathBuf,
@@ -24,48 +45,68 @@ pub struct RawRepo {
     pack_stores: Vec<(PackIndex, Packfile)>,
     packed_refs: Vec<(String, Oid)>,
     shallow_oids: HashSet<Oid>,
-    cache: Mutex<LruCache>,
+    cache: ObjectCache,
 }
 
-struct LruCache {
-    entries: Vec<(Oid, ObjectType, Vec<u8>)>,
-    total_bytes: usize,
-    max_bytes: usize,
+/// Concurrent object cache for commit and tree payloads.
+///
+/// Backed by `DashMap<Oid, CachedObject>` with per-shard locking, so
+/// `find_object` calls from parallel rayon workers don't serialize on
+/// a single mutex the way the prior `Mutex<LruCache>` did.
+///
+/// No LRU eviction: once `total_bytes` exceeds `CACHE_SOFT_CAP_BYTES`
+/// we stop admitting new entries. This keeps the hot path branch-free
+/// and avoids the write contention an LRU's recency-update would
+/// introduce. Objects are only inserted for Commit/Tree (small,
+/// frequently re-read) — blob/tag admission policy is unchanged from
+/// the prior implementation.
+struct ObjectCache {
+    entries: DashMap<Oid, CachedObject>,
+    total_bytes: AtomicUsize,
 }
 
-impl LruCache {
-    fn new(max_bytes: usize) -> Self {
+#[derive(Clone)]
+struct CachedObject {
+    obj_type: ObjectType,
+    data: std::sync::Arc<[u8]>,
+}
+
+impl ObjectCache {
+    fn new() -> Self {
         Self {
-            entries: Vec::new(),
-            total_bytes: 0,
-            max_bytes,
+            entries: DashMap::new(),
+            total_bytes: AtomicUsize::new(0),
         }
     }
 
-    fn get(&mut self, oid: &Oid) -> Option<(ObjectType, Vec<u8>)> {
-        if let Some(pos) = self.entries.iter().position(|(o, _, _)| o == oid) {
-            let entry = self.entries.remove(pos);
-            let result = (entry.1, entry.2.clone());
-            self.entries.push(entry);
-            Some(result)
-        } else {
-            None
-        }
+    fn get(&self, oid: &Oid) -> Option<(ObjectType, Vec<u8>)> {
+        let entry = self.entries.get(oid)?;
+        // Consumers receive an owned `Vec<u8>` — matches the prior
+        // `LruCache::get` signature so call sites don't need updating.
+        // The per-get allocation is the price of a shared cache with
+        // owned outputs; if it shows up in profiles we can switch
+        // callers to `Arc<[u8]>` directly.
+        Some((entry.obj_type, entry.data.as_ref().to_vec()))
     }
 
-    fn insert(&mut self, oid: Oid, obj_type: ObjectType, data: Vec<u8>) {
+    fn insert(&self, oid: Oid, obj_type: ObjectType, data: &[u8]) {
+        // Admission check: if we've crossed the soft cap, don't grow.
+        // Load is Relaxed because this is an advisory bound — a few
+        // extra inserts racing past the cap are harmless.
+        if self.total_bytes.load(Ordering::Relaxed) >= CACHE_SOFT_CAP_BYTES {
+            return;
+        }
         let size = data.len();
-        // Evict oldest entries if needed
-        while self.total_bytes + size > self.max_bytes && !self.entries.is_empty() {
-            let evicted = self.entries.remove(0);
-            self.total_bytes -= evicted.2.len();
+        let cached = CachedObject {
+            obj_type,
+            data: std::sync::Arc::from(data),
+        };
+        // `insert` returns the prior value if the key was already
+        // present. Only bump the byte counter on a fresh insertion so
+        // we don't double-count when two workers race on the same Oid.
+        if self.entries.insert(oid, cached).is_none() {
+            self.total_bytes.fetch_add(size, Ordering::Relaxed);
         }
-        if self.entries.len() >= CACHE_CAPACITY {
-            let evicted = self.entries.remove(0);
-            self.total_bytes -= evicted.2.len();
-        }
-        self.total_bytes += size;
-        self.entries.push((oid, obj_type, data));
     }
 }
 
@@ -226,7 +267,7 @@ impl RawRepo {
             pack_stores,
             packed_refs,
             shallow_oids,
-            cache: Mutex::new(LruCache::new(64 * 1024 * 1024)), // 64MB
+            cache: ObjectCache::new(),
         })
     }
 
@@ -290,12 +331,10 @@ impl RawRepo {
 
     /// Read a raw git object by OID.
     pub fn find_object(&self, oid: &Oid) -> Result<(ObjectType, Vec<u8>), GitError> {
-        // Check cache
-        {
-            let mut cache = self.cache.lock().expect("cache lock poisoned");
-            if let Some(result) = cache.get(oid) {
-                return Ok(result);
-            }
+        // Fast path: cache hit. DashMap shards the read so parallel
+        // workers don't serialize on a single lock.
+        if let Some(result) = self.cache.get(oid) {
+            return Ok(result);
         }
 
         // Try loose objects
@@ -322,10 +361,10 @@ impl RawRepo {
     }
 
     fn cache_object(&self, oid: &Oid, result: &(ObjectType, Vec<u8>)) {
-        // Only cache commits and trees (small, frequently accessed)
+        // Only cache commits and trees (small, frequently accessed).
+        // Blobs and tags are read once and discarded.
         if matches!(result.0, ObjectType::Commit | ObjectType::Tree) {
-            let mut cache = self.cache.lock().expect("cache lock poisoned");
-            cache.insert(*oid, result.0, result.1.clone());
+            self.cache.insert(*oid, result.0, &result.1);
         }
     }
 
