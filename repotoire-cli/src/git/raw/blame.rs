@@ -2,6 +2,17 @@ use super::diff::diff_blobs;
 use super::error::GitError;
 use super::oid::Oid;
 use super::repo::RawRepo;
+
+/// Upper bound on commits walked during a single `blame_file` call.
+///
+/// Blame history pre-dating this many commits contributes to line ownership
+/// but costs a blob fetch + tree-diff per commit. On long-lived files with
+/// deep history the tail of the walk dominates wall time while contributing
+/// only attribution for the small fraction of lines that are truly ancient.
+/// Capping at 500 caps the tail without materially changing signal for the
+/// architectural-health consumers (bus factor, recency).
+const MAX_BLAME_COMMITS: usize = 500;
+
 #[derive(Debug, Clone)]
 pub struct BlameHunk {
     pub commit: Oid,
@@ -15,7 +26,8 @@ pub struct BlameHunk {
 /// Blame a file, returning hunks that cover all lines.
 ///
 /// Walks the commit history from HEAD, tracking which lines were introduced
-/// by each commit using Myers diff.
+/// by each commit using Myers diff. Bounded by `MAX_BLAME_COMMITS`; any lines
+/// still unassigned after the cap are attributed to the oldest commit walked.
 pub fn blame_file(repo: &RawRepo, file_path: &str) -> Result<Vec<BlameHunk>, GitError> {
     let head = repo.resolve_head()?;
     let head_commit = repo.find_commit(&head)?;
@@ -37,9 +49,11 @@ pub fn blame_file(repo: &RawRepo, file_path: &str) -> Result<Vec<BlameHunk>, Git
     // Walk commits
     let mut current_oid = head;
     let mut current_content = content;
+    let mut commits_walked: usize = 0;
 
     loop {
         let commit = repo.find_commit(&current_oid)?;
+        commits_walked += 1;
 
         if commit.parents.is_empty() || repo.is_shallow(&current_oid) {
             // Root commit: assign all remaining lines to this commit
@@ -100,6 +114,19 @@ pub fn blame_file(repo: &RawRepo, file_path: &str) -> Result<Vec<BlameHunk>, Git
 
         // Check if all lines assigned
         if line_owner.iter().all(|o| o.is_some()) {
+            break;
+        }
+
+        // Bound the walk. If the cap is reached before every line is assigned,
+        // the remaining ownerless lines get attributed to the oldest commit we
+        // did walk — accurate enough for recency/bus-factor signals, and it
+        // ensures we never pay the full-history tail.
+        if commits_walked >= MAX_BLAME_COMMITS {
+            for owner in &mut line_owner {
+                if owner.is_none() {
+                    *owner = Some(current_oid);
+                }
+            }
             break;
         }
     }
