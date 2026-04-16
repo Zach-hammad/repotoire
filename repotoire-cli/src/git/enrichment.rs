@@ -129,6 +129,13 @@ impl<'a> GitEnricher<'a> {
             stats.edges_created
         );
 
+        // Persist any blame entries computed during per-entity enrichment that
+        // arrived after prewarm_cache saved. Fire-and-forget — a cache-write
+        // failure must not fail the analysis.
+        if let Err(e) = self.blame.save_cache() {
+            debug!("Git blame cache save failed (ignored): {e}");
+        }
+
         Ok(stats)
     }
 

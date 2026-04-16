@@ -12,18 +12,24 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::SystemTime;
 
 use crate::git::raw::{blame_file as raw_blame_file, RawRepo};
 
-/// Cached blame entry with file modification time.
+/// Cached blame entry keyed by file content hash.
+///
+/// Mtime was previously used for validity but mtime changes on any file touch —
+/// editor save, build system `touch`, git checkout — even when content is
+/// identical, so the cache invalidated spuriously and warm runs did no better
+/// than cold. Content hashing (xxh3) is the same scheme `IncrementalCache`
+/// uses for findings, which behaves correctly.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CachedBlame {
     pub entries: Vec<LineBlame>,
-    pub mtime_secs: u64,
+    #[serde(default)]
+    pub content_hash: u64,
 }
 
-/// Persistent git cache stored in .repotoire/git_cache.json
+/// Persistent git cache stored in ~/.cache/repotoire/<repo>/git_cache.json
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct GitCache {
     pub files: HashMap<String, CachedBlame>,
@@ -46,44 +52,49 @@ impl GitCache {
         Ok(())
     }
 
-    /// Check if file cache is valid (mtime matches).
+    /// Check if file cache is valid (content hash matches).
     pub fn is_valid(&self, file_path: &str, repo_root: &Path) -> bool {
         let Some(cached) = self.files.get(file_path) else {
             return false;
         };
-        get_file_mtime_secs(repo_root.join(file_path))
-            .map(|mtime| mtime == cached.mtime_secs)
+        // `content_hash == 0` indicates an old-schema entry (pre-content-hash
+        // migration). Treat as invalid so the entry gets refreshed rather
+        // than trusted with no validation.
+        if cached.content_hash == 0 {
+            return false;
+        }
+        hash_file_content(repo_root.join(file_path))
+            .map(|h| h == cached.content_hash)
             .unwrap_or(false)
     }
 }
 
-/// Get file modification time in seconds since epoch.
-fn get_file_mtime_secs(path: impl AsRef<Path>) -> Option<u64> {
-    fs::metadata(path.as_ref())
-        .ok()?
-        .modified()
-        .ok()?
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .ok()
-        .map(|d| d.as_secs())
+/// xxh3 hash of the file's current on-disk contents. Fast (~5 GB/s on ARM64
+/// per xxhash-rust benchmarks) and already a workspace dependency used by
+/// `IncrementalCache::file_hash`.
+fn hash_file_content(path: impl AsRef<Path>) -> Option<u64> {
+    let bytes = fs::read(path.as_ref()).ok()?;
+    Some(xxhash_rust::xxh3::xxh3_64(&bytes))
 }
 
-/// Update disk cache with new blame entries.
+/// Update disk cache with new blame entries, keyed by content hash.
 fn update_disk_cache(
     disk_cache: &std::sync::RwLock<GitCache>,
     file_path: &str,
     repo_path: &Path,
     entries: Vec<LineBlame>,
 ) {
-    let Some(mtime_secs) = get_file_mtime_secs(repo_path.join(file_path)) else {
+    let Some(content_hash) = hash_file_content(repo_path.join(file_path)) else {
         return;
     };
-    let mut dc = disk_cache.write().expect("git disk cache lock poisoned");
+    let mut dc = disk_cache
+        .write()
+        .unwrap_or_else(|e| e.into_inner());
     dc.files.insert(
         file_path.to_string(),
         CachedBlame {
             entries,
-            mtime_secs,
+            content_hash,
         },
     );
 }
@@ -264,15 +275,34 @@ impl GitBlame {
 
     /// Get cached blame for entire file, or compute and cache it.
     fn get_cached_file_blame(&self, file_path: &str) -> Result<Vec<LineBlame>> {
-        // Check cache first
+        // 1. Memory cache.
         if let Some(cached) = self.file_cache.get(file_path) {
             return Ok(cached.clone());
         }
 
-        // Compute and cache
+        // 2. Disk cache — prewarm_cache may not have run for this file, or the
+        // memory cache may have been cleared. Before recomputing, check if we
+        // already have a valid on-disk entry from a previous run.
+        {
+            let dc = self
+                .disk_cache
+                .read()
+                .unwrap_or_else(|e| e.into_inner());
+            if dc.is_valid(file_path, &self.repo_path) {
+                if let Some(entry) = dc.files.get(file_path) {
+                    let entries = entry.entries.clone();
+                    self.file_cache
+                        .insert(file_path.to_string(), entries.clone());
+                    return Ok(entries);
+                }
+            }
+        }
+
+        // 3. Fresh compute — also persist to disk so future runs hit the cache.
         let entries = self.blame_file(file_path)?;
         self.file_cache
             .insert(file_path.to_string(), entries.clone());
+        update_disk_cache(&self.disk_cache, file_path, &self.repo_path, entries.clone());
         Ok(entries)
     }
 
