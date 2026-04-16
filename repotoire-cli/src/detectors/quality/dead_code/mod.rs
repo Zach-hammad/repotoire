@@ -599,6 +599,20 @@ impl DeadCodeDetector {
 
         let import_edges = graph.all_import_edges();
 
+        // Precompute lowercased qualified names of all import targets ONCE, outside
+        // the class loop. The prior implementation called `graph.node_idx(dst_idx)`
+        // and `qn().to_lowercase()` for every (class, edge) pair — O(classes × edges)
+        // with a per-iteration allocation. Also precompute a basename set for an
+        // O(1) fast path on the basename-equality branch of the match.
+        let importee_qnames_lower: Vec<String> = import_edges
+            .iter()
+            .filter_map(|&(_, dst_idx)| graph.node_idx(dst_idx).map(|n| n.qn(i).to_lowercase()))
+            .collect();
+        let importee_basenames: std::collections::HashSet<&str> = importee_qnames_lower
+            .iter()
+            .map(|q| q.rsplit('/').next().unwrap_or(q.as_str()))
+            .collect();
+
         for class in classes {
             let name = class.node_name(i);
             let file_path = class.path(i);
@@ -664,19 +678,18 @@ impl DeadCodeDetector {
                 }
             }
 
-            // Check if class's file is imported by other files
+            // Check if class's file is imported by other files.
+            // Hoist the per-class allocations out of the inner loop, and try the
+            // O(1) basename set before falling back to a linear suffix scan.
             let class_file = file_path.to_lowercase();
-            let file_is_imported = import_edges.iter().any(|&(_, dst_idx)| {
-                if let Some(dst_node) = graph.node_idx(dst_idx) {
-                    let target_lower = dst_node.qn(i).to_lowercase();
-                    class_file.ends_with(&target_lower)
-                        || target_lower
-                            .ends_with(&class_file.replace("/tmp/", "").replace("/home/", ""))
-                        || class_file.split('/').next_back() == target_lower.split('/').next_back()
-                } else {
-                    false
-                }
-            });
+            let class_file_cleaned =
+                class_file.replace("/tmp/", "").replace("/home/", "");
+            let class_basename = class_file.rsplit('/').next().unwrap_or(&class_file);
+            let file_is_imported = importee_basenames.contains(class_basename)
+                || importee_qnames_lower.iter().any(|target_lower| {
+                    class_file.ends_with(target_lower.as_str())
+                        || target_lower.ends_with(class_file_cleaned.as_str())
+                });
             if file_is_imported {
                 continue;
             }
