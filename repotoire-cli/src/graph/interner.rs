@@ -204,13 +204,14 @@ impl StringInterner {
     pub fn intern(&self, s: &str) -> StrKey {
         // Fast path: read lock check.
         {
-            let guard = self.inner.read().expect("interner lock poisoned");
+            let guard = self.inner.read().unwrap_or_else(|e| e.into_inner());
             if let Some(key) = guard.get(s) {
                 return key;
             }
         }
-        // Slow path: write lock.
-        let mut guard = self.inner.write().expect("interner lock poisoned");
+        // Slow path: write lock. Tolerate poisoning — interned data is append-only
+        // and cannot be left in a half-written state by a panicked thread.
+        let mut guard = self.inner.write().unwrap_or_else(|e| e.into_inner());
         guard.intern(s)
     }
 
@@ -227,7 +228,7 @@ impl StringInterner {
     /// 3. The `&str` cannot outlive the `StringInterner` itself.
     #[inline]
     pub fn resolve(&self, key: StrKey) -> &str {
-        let guard = self.inner.read().expect("interner lock poisoned");
+        let guard = self.inner.read().unwrap_or_else(|e| e.into_inner());
         let s: &str = guard.resolve(key);
         // SAFETY: The backing `String` chunks are append-only and never
         // reallocated or removed. The pointer remains valid as long as
@@ -238,13 +239,17 @@ impl StringInterner {
     /// Try to get a key for an already-interned string.
     #[inline]
     pub fn get(&self, s: &str) -> Option<StrKey> {
-        let guard = self.inner.read().expect("interner lock poisoned");
+        let guard = self.inner.read().unwrap_or_else(|e| e.into_inner());
         guard.get(s)
     }
 
     /// Number of unique strings interned.
     pub fn len(&self) -> usize {
-        self.inner.read().expect("interner lock poisoned").spans.len()
+        self.inner
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .spans
+            .len()
     }
 
     /// Check if empty.
@@ -254,7 +259,7 @@ impl StringInterner {
 
     /// Estimated memory usage in bytes.
     pub fn memory_usage(&self) -> usize {
-        let guard = self.inner.read().expect("interner lock poisoned");
+        let guard = self.inner.read().unwrap_or_else(|e| e.into_inner());
         let chunk_bytes: usize = guard.chunks.iter().map(|c| c.capacity()).sum();
         let span_bytes = guard.spans.capacity() * std::mem::size_of::<(u16, u32, u32)>();
         let map_overhead = guard.map.capacity() * std::mem::size_of::<(u64, Vec<StrKey>)>();

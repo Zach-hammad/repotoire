@@ -223,9 +223,9 @@ fn run_intra_all_categories(
 
             // Merge into shared results (one lock per file, not per function)
             if !file_results.is_empty() {
-                let mut results = results
-                    .lock()
-                    .expect("taint results mutex poisoned — a thread panicked");
+                // Tolerate poisoning: accumulator only ever appends, so a panicked
+                // thread cannot leave partial state that would corrupt later merges.
+                let mut results = results.lock().unwrap_or_else(|e| e.into_inner());
                 for (category, paths) in file_results {
                     if let Some(cat_results) = results.get_mut(&category) {
                         cat_results.extend(paths);
@@ -235,9 +235,7 @@ fn run_intra_all_categories(
         });
 
     // Sort paths within each category for deterministic order
-    let mut final_results = results
-        .into_inner()
-        .expect("taint results mutex poisoned — a thread panicked");
+    let mut final_results = results.into_inner().unwrap_or_else(|e| e.into_inner());
     for paths in final_results.values_mut() {
         paths.sort_by(|a, b| {
             a.source_file
