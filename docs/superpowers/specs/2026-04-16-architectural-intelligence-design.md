@@ -31,7 +31,16 @@
 
 **Security: table stakes, included, not the differentiator.** Repotoire ships 23 security detectors with SSA-based taint analysis — real work, not stubs. But CodeQL and Semgrep Pro are 5+ years ahead on deep cross-function taint; we won't catch them there. We say "SAST baseline included" and put the marketing energy behind architectural intelligence, which nobody else has in OSS.
 
-**Category we're claiming:** *architectural intelligence for code* — the empty lane left by CodeScene (closed + ~€20/author/mo), Structure101 (Sonar Enterprise only), and Qwiet (acquired into Harness, no OSS successor). A new category name is a bet, but "observability" beat "monitoring" the same way: new word because new mental model.
+**Category we're claiming:** *architectural intelligence for code* — the empty lane left by CodeScene (closed + ~€18–20/author/mo), Structure101 (Sonar Enterprise only), and Qwiet (acquired into Harness, no OSS successor). A new category name is a bet, but "observability" beat "monitoring" the same way: new word because new mental model.
+
+**Competitive-moat shelf life — named explicitly.** The vacuum is real *today* but is not permanent. Credible threats inside an 18-month window:
+
+- **Sonar backports Structure101 features** from SonarQube Enterprise to Community Edition (they've done similar before with Code Smells).
+- **Joern ships a polished CLI + MCP server.** Academic trajectory suggests this within 12–18 months.
+- **A well-funded startup ships "CodeScene OSS"** as a spoiler.
+- **CodeQL adds architectural detectors** in their roadmap.
+
+**If any happen**, the fallback moat is the intersection that's harder to replicate: **temporal coupling (git co-change) + bus-factor analysis + weighted-PageRank architectural drift**, all served in a single-binary OSS tool that runs in an agent loop. CodeScene has the temporal angle but is closed and pricey; nobody else OSS has the combination. Phase 0 ship speed matters for the broader vacuum; the narrower intersection remains defensible longer.
 
 ---
 
@@ -127,8 +136,12 @@ Full tool contracts: see brainstorming session archive. Each returns a response 
 
 ### Profile-defining choices
 
-**1. Tool packaging: Code Execution when supported, vanilla-schema fallback when not.**
-For clients that implement Anthropic's Code Execution with MCP pattern (Claude Code, Claude Desktop): tools ship as TypeScript modules in a well-known directory. Agents discover the tool set by reading the directory and compose calls as code. **Measured impact on supporting clients: ~98% context reduction.** For clients that don't advertise code-execution support (Cursor, Windsurf, Zed, Codex): vanilla MCP `listTools` / `callTool` with full JSON Schema. Client advertises capabilities at `initialize` time; server picks the best path.
+**1. Tool packaging: vanilla-schema universally in Phase 0; Code Execution added in Phase 1.**
+Phase 0 ships **vanilla MCP `listTools` / `callTool` with full JSON Schema for every client.** All 7 tools are exposed this way — Claude Code, Cursor, Windsurf, Zed, Codex all get identical functionality. The discovery manifest advertises `"codeExecution": false` until Phase 1.
+
+Phase 1 adds **Code Execution with MCP** for clients that implement Anthropic's Nov 2025 pattern (Claude Code, Claude Desktop). Tools ship as TypeScript modules in a well-known directory — agents discover the tool set by reading the directory and compose calls as code. **Measured impact on supporting clients once shipped: ~98% context reduction.** Non-Code-Execution clients continue using the vanilla-schema path from Phase 0. Client advertises capabilities at `initialize` time; server picks the best path.
+
+Why this phasing: Code Execution requires a Rust-struct-to-TypeScript-module codegen pipeline (Specta/ts-rs pattern) that doesn't exist in the codebase today. Building it is ~500 LOC of its own workstream; shipping it alongside the Phase 0 MCP server adds 1–2 weeks. Defer, ship vanilla universally first, add Code Execution when its codegen lands.
 
 **2. Long operations: SEP-1686 Tasks with capability negotiation.**
 Cold-start `architectural_context` and `shape_diff` emit Task handles to Task-aware clients with progress events, cancellation, and `retry_after_ms`. Task-unaware clients get a synchronous response — slower (the long operation blocks), but correct.
@@ -159,13 +172,17 @@ Every tool response carries a typed `error` field with `code`, `message`, `retry
 
 ### Fallback matrix
 
+Phase 0 ships vanilla-schema universally; Phase 1 activates Code Execution on supporting clients.
+
 | Capability | Claude Code | Cursor / Windsurf | Zed / JetBrains | Arbitrary MCP |
 |---|---|---|---|---|
-| Code Execution | ✓ | fallback to schema | fallback to schema | fallback to schema |
+| Code Execution (Phase 1) | ✓ | fallback to schema | fallback to schema | fallback to schema |
 | Tasks / progress | ✓ | fallback to sync | ✓ / ✓ | fallback to sync |
 | Structured errors | ✓ | ✓ (reads `message`) | ✓ | ✓ (reads `message`) |
 | Diff content type | ✓ | renders as text | ✓ (native ACP) | renders as text |
 | SARIF on request | ✓ | ✓ (opt-in) | ✓ | ✓ |
+
+In Phase 0, the "Code Execution" row reads "all clients use vanilla schema" — every client gets the same treatment. Phase 1 flips the top-left cell once the TypeScript codegen pipeline ships.
 
 ---
 
@@ -206,6 +223,20 @@ Details
 
 **"Last run" definition:** most recent successful analyze keyed by `(repo canonical path, config fingerprint, binary version)`. If any changed, delta line is suppressed; header prints `first run`.
 
+**Failure modes in the narrative** — what the user sees when facts are unavailable:
+
+```
+Shape
+  OrderProcessor is on 47% of payment-flow call paths
+  (src/order/processor.rs:42).
+
+  Bus factor: data unavailable — repo has no git history.
+  Co-change: insufficient data — <50 commits in window.
+  Community placement: disabled — <500 functions (unstable).
+```
+
+Each unavailable fact renders as a single line naming the category + the reason, drawn from the `FactSet::Disabled { reason }` or `InsufficientData { reason }` variants. Never silently omitted. Agents reading the JSON form see the same `availability` field (Section 3).
+
 ### Command surface
 
 | Command | v1 behavior |
@@ -213,8 +244,36 @@ Details
 | `analyze` (default) | New narrative output. `--all` shows full detector-findings table + every secondary fact category. Existing `--format html/json/sarif/markdown` unchanged. |
 | `findings` | Unchanged. Full detector output, severity filtering, pagination. |
 | `diff <ref>` | Unchanged. Findings-diff against a ref. |
-| `show <fact> [target]` (new) | Verb-first drill-into-fact: `show bottleneck <file>`, `show blast-radius <fn>`, `show cycles`, `show bus-factor`, `show hotspots`, `show couplings`. Mirrors MCP tools — same query, different renderer. |
+| `show <fact> [target]` (new) | Verb-first drill-into-fact: `show bottleneck <file>`, `show blast-radius <fn>`, `show cycles`, `show bus-factor`, `show hotspots`, `show couplings`. Six subcommands, one per hero fact category. |
 | `stats`, `watch`, `fix`, `init`, `doctor`, `benchmark`, `debt`, `calibrate`, `clean`, `feedback`, `train`, `graph`, `status`, `config`, `version` | Unchanged. |
+
+**CLI ↔ MCP tool mapping — explicit:**
+
+| MCP tool | CLI equivalent | Notes |
+|---|---|---|
+| `architectural_context` | `show bottleneck`, `show hotspots` (depending on target) | Context query; humans drill into specific fact categories |
+| `blast_radius` | `show blast-radius` | 1:1 |
+| `cycle_check` | `show cycles` | 1:1 (humans list; agents query one edge) |
+| `query_facts` | `findings` + `show <fact>` | Split across two human commands — findings list vs. architectural drill-ins |
+| `shape_diff` | `diff <ref>` | Existing command (findings-diff); shape_diff adds graph-shape delta, deferred to Phase 1 CLI work |
+| `suggest_module` | *no CLI form* | Agent-only. Humans don't typically ask "where should I put this?" as a one-shot query; `show hotspots` surfaces the mirror question. |
+| `explain` | Rendered inline in narrative + `show <fact>` output | Humans get explanation prose by default; agents fetch it structured |
+
+Seven MCP tools, six `show` subcommands. Missing mirror is `suggest_module` (intentionally agent-only) and `explain` (humans get it inline, not as a dedicated subcommand). Documented here so the asymmetry doesn't surprise.
+
+### Backward compatibility — this is a v2.0.0 bump
+
+The default `analyze` output shape changes in Phase 0: prior releases printed a findings-oriented summary; the new default is the four-section narrative above. **Existing CI pipelines, scripts, or automation parsing `repotoire analyze` stdout will break.** The spec is explicit: Phase 0 ships as **repotoire v2.0.0** with a breaking-change changelog entry.
+
+Mitigation paths for existing users:
+
+- `--format json` unchanged in shape other than the `ReportFacts` additions (Section 2). JSON consumers keep working.
+- `--format sarif` unchanged. CI uploading to GitHub Code Scanning keeps working.
+- `--quiet` now prints `<grade> <score>` (one line) — documented as the machine-friendly short form. Scripts that need only a score/grade can standardize on this.
+- A `--legacy-text` flag is available for one minor-version cycle (v2.1.x) that emits the pre-narrative text format verbatim, for scripts that can't migrate immediately. Removed in v2.2.0 with ≥ 3 months of prior deprecation warning.
+- Migration note in the release CHANGELOG + README section named "Upgrading from v1.x" walking through the changes.
+
+Anyone pinning `repotoire@1` in their CI keeps the old behavior until they opt into v2 explicitly.
 
 ### Unifying with existing ReportContext pipeline
 
@@ -225,7 +284,7 @@ The HTML reporter already uses `ReportContext { GraphData, GitData, FindingSnipp
 - `--severity`, `--top`, `--page`, `--per-page`: still work on `findings` and `--all`; don't affect default narrative (fixed 3–5 shape items).
 - `--skip-detector`, `--all-detectors`, `--min-confidence`, `--max-files`: unchanged.
 - **`--fail-on` keeps working.** Affects exit code when flagged findings are present. Does not change what the narrative prints.
-- `--format {text|json|html|sarif|markdown}`: unchanged. JSON output is the `ReportFacts` struct serialized — **identical shape to what an agent gets from the MCP `architectural_overview` tool.** Zero divergence.
+- `--format {text|json|html|sarif|markdown}`: unchanged. JSON output is the `ReportFacts` struct serialized — **identical shape to what an agent gets from the MCP `architectural_context` tool with `include_neighbors=true` + top-N `query_facts` calls.** Zero divergence across channels.
 - `--all`: safety valve. Narrative + full detector-findings table + every secondary fact category.
 - `--quiet` / `-q`: **one line, `<grade> <score>`** (e.g. `B 82`). For scripts: `VAR=$(repotoire analyze --quiet)`.
 
@@ -300,6 +359,19 @@ v1 ships:
 
 **No surface (MCP server, LSP server, watch mode) emits telemetry events unless the user explicitly opted in** via `config telemetry on`. Privacy-first by default.
 
+### Security threat model
+
+MCP servers face a threat class agents are particularly exposed to: **prompt injection via malicious source code.** An attacker-controlled codebase can be crafted so that repotoire's output — while technically correct on its own terms — misleads an agent into wrong conclusions. Example: a codebase engineered so that a critical function appears as a leaf node (no `blast_radius`) when real runtime behavior routes millions of requests through it.
+
+Mitigation is **not a technical fix** (repotoire can't outrun all adversarial AST shapes). It's guidance:
+
+- Agents must treat repotoire facts as **advisory, not authoritative**. Facts are derived from structural analysis and may be blind to semantic intent, reflection, dynamic dispatch, runtime code generation.
+- The profile's `explain` tool includes a `confidence: f64` field (Section 3) agents should respect. Low confidence → human review loop.
+- For high-stakes changes (payment, auth, crypto): never rely on `blast_radius` or `architectural_context` alone. Human review is load-bearing.
+- Documentation must state this plainly in the README *Security* section and in every `explain` response's trailing prose.
+
+Additional threat: **cache poisoning.** Cache files in `~/.cache/repotoire/` are trusted on read. A malicious process with write access could insert fake findings. Mitigation: cache files are content-hash keyed (so external tampering invalidates them), but corrupted-deserialize paths in `CachedBlame`/`CachedParseResult` must fail closed (return `InsufficientData`, not malformed results). Verified as part of Phase 0 testing.
+
 ### Binary distribution
 
 Priority order:
@@ -318,27 +390,33 @@ Four phases, calendar-flexible, gated on adoption signals. Each ends with a visi
 
 **Baseline:** current `main` ships Round 1 + Round 2 + DashMap perf work — cold 5.0s, warm 0.055s on 93k LOC, 1848 tests passing, 18 commits landed. **Phase 0 is net-new work on top of this; not a rewrite.**
 
-### Phase 0 — Ship the core (shipping range 6–12 weeks, calendar-flexible)
+### Phase 0 — Ship the core (shipping range 10–14 weeks, calendar-flexible)
 
 Observable outcome: `cargo binstall repotoire` and `repotoire mcp serve` work end-to-end; default CLI output is the four-section narrative.
+
+**Timeline realism:** ~9 weeks of focused engineering effort for a solo developer: ReportFacts refactor (~200 call sites), narrative CLI, 6 `show` subcommands, 7-tool MCP server on vanilla schema, conformance suite, README rewrite. With ongoing maintenance and inevitable discovery work: **10–14 weeks calendar is honest; 6 weeks is not.**
 
 **Explicit Phase 0 policy:** no new detectors added. Consolidation or removal only. Detector count frozen at 110 until Phase 3.
 
 **In scope:**
 - `ReportContext → ReportFacts` refactor; all 5 reporters migrate.
-- Narrative CLI output per Section 4 as `analyze`'s default.
-- `repotoire show <fact> [target]` subcommands (6 new verbs).
-- `repotoire mcp serve` speaking Code-Analysis MCP Profile v1.
-- `.well-known/mcp` discovery manifest.
+- Narrative CLI output per Section 4 as `analyze`'s default (with `--legacy-text` opt-out for one minor-version cycle).
+- `repotoire show <fact> [target]` subcommands (6 new verbs; 1:1 mapping to hero fact categories).
+- `repotoire mcp serve` speaking Code-Analysis MCP Profile v1 — **vanilla-schema only in Phase 0**; Code Execution packaging deferred to Phase 1.
+- `.well-known/mcp` discovery manifest advertising `codeExecution: false`.
 - Profile conformance suite v1: 5–10 golden tests.
+- **Narrative snapshot tests** — every hero fact category gets one golden-rendered narrative block tested against expected text.
+- **Performance regression CI** — cargo-bench benchmark runs on every PR; merge blocked if cold-start >6.5s or warm-start >100ms on the 93k-LOC self-analysis fixture.
 - `repotoire mcp install` auto-configures `.mcp.json` for Claude Code / Cursor / Windsurf.
 - README rewrite opening with agent-task demo.
+- `CONTRIBUTING.md` + brief developer-onboarding docs (setup, testing workflow, how to file a good bug report).
+- Docs landing page (one-pager) + tool-contract reference (~6–10 pages) + one worked MCP-call example. Host on GitHub Pages.
 
-**Phase 0.5 (one-day fix):** optimize `rust-unwrap-without-context` detector (measured 2.3s of 2.4s detect stage). Target <500ms. Cold-start improvement: ~500ms.
+**Phase 0.5 (one- to three-day fix, not strictly one day):** profile + optimize `rust-unwrap-without-context` detector (measured 2.3s of 2.4s detect stage). Target <500ms. Realistic effort once `cargo flamegraph` pinpoints the hot path; don't promise one day without the profile data.
 
-**Success signal:** dogfoods on 93k-LOC codebase + verified runs on 3 diverse external repos (flask, ripgrep, postgres-rs). No crashes. Conformance suite green.
+**Success signal:** dogfoods on 93k-LOC codebase + verified runs on 3 diverse external repos (flask, ripgrep, postgres-rs). No crashes. Conformance suite + narrative snapshots + perf-regression CI all green.
 
-**Deferred:** LSP server, daemon mode, WASM plugins, Homebrew, apt repos.
+**Deferred:** LSP server, daemon mode, WASM plugins, Code Execution with MCP, Homebrew, apt repos, i18n, operational metrics endpoint.
 
 ### Phase 1 — LSP + editor adoption
 
@@ -352,6 +430,8 @@ Observable outcome: inline squiggles + architectural-context hover across VS Cod
 - Navigation-only code actions.
 
 **Success signal:** **first external bug report from someone who isn't you or a known collaborator.** Install counts are lottery tickets; an organic bug report is the real "it escaped the builder" signal.
+
+**Quantitative pivot trigger (hard rule):** if **90 days post-Phase-0-launch** yield *both* zero organic bug reports AND zero unprompted MCP-registry / HN / Reddit / blog cross-references, the agent-first positioning bet (Section 1) gets reopened *before* Phase 1 engineering starts. Slow adoption is acceptable; invisible adoption isn't — it's a signal the positioning itself is wrong, not that engineering needs to push harder. Specifically: no more than 4 weeks of Phase 1 work happens before this check runs; if signals are absent, stop and reassess Section 1 rather than compound the bet.
 
 ### Phase 2 — Plugin extensibility + enterprise polish
 
@@ -438,19 +518,25 @@ Agent-ecosystem distribution is the central bet. Everything else is downstream o
 - Daemon: position as "the agent's codebase expert" for team-scale IDE use.
 - Benchmark leaderboard: publish scoring of 56 famous OSS repos; rolling update.
 
+### License
+
+**repotoire is licensed MIT.** Rationale: permissive, industry-standard for Rust dev tooling (ripgrep, bat, fd, tokio, serde all MIT/Apache dual-licensed or MIT-only), enterprise-compatibility-friendly, no viral obligations on users embedding or forking. Dual-license under Apache-2.0 if/when a contributor requires it for patent-grant reasons — common Rust-ecosystem move. LICENSE file ships from Phase 0.
+
 ### Trust-covenant public commitments
 
-- **Public commitment in README and pinned GitHub discussion:** graph detectors, SARIF output, MCP profile, LSP server — **stay OSS forever**.
+- **Public commitment in README and pinned GitHub discussion:** graph detectors, SARIF output, MCP profile, LSP server — **stay OSS forever under MIT**.
 - **Monetization, if any, comes from above the line:** hosted SaaS dashboard, benchmark infrastructure, cross-repo hosted service. Clearly announced in advance; never retroactive.
 - **Every core perf improvement lands in OSS binary first.** Hosted stuff ships from same commits.
 
-Cultural commitment, not legal. Publicly stating it has teeth — if broken, fork happens in 48 hours.
+Cultural commitment, not legal. Publicly stating it has teeth — if broken, fork happens in 48 hours. Acknowledged: Elastic and HashiCorp both made similar cultural commitments before license changes. The forcing function here isn't a legal contract but the MIT license itself — once shipped MIT, every release tag is permanently usable by anyone regardless of future repository-level license changes.
 
 ### Mandatory second committer
 
 Biggest risk: solo-author bus factor. Mitigation: recruit one committer within 6 months of Phase 1.
 
 **Recruitment shape:** not a job listing. Find someone who files a genuinely good bug report or sends a thoughtful PR in Phase 0 or 1, offer commit access + design input. Pair programming, joint design docs. Goal: **one other human who would keep the project alive if primary author vanished for a quarter.**
+
+**Honest acknowledgment of the recruitment circularity:** recruiting via organic PRs assumes adoption-driven contributor flow. If Phase 1 adoption is slow enough that the second committer *needs* to appear urgently, it's also slow enough that organic contributor flow is thin. The mitigation isn't cost-free; it depends on the same adoption signal Section 6 hinges on. If 6 months post-Phase-1 pass with no candidate, the options narrow to: (a) actively recruit via direct outreach to engineers interested in the category, (b) pay a part-time contractor, or (c) accept the bus-factor-1 risk and document the custom CSR-graph internals so an eventual successor has a runway. No pretending this is a solved problem.
 
 ### What explicitly does NOT happen
 
