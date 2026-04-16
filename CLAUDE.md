@@ -4,7 +4,7 @@ This file provides essential guidance to Claude Code (claude.ai/code) and develo
 
 ## Project Overview
 
-Repotoire is a graph-powered code health platform that analyzes codebases using knowledge graphs to detect code smells, architectural issues, and technical debt. Unlike traditional linters that examine files in isolation, Repotoire builds a **petgraph in-memory graph with redb persistence** combining:
+Repotoire is a graph-powered code health platform that analyzes codebases using knowledge graphs to detect code smells, architectural issues, and technical debt. Unlike traditional linters that examine files in isolation, Repotoire builds a **hand-rolled CSR (Compressed Sparse Row) in-memory graph with optional binary persistence** combining:
 - **Structural analysis** (tree-sitter AST parsing across 9 languages)
 - **Relational patterns** (graph algorithms via petgraph)
 
@@ -125,7 +125,7 @@ During **Freeze**, `GraphPrimitives::compute()` runs Phase A algorithms (dominat
 
 1. **Parsers** (`repotoire-cli/src/parsers/`): 9 tree-sitter parsers — Python, TypeScript/JavaScript (with TSX), Rust, Go, Java, C#, C, C++, plus a lightweight fallback parser. Cross-language nesting depth enrichment via brace/indent counting. 2MB file size guardrail. Header file (`.h`) dispatch heuristic for C vs C++.
 
-2. **Graph Layer** (`repotoire-cli/src/graph/`): Two-phase graph: `GraphBuilder` (mutable, used during parse/build/git-enrich) → `CodeGraph` (frozen, immutable, O(1) indexed queries via pre-built `GraphIndexes`). `GraphStore` is legacy/test-only. String interning via `lasso` (`ThreadedRodeo`) for ~66% memory savings. Compact node types (`CompactNode` at ~32 bytes vs ~200 bytes for `CodeNode`) defined in `interner.rs` for future large-repo support. `GraphQuery` trait (24 methods) for backend-agnostic access. Fan-in/fan-out metrics, Tarjan SCC cycle detection. `GraphPrimitives` (computed once during freeze) provides pre-computed dominator trees, articulation points, PageRank, betweenness centrality, call-graph SCCs, weighted PageRank, weighted betweenness, and Louvain community detection — all O(1) lookups from detectors.
+2. **Graph Layer** (`repotoire-cli/src/graph/`): Two-phase graph: `GraphBuilder` (mutable, used during parse/build/git-enrich) → `CodeGraph` (frozen, immutable, O(1) indexed queries via pre-built `GraphIndexes`). Storage is a hand-rolled CSR (Compressed Sparse Row) layout in `graph/csr.rs` — no external graph crate dependency. BFS vertex reordering at freeze time improves cache locality. Hand-rolled string interning in `graph/interner.rs` — append-only `Vec<String>` chunks with `RwLock` + hash-chained keys (no `lasso` or other external interner). `GraphQuery` trait (26 methods) for backend-agnostic access. Fan-in/fan-out metrics, Tarjan SCC cycle detection. `GraphPrimitives` (computed once during freeze) provides pre-computed dominator trees, articulation points, PageRank, betweenness centrality, call-graph SCCs, weighted PageRank, weighted betweenness, and Louvain community detection — all O(1) lookups from detectors.
 
 3. **Engine** (`repotoire-cli/src/engine/`): `AnalysisEngine` is the primary analysis orchestrator. Runs 8 stages in order: collect, parse, graph, git_enrich, calibrate, detect, postprocess, score. Returns `AnalysisResult` (findings + score + stats). Stateful: supports cold, cached, and incremental modes. Persistence via `save()`/`load()` for cross-process incremental analysis. `AnalysisConfig` controls analysis parameters; `OutputOptions` handles presentation. Stage implementations live in `engine/stages/`.
 
@@ -180,10 +180,11 @@ Grouped by category:
 
 ## Design Decisions (Key Points)
 
-### Why petgraph + redb?
-- **petgraph**: In-memory directed graph with mature algorithm library (SCC, BFS, DFS)
-- **redb**: Embedded ACID key-value store — zero network overhead, no external database to manage
-- Together they provide fast in-process graph analysis with optional on-disk persistence
+### Why a hand-rolled CSR graph?
+- **CSR (Compressed Sparse Row)**: contiguous edge arrays + per-node offsets — cache-friendly, O(1) neighbor lookup, dense memory layout suitable for whole-graph scans
+- **No external graph crate**: removes a large dependency surface and gives full control over layout, serialization, and algorithm specialization (Tarjan SCC, dominator tree, PageRank, betweenness, Louvain — all in-tree)
+- **BFS vertex reordering at freeze time**: improves spatial locality for traversal-heavy detectors
+- **Binary persistence** via a hand-rolled format (no bitcode/serde dependency for the graph)
 - No Docker, no Redis, no connection pooling — just a single binary
 
 ### Why Pure Rust Detectors?
@@ -356,13 +357,12 @@ cargo test detectors::god_class
 ## Dependencies
 
 ### Core (from Cargo.toml)
-- **petgraph** (0.7): In-memory directed graph
-- **redb** (2.4): Embedded ACID key-value store for graph persistence
 - **clap** (4): CLI framework with derive macros
 - **serde** / **serde_json** (1): Serialization
 - **rayon** (1.11): Data parallelism for detectors and parsing
 - **anyhow** / **thiserror**: Error handling
-- **lasso** (0.7.3): Thread-safe string interning
+
+Graph storage and string interning are hand-rolled in `src/graph/csr.rs` and `src/graph/interner.rs` — no `petgraph`, `lasso`, or `redb` dependencies.
 
 ### Parsing
 - **tree-sitter** (0.25): Incremental parsing framework
@@ -396,9 +396,8 @@ cargo test detectors::god_class
 ## Performance
 
 ### Memory Usage
-- **In-memory graph**: petgraph holds all nodes and edges in memory. No external database needed.
-- **Standard backend**: ~200 bytes per node
-- **Compact nodes**: ~32 bytes per node (via string interning with lasso, defined in `interner.rs` for future large-repo support)
+- **In-memory graph**: CSR (Compressed Sparse Row) layout holds all nodes and edges in contiguous arrays. No external database needed.
+- **String interning**: hand-rolled append-only interner in `graph/interner.rs` — `Vec<String>` chunks, `RwLock` for concurrent access, stable `&str` references for the lifetime of the interner
 - **Parser guardrail**: Files >2MB are silently skipped to prevent memory/time issues
 
 ### Parallelism
@@ -419,11 +418,11 @@ cargo test detectors::god_class
 
 ## References
 
-- [petgraph Documentation](https://docs.rs/petgraph/)
-- [redb Documentation](https://docs.rs/redb/)
 - [Tree-sitter](https://tree-sitter.github.io/)
 - [clap Framework](https://docs.rs/clap/)
 - [rayon (Data Parallelism)](https://docs.rs/rayon/)
+- CSR graph layout: `repotoire-cli/src/graph/csr.rs`
+- Hand-rolled interner: `repotoire-cli/src/graph/interner.rs`
 
 ---
 
