@@ -97,6 +97,19 @@ pub fn run_engine(
         tracing::info!("Removed legacy cache directory: {}", legacy.display());
     }
 
+    // Touch `.last_used` in THIS repo's real cache dir so prune_stale_caches on
+    // the next run won't nuke it. Previously the only writer of this marker was
+    // IncrementalCache::touch_last_used, which points at a scratch dir under
+    // /tmp — so the marker never landed in the dir prune actually scans, and
+    // warm runs did no better than cold because the whole cache kept getting
+    // pruned on startup.
+    if let Ok(dir) = crate::cache::paths::ensure_cache_dir(&repo_path_canon) {
+        let _ = std::fs::write(
+            dir.join(".last_used"),
+            chrono::Utc::now().to_rfc3339().as_bytes(),
+        );
+    }
+
     // Try to load a previously saved session for incremental analysis;
     // fall back to a fresh engine on any failure (version mismatch, missing files, etc.)
     let canon_for_session = repo_path_canon;
