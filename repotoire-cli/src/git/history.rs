@@ -209,6 +209,51 @@ impl GitHistory {
         Ok(commits)
     }
 
+    /// Fast-path commit walker for consumers that only need `(timestamp, files_changed)`.
+    ///
+    /// The full `get_recent_commits` path invokes `extract_commit_info`, which
+    /// fetches blobs and runs Myers diff for every modified file in every
+    /// commit just to count insertions/deletions. The co-change matrix throws
+    /// those line counts away — it only reads `files_changed`. Skipping the
+    /// stats work saves a blob fetch + Myers diff per modified file per commit.
+    /// On a 2000-commit repo with ~5 modified files per commit that's roughly
+    /// 10k blob fetches + diffs avoided.
+    pub fn get_recent_commits_paths_only(
+        &self,
+        max_commits: usize,
+    ) -> Result<Vec<(DateTime<Utc>, Vec<String>)>> {
+        let mut revwalk = RevWalk::new(&self.repo);
+        revwalk.push_head()?;
+
+        let mut out = Vec::with_capacity(max_commits.min(8_192));
+
+        for oid_result in revwalk {
+            if out.len() >= max_commits {
+                break;
+            }
+            let oid = oid_result?;
+            let commit = self.repo.find_commit(&oid)?;
+
+            let parent_tree_oid = if let Some(parent_oid) = commit.parents.first() {
+                self.repo.find_commit(parent_oid)?.tree_oid
+            } else {
+                crate::git::raw::Oid::ZERO
+            };
+
+            // Tree-only diff — no blob fetches, no Myers.
+            let deltas = diff_trees(&self.repo, &parent_tree_oid, &commit.tree_oid, &[])?;
+            let files: Vec<String> = deltas.into_iter().map(|d| d.new_path).collect();
+
+            let ts_str = format_epoch_time(commit.committer_time);
+            let Ok(ts_fixed) = DateTime::parse_from_rfc3339(&ts_str) else {
+                continue;
+            };
+            out.push((ts_fixed.with_timezone(&Utc), files));
+        }
+
+        Ok(out)
+    }
+
     /// Calculate churn metrics for a file.
     ///
     /// # Arguments

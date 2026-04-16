@@ -336,8 +336,24 @@ pub fn compute_from_repo(
     use crate::git::history::GitHistory;
 
     let history = GitHistory::open(repo_path)?;
-    let raw_commits = history.get_recent_commits(config.max_commits, None)?;
+    // Fast-path: skip blob fetches and line-count diffs that co-change throws
+    // away. Only the `(timestamp, files_changed)` tuple matters here.
+    let commits = history.get_recent_commits_paths_only(config.max_commits)?;
 
+    if commits.len() <= 1 {
+        return Ok(CoChangeMatrix::empty());
+    }
+
+    Ok(CoChangeMatrix::from_commits(&commits, config, Utc::now()))
+}
+
+/// Deprecated legacy path — kept for any callers that already have CommitInfo
+/// lists and don't want to re-walk. New code should call `compute_from_repo`.
+#[allow(dead_code)]
+fn compute_from_commit_info(
+    raw_commits: Vec<crate::git::history::CommitInfo>,
+    config: &CoChangeConfig,
+) -> CoChangeMatrix {
     let now = Utc::now();
     let commits: Vec<(DateTime<Utc>, Vec<String>)> = raw_commits
         .into_iter()
@@ -350,13 +366,10 @@ pub fn compute_from_repo(
         .collect();
 
     if commits.len() <= 1 {
-        tracing::debug!(
-            "Co-change analysis requires git history depth > 1. Weighted analyses will be empty."
-        );
-        return Ok(CoChangeMatrix::empty());
+        return CoChangeMatrix::empty();
     }
 
-    Ok(CoChangeMatrix::from_commits(&commits, config, now))
+    CoChangeMatrix::from_commits(&commits, config, now)
 }
 
 // ---------------------------------------------------------------------------
