@@ -58,13 +58,15 @@ The spec mandates this is a v2.0.0 release (breaking-change default output + new
 
 - [ ] **Step 1: Bump the crate version**
 
-In `repotoire-cli/Cargo.toml`, change the `[package]` `version` from its current `1.x.y` to `2.0.0-pre.1`. The `-pre.1` suffix keeps the crate pre-release on crates.io until Phase 0a ship; the final `2.0.0` publish happens after Task 28 passes.
+In `repotoire-cli/Cargo.toml`, change the `[package]` `version`. Current baseline is **`0.6.0`** (verify with `grep '^version' repotoire-cli/Cargo.toml` before editing). Bump to `2.0.0-pre.1`:
 
 ```toml
 [package]
 name = "repotoire-cli"
 version = "2.0.0-pre.1"
 ```
+
+Repotoire has been on the 0.x track; Phase 0a is the first 2.x release because the design spec frames the narrative-default / fact-layer ship as a major identity change, not a 0.6 → 0.7 minor. Jumping directly from 0.6.0 → 2.0.0-pre.1 (skipping 1.x entirely) is unusual but honest — we've never had a 1.0, and the 2.x line signals "the agent-first product," distinct from the 0.x "code-health scanner" era. The `-pre.1` suffix keeps the crate pre-release on crates.io until Phase 0a ship; the final `2.0.0` publish happens after Task 28 passes.
 
 - [ ] **Step 2: Seed CHANGELOG.md**
 
@@ -708,12 +710,12 @@ pub fn synthesize_stage(input: SynthesizeInput<'_>) -> ReportFacts {
 }
 
 fn synthesize_bottlenecks(graph: &CodeGraph) -> FactSet<Bottleneck> {
-    let primitives = match graph.primitives() {
-        Some(p) => p,
-        None => return FactSet::InsufficientData {
-            reason: "graph primitives not computed".into()
-        },
-    };
+    // `graph.primitives()` returns `&GraphPrimitives` directly (not Option).
+    // If no primitives exist on this graph — which shouldn't happen for a
+    // freshly-frozen graph but can occur when synthesize runs on a stub
+    // cached graph — the fields below will be empty and we handle that as
+    // `Computed(vec![])`, not InsufficientData.
+    let primitives = graph.primitives();
 
     // `betweenness` is a direct field on GraphPrimitives
     // (`HashMap<NodeIndex, f64>`), not a method — no parens.
@@ -812,9 +814,7 @@ fn synthesize_bus_factor_risks(
 }
 
 fn synthesize_community_misplacements(graph: &CodeGraph) -> FactSet<CommunityMisplacement> {
-    let Some(p) = graph.primitives() else {
-        return FactSet::InsufficientData { reason: "graph primitives missing".into() };
-    };
+    let p = graph.primitives(); // direct ref, no Option
     // `community` is the Louvain assignment map (`HashMap<NodeIndex, usize>`),
     // a direct field on GraphPrimitives — not a method.
     if p.community.is_empty() {
@@ -826,9 +826,7 @@ fn synthesize_community_misplacements(graph: &CodeGraph) -> FactSet<CommunityMis
 }
 
 fn synthesize_cycles(graph: &CodeGraph) -> FactSet<Cycle> {
-    let Some(p) = graph.primitives() else {
-        return FactSet::InsufficientData { reason: "graph primitives missing".into() };
-    };
+    let p = graph.primitives(); // direct ref, no Option
     // `call_cycles` is a direct field (`Vec<Vec<NodeIndex>>`), not a method.
     let interner = graph.interner();
     let cycles: Vec<Cycle> = p.call_cycles
@@ -1009,29 +1007,78 @@ Same pattern: after the incremental path computes its merged score + findings, i
 
 - [ ] **Step 6: Wire into the fast/cached path (critical — this is the warm-run case)**
 
-Find the early-return branch in `analyze()` that reads `last_findings.json` + cached score and short-circuits. Compute facts there too by loading them from the **companion** cache file (`last_facts.json`, written in Task 14). Example shape:
+Find the early-return branch in `analyze()`. Use this command to locate it precisely:
+
+```
+rg -n 'nothing_changed|Cached analysis results|if let Some\(ref state\)' repotoire-cli/src/engine/mod.rs
+```
+
+The fast path lives inside an `if changes.nothing_changed() { if let Some(ref state) = self.state { return Ok(...) } }` block (approximately lines 280–300 on current main, but verify — the exact line numbers drift with every commit).
+
+**Graph availability on the cached path is NOT guaranteed.** The fast return reads `last_findings.json` + `last_health.json` from engine state; `state.graph` may or may not be populated depending on whether a prior cold run persisted the graph via `engine::save()`. Handle both branches:
 
 ```rust
 // Inside the cached-return branch:
-let facts = if let Ok(bytes) = std::fs::read(crate::cache::paths::cache_dir(repo_path).join("last_facts.json")) {
-    serde_json::from_slice(&bytes).unwrap_or_else(|_| {
-        // Stale/corrupted cache: regenerate synchronously from cached graph + findings.
-        build_facts(
-            &cached_graph, &cached_score, &cached_findings,
+let facts_cache_path = crate::cache::paths::cache_dir(repo_path).join("last_facts.json");
+
+let facts = match std::fs::read(&facts_cache_path) {
+    // 1. Prior run persisted facts → use them verbatim.
+    Ok(bytes) => serde_json::from_slice::<crate::fact_layer::ReportFacts>(&bytes)
+        .unwrap_or_else(|_| disabled_facts(repo_path, config_fingerprint,
+                                           "cached facts corrupted")),
+
+    // 2. No cached facts → fall back to either synthesizing from the cached
+    // graph (if present) or returning a fully-disabled ReportFacts so the
+    // narrative renders cleanly instead of panicking.
+    Err(_) => match state.graph.as_ref() {
+        Some(graph) => build_facts(
+            graph, &cached_score, &cached_findings,
             None, None,
             repo_path, config_fingerprint, None,
-        )
-    })
-} else {
-    build_facts(
-        &cached_graph, &cached_score, &cached_findings,
-        None, None,
-        repo_path, config_fingerprint, None,
-    )
+        ),
+        None => disabled_facts(repo_path, config_fingerprint,
+                               "cached graph not persisted"),
+    },
 };
 ```
 
-If no cached graph is available on the fast path (e.g. pure findings-only cache), synthesize on an empty graph so `FactSet::InsufficientData { reason: "no cached graph" }` renders honestly rather than crashing.
+Where `disabled_facts` produces a `ReportFacts` with every category as `FactSet::Disabled { reason }` and a minimal `ReportMetadata`:
+
+```rust
+fn disabled_facts(
+    repo_path: &std::path::Path,
+    config_fingerprint: u64,
+    reason: &str,
+) -> crate::fact_layer::ReportFacts {
+    use crate::fact_layer::{FactSet, ReportFacts, ReportMetadata};
+    let disabled = || FactSet::Disabled { reason: reason.into() };
+    ReportFacts {
+        score: Default::default(), // HealthReport's Default; add if not present.
+        bottlenecks: disabled(),
+        hotspots: disabled(),
+        hidden_couplings: disabled(),
+        bus_factor_risks: disabled(),
+        community_misplacements: disabled(),
+        cycles: disabled(),
+        pagerank_drifts: disabled(),
+        findings: FactSet::Computed(
+            cached_findings.iter().map(|f| crate::fact_layer::FindingRef { finding: f.clone() }).collect()
+        ),
+        metadata: ReportMetadata {
+            repo_path: repo_path.to_string_lossy().to_string(),
+            analyzed_at_unix: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0),
+            commit_hash: None,
+            config_fingerprint,
+            binary_version: env!("CARGO_PKG_VERSION").to_string(),
+        },
+    }
+}
+```
+
+If `HealthReport` doesn't yet implement `Default`, `cached_score.clone()` works — it's in scope on the cached-return branch by definition.
 
 - [ ] **Step 7: Run full lib tests**
 
@@ -1762,11 +1809,12 @@ Find the current entry point (likely `pub fn report(...) -> String` or similar).
 
 - [ ] **Step 2: Branch on `facts` presence**
 
-Keep the existing function as the legacy path. Add a new entry point:
+Keep the existing function as the legacy path. Add a new entry point whose signature **already accepts `show_all`** so Task 24 can wire `--all` without renaming the function later:
 
 ```rust
-pub fn report_narrative(
+pub fn report_narrative_full(
     ctx: &crate::reporters::report_context::ReportContext,
+    show_all: bool,
 ) -> String {
     let Some(facts) = ctx.facts.as_ref() else {
         // No facts available → fall through to legacy reporter.
@@ -1774,15 +1822,29 @@ pub fn report_narrative(
     };
 
     let delta = compute_delta(ctx);
-    crate::reporters::narrator::compose_narrative(facts, delta)
+    let mut out = crate::reporters::narrator::compose_narrative(facts, delta);
+    if show_all {
+        // Filled in by Task 24; for now the function accepts the flag but
+        // renders the same narrative regardless. Keeps the signature stable.
+    }
+    out
+}
+
+/// Thin wrapper: the common call-site that doesn't want `--all` expansion.
+pub fn report_narrative(
+    ctx: &crate::reporters::report_context::ReportContext,
+) -> String {
+    report_narrative_full(ctx, false)
 }
 
 fn compute_delta(_ctx: &crate::reporters::report_context::ReportContext) -> Option<crate::reporters::narrator::Delta> {
-    // Loads previous ReportFacts from cache, compares hero-fact counts.
+    // Loads previous ReportFacts from cache, compares hero-fact set membership.
     // Stubbed for now — implemented in Task 14.
     None
 }
 ```
+
+Rationale for the two-function shape: the narrative-rendering entry point needs `show_all` from Task 24 onward, but the analyze CLI and most snapshot tests invoke "no-all" rendering. Defining both now means Task 24 only has to extend the body of `report_narrative_full` — it doesn't have to rename or move anything.
 
 - [ ] **Step 3: Run tests**
 
@@ -1970,7 +2032,6 @@ mod tests {
     use super::*;
     use crate::fact_layer::*;
     use crate::models::{Grade, HealthReport};
-    use tempfile::tempdir;
 
     fn mk_facts(n_bottlenecks: usize, fingerprint: u64) -> ReportFacts {
         ReportFacts {
@@ -2006,17 +2067,121 @@ mod tests {
         }
     }
 
+    // Pure fingerprint-set diff helper — extracted so the delta arithmetic
+    // can be tested without touching the disk-cache layer at all.
+    fn diff_fps(prev: &ReportFacts, curr: &ReportFacts) -> Delta {
+        let prev_fps = collect_fingerprints(prev);
+        let curr_fps = collect_fingerprints(curr);
+        Delta {
+            new_facts: curr_fps.difference(&prev_fps).count() as u32,
+            resolved_facts: prev_fps.difference(&curr_fps).count() as u32,
+        }
+    }
+
     #[test]
-    fn config_fingerprint_mismatch_suppresses_delta() {
-        let dir = tempdir().unwrap();
+    fn identical_sets_yield_zero_delta() {
+        let a = mk_facts(3, 0xAAAA);
+        let b = mk_facts(3, 0xAAAA);
+        let d = diff_fps(&a, &b);
+        assert_eq!(d.new_facts, 0);
+        assert_eq!(d.resolved_facts, 0);
+    }
+
+    #[test]
+    fn growing_set_only_reports_new_facts() {
+        let prev = mk_facts(3, 0xAAAA); // f0, f1, f2
+        let curr = mk_facts(5, 0xAAAA); // f0..f4
+        let d = diff_fps(&prev, &curr);
+        assert_eq!(d.new_facts, 2);
+        assert_eq!(d.resolved_facts, 0);
+    }
+
+    #[test]
+    fn shrinking_set_only_reports_resolved() {
+        let prev = mk_facts(5, 0xAAAA);
+        let curr = mk_facts(2, 0xAAAA);
+        let d = diff_fps(&prev, &curr);
+        assert_eq!(d.new_facts, 0);
+        assert_eq!(d.resolved_facts, 3);
+    }
+
+    #[test]
+    fn swap_reports_both_sides() {
+        // prev has {f0, f1, f2}; current has {f1, f_new}. Expect +1 (f_new
+        // is new), -2 (f0 and f2 are resolved).
         let prev = mk_facts(3, 0xAAAA);
-        persist_current_facts(&prev, dir.path()).unwrap();
-        let curr = mk_facts(5, 0xBBBB);
-        // compute_delta internally reads from cache_dir(dir.path()); skip the
-        // cache-dir wiring for this test — extracted as pure function too:
-        // If we can't easily monkey-patch cache_dir, keep this test as a
-        // placeholder and add integration coverage via CLI invocation.
-        assert!(true);
+        let mut curr = mk_facts(0, 0xAAAA);
+        curr.bottlenecks = FactSet::Computed(vec![
+            Bottleneck {
+                location: CodeLocation::file_only("f1.rs"),
+                symbol_qn: "f1".into(),
+                betweenness_rank: 0, betweenness_value: 0.1, path_coverage: 0.1,
+                incoming_callers: vec![], outgoing_callees: vec![],
+                severity: Severity::Low,
+            },
+            Bottleneck {
+                location: CodeLocation::file_only("f_new.rs"),
+                symbol_qn: "f_new".into(),
+                betweenness_rank: 1, betweenness_value: 0.1, path_coverage: 0.1,
+                incoming_callers: vec![], outgoing_callees: vec![],
+                severity: Severity::Low,
+            },
+        ]);
+        let d = diff_fps(&prev, &curr);
+        assert_eq!(d.new_facts, 1);
+        assert_eq!(d.resolved_facts, 2);
+    }
+
+    #[test]
+    fn fingerprint_mismatch_via_compute_delta_returns_none() {
+        // This test exercises the high-level compute_delta path, which
+        // requires the cache layer. Use a temp cache dir indirectly by
+        // relying on a repo path that has no cache entry: first call
+        // returns None because no prior facts exist.
+        let tmp = std::env::temp_dir().join("phase0a-delta-nocache-test");
+        let _ = std::fs::remove_dir_all(&tmp);
+        let curr = mk_facts(3, 0xBBBB);
+        let d = compute_delta(&curr, &tmp);
+        assert!(d.is_none(), "no prior cache should return None");
+    }
+
+    // Fingerprint-function unit tests — ensure canonicalization stays
+    // stable, because a regression would silently mis-compute deltas.
+    #[test]
+    fn fp_coupling_canonicalizes_pair_order() {
+        let c1 = HiddenCoupling {
+            a: CodeLocation::file_only("a.rs"),
+            b: CodeLocation::file_only("b.rs"),
+            co_change_frequency: 0.9, pair_count: 1, window_days: 90,
+            severity: Severity::Medium,
+        };
+        let c2 = HiddenCoupling {
+            a: CodeLocation::file_only("b.rs"),
+            b: CodeLocation::file_only("a.rs"),
+            ..c1.clone()
+        };
+        assert_eq!(fp_coupling(&c1), fp_coupling(&c2));
+    }
+
+    #[test]
+    fn fp_cycle_canonicalizes_member_order() {
+        let c1 = Cycle {
+            members: vec![
+                CodeLocation::file_only("a.rs"),
+                CodeLocation::file_only("b.rs"),
+                CodeLocation::file_only("c.rs"),
+            ],
+            edge_count: 3, severity: Severity::Medium,
+        };
+        let c2 = Cycle {
+            members: vec![
+                CodeLocation::file_only("b.rs"),
+                CodeLocation::file_only("c.rs"),
+                CodeLocation::file_only("a.rs"),
+            ],
+            ..c1.clone()
+        };
+        assert_eq!(fp_cycle(&c1), fp_cycle(&c2));
     }
 }
 ```
@@ -2293,8 +2458,9 @@ fn load_or_compute_facts(
 ) -> Result<crate::fact_layer::ReportFacts> {
     // v1: run analyze end-to-end each time. Future optimization: reuse
     // the cached session graph if available via engine::load().
-    let engine_opts = crate::engine::AnalysisConfig::default();
-    let mut engine = crate::engine::AnalysisEngine::new(repo_path.to_path_buf(), engine_opts);
+    // Real constructor is `new(&Path, bool) -> Result<Self>`. The bool is
+    // `all_detectors`; default is `false` for the show subcommands.
+    let mut engine = crate::engine::AnalysisEngine::new(repo_path, false)?;
     let result = engine.analyze()?;
     Ok(result.facts)
 }
@@ -2341,10 +2507,8 @@ use std::collections::HashSet;
 use std::path::Path;
 
 pub fn run(repo_path: &Path, target: &str, hops: u8) -> Result<()> {
-    let mut engine = crate::engine::AnalysisEngine::new(
-        repo_path.to_path_buf(),
-        crate::engine::AnalysisConfig::default(),
-    );
+    let mut engine = crate::engine::AnalysisEngine::new(repo_path, false)
+        .context("open analysis engine for blast-radius")?;
     let result = engine.analyze().context("analyze for blast-radius")?;
 
     let graph = result.graph_arc();
@@ -2437,10 +2601,8 @@ use anyhow::{Context, Result};
 use std::path::Path;
 
 pub fn run(repo_path: &Path) -> Result<()> {
-    let mut engine = crate::engine::AnalysisEngine::new(
-        repo_path.to_path_buf(),
-        crate::engine::AnalysisConfig::default(),
-    );
+    let mut engine = crate::engine::AnalysisEngine::new(repo_path, false)
+        .context("open analysis engine for cycles")?;
     let result = engine.analyze().context("analyze for cycles")?;
 
     let fs = &result.facts.cycles;
@@ -2491,10 +2653,8 @@ use anyhow::{Context, Result};
 use std::path::Path;
 
 pub fn run(repo_path: &Path) -> Result<()> {
-    let mut engine = crate::engine::AnalysisEngine::new(
-        repo_path.to_path_buf(),
-        crate::engine::AnalysisConfig::default(),
-    );
+    let mut engine = crate::engine::AnalysisEngine::new(repo_path, false)
+        .context("open analysis engine for bus-factor")?;
     let result = engine.analyze().context("analyze for bus-factor")?;
 
     match &result.facts.bus_factor_risks {
@@ -2545,10 +2705,8 @@ use anyhow::{Context, Result};
 use std::path::Path;
 
 pub fn run(repo_path: &Path) -> Result<()> {
-    let mut engine = crate::engine::AnalysisEngine::new(
-        repo_path.to_path_buf(),
-        crate::engine::AnalysisConfig::default(),
-    );
+    let mut engine = crate::engine::AnalysisEngine::new(repo_path, false)
+        .context("open analysis engine for hotspots")?;
     let result = engine.analyze().context("analyze for hotspots")?;
 
     match &result.facts.hotspots {
@@ -2600,10 +2758,8 @@ use anyhow::{Context, Result};
 use std::path::Path;
 
 pub fn run(repo_path: &Path) -> Result<()> {
-    let mut engine = crate::engine::AnalysisEngine::new(
-        repo_path.to_path_buf(),
-        crate::engine::AnalysisConfig::default(),
-    );
+    let mut engine = crate::engine::AnalysisEngine::new(repo_path, false)
+        .context("open analysis engine for couplings")?;
     let result = engine.analyze().context("analyze for couplings")?;
 
     match &result.facts.hidden_couplings {
@@ -2729,6 +2885,14 @@ git commit -m "feat(analyze): --all expands narrative with findings table + seco
 **Files:**
 - Create: `repotoire-cli/tests/narrative_snapshots.rs`
 - Modify: `repotoire-cli/Cargo.toml` (dev-dep `insta = "1"`)
+
+- [ ] **Step 0: Install `cargo-insta` CLI if missing**
+
+The test harness uses `cargo insta review` for snapshot approval. It's a separate binary, not bundled with `insta` the crate.
+
+```
+command -v cargo-insta || cargo install cargo-insta
+```
 
 - [ ] **Step 1: Add `insta` dev-dependency**
 
@@ -2895,10 +3059,8 @@ fn bench_cold(c: &mut Criterion) {
         b.iter_batched(
             wipe_cache,
             |_| {
-                let mut engine = repotoire::engine::AnalysisEngine::new(
-                    repo_path.clone(),
-                    repotoire::engine::AnalysisConfig::default(),
-                );
+                let mut engine = repotoire::engine::AnalysisEngine::new(&repo_path, false)
+                    .expect("open analysis engine");
                 let _ = engine.analyze();
             },
             criterion::BatchSize::PerIteration,
@@ -2917,17 +3079,16 @@ fn bench_warm(c: &mut Criterion) {
     // invocations hit the warm cache; Criterion samples many iterations
     // and reports the median warm-analyze latency.
     wipe_cache();
-    let _ = repotoire::engine::AnalysisEngine::new(
-        repo_path.clone(),
-        repotoire::engine::AnalysisConfig::default(),
-    ).analyze();
+    {
+        let mut warmup = repotoire::engine::AnalysisEngine::new(&repo_path, false)
+            .expect("open analysis engine for warmup");
+        let _ = warmup.analyze();
+    }
 
     c.bench_function("analyze_warm_93k_loc", |b| {
         b.iter(|| {
-            let mut engine = repotoire::engine::AnalysisEngine::new(
-                repo_path.clone(),
-                repotoire::engine::AnalysisConfig::default(),
-            );
+            let mut engine = repotoire::engine::AnalysisEngine::new(&repo_path, false)
+                .expect("open analysis engine");
             let _ = engine.analyze();
         });
     });
@@ -3010,9 +3171,15 @@ RUST_LOG=repotoire::detectors::runner=debug ./target/release/repotoire analyze .
 
 Expected output: something like `slow:  2327ms  rust-unwrap-without-context`. Record the exact ms.
 
-- [ ] **Step 2: Capture a flamegraph**
+- [ ] **Step 2: Install platform profiling prereqs**
 
-If `cargo flamegraph` is not installed: `cargo install flamegraph`.
+`cargo-flamegraph` shells out to the OS profiler; the OS has to provide it:
+
+- **Linux:** install `linux-tools-generic` (Debian/Ubuntu) or `perf` (Fedora). Also raise `/proc/sys/kernel/perf_event_paranoid` to 1 for the session: `echo 1 | sudo tee /proc/sys/kernel/perf_event_paranoid`.
+- **macOS:** `dtrace` is bundled with macOS but requires Xcode command-line tools: `xcode-select --install`. On Apple Silicon, you may also need `--root` privileges (run the bench under `sudo`).
+- **Windows:** `cargo-flamegraph` relies on `blondie` on Windows; install it via `cargo install blondie`. Expect reduced symbol resolution vs. Linux.
+
+If `cargo flamegraph` itself is not installed: `cargo install flamegraph`.
 
 **Important:** the existing `[profile.release]` in `Cargo.toml` sets `strip = true`, which removes debug symbols and reduces flamegraph frames to bare addresses. Use the dedicated `profiling` profile instead (already present in `Cargo.toml` with `strip = false`, `debug = true`), or temporarily comment out the `strip = true` line in release:
 
