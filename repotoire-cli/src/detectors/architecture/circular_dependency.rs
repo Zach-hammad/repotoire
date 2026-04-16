@@ -64,27 +64,42 @@ impl CircularDependencyDetector {
         let mut weakest_link: Option<(String, String, usize)> = None;
         let mut strongest_link: Option<(String, String, usize)> = None;
 
+        // Reify all import edges once as (src_qn, dst_qn) pairs. The prior
+        // implementation re-resolved every edge via graph.node_idx + qn() inside
+        // each cycle-edge filter, and built two fresh format!("/{from}") / "/{to}"
+        // strings per import edge — so an N-edge cycle on a repo with M import
+        // edges did N × M × (2 allocs + 2 graph lookups). Reify + hoist collapses
+        // it to a single pass over M edges plus N linear scans over that vector
+        // with zero extra allocation in the hot filter.
+        let gi = graph.interner();
+        let edges: Vec<(&str, &str)> = graph
+            .all_import_edges()
+            .iter()
+            .filter_map(|&(src_idx, dst_idx)| {
+                match (graph.node_idx(src_idx), graph.node_idx(dst_idx)) {
+                    (Some(src_node), Some(dst_node)) => {
+                        Some((src_node.qn(gi), dst_node.qn(gi)))
+                    }
+                    _ => None,
+                }
+            })
+            .collect();
+
         // For each edge in the cycle, count how many symbols are imported
         for i in 0..cycle.len() {
             let from = &cycle[i];
             let to = &cycle[(i + 1) % cycle.len()];
 
-            // Count imports between these files
-            let gi = graph.interner();
-            let strength = graph
-                .all_import_edges()
+            // Hoist the suffix strings out of the inner .filter() closure so
+            // they are allocated once per cycle edge, not once per import edge.
+            let from_suffix = format!("/{}", from);
+            let to_suffix = format!("/{}", to);
+
+            let strength = edges
                 .iter()
-                .filter(|&&(src_idx, dst_idx)| {
-                    if let (Some(src_node), Some(dst_node)) =
-                        (graph.node_idx(src_idx), graph.node_idx(dst_idx))
-                    {
-                        let src = src_node.qn(gi);
-                        let dst = dst_node.qn(gi);
-                        (src == from || src.ends_with(&format!("/{}", from)))
-                            && (dst == to || dst.ends_with(&format!("/{}", to)))
-                    } else {
-                        false
-                    }
+                .filter(|(src, dst)| {
+                    (*src == from.as_str() || src.ends_with(&from_suffix))
+                        && (*dst == to.as_str() || dst.ends_with(&to_suffix))
                 })
                 .count()
                 .max(1); // At least 1 if there's an edge
