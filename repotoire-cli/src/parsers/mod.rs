@@ -199,6 +199,19 @@ fn parse_file_inner(path: &Path, extract_values: bool) -> Result<ParseResult> {
         _ => (Ok(ParseResult::default()), None),
     };
 
+    // Visibility for tree-sitter error recovery: if the grammar produced ERROR
+    // nodes, downstream extraction may have silently skipped entities. `has_error`
+    // is O(1) — tree-sitter sets a flag during parsing. Debug-level so it is off
+    // by default but available when investigating missing findings.
+    if let Some(ref tree) = tree {
+        if tree.root_node().has_error() {
+            tracing::debug!(
+                "tree-sitter reported ERROR nodes while parsing {} — extraction may be incomplete",
+                path.display()
+            );
+        }
+    }
+
     // Enrich with nesting depth for all languages
     if let Ok(ref mut result) = parsed {
         enrich_nesting_depths(result, &source, path);
