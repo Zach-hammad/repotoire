@@ -79,22 +79,74 @@ pub fn compute_file_churn(repo_path: &Path) -> HashMap<String, FileChurnInfo> {
 ///
 /// IMPURE: Mutates graph nodes in place (additive metadata only).
 /// Must complete before detect_stage reads the graph.
+///
+/// The three sub-stages are independent:
+/// - `enrich_graph_with_git` mutates the graph (needs &mut);
+/// - `compute_from_repo` (co-change) only reads git history;
+/// - `compute_file_churn` only reads git history.
+///
+/// We run them in parallel via `rayon::join` — the graph mutation runs on one
+/// worker, the two read-only git walks on the other. This cut `git_enrich`
+/// wall-time roughly in half on measured cold-starts.
 pub fn git_enrich_stage(input: &mut GitEnrichInput) -> Result<GitEnrichOutput> {
-    let stats = crate::git::enrichment::enrich_graph_with_git(
-        input.repo_path,
-        &mut *input.graph,
-        None, // repo_id — not needed for local analysis
-    )?;
+    let t_total = std::time::Instant::now();
+    let repo_path = input.repo_path;
+    let co_change_config = &input.co_change_config;
+    let graph: &mut GraphBuilder = &mut *input.graph;
 
-    let co_change_matrix =
-        crate::git::co_change::compute_from_repo(input.repo_path, &input.co_change_config)
-            .unwrap_or_else(|e| {
-                tracing::debug!("Co-change analysis skipped: {e}");
-                CoChangeMatrix::empty()
-            });
+    let (stats_result, (co_change_matrix, file_churn)) = rayon::join(
+        || {
+            let t = std::time::Instant::now();
+            let r = crate::git::enrichment::enrich_graph_with_git(
+                repo_path,
+                graph,
+                None, // repo_id — not needed for local analysis
+            );
+            tracing::debug!(
+                "git_enrich::enrichment = {:.3}s",
+                t.elapsed().as_secs_f32()
+            );
+            r
+        },
+        || {
+            rayon::join(
+                || {
+                    let t = std::time::Instant::now();
+                    let m = crate::git::co_change::compute_from_repo(
+                        repo_path,
+                        co_change_config,
+                    )
+                    .unwrap_or_else(|e| {
+                        tracing::debug!("Co-change analysis skipped: {e}");
+                        CoChangeMatrix::empty()
+                    });
+                    tracing::debug!(
+                        "git_enrich::co_change = {:.3}s ({} pairs)",
+                        t.elapsed().as_secs_f32(),
+                        m.len()
+                    );
+                    m
+                },
+                || {
+                    let t = std::time::Instant::now();
+                    let c = compute_file_churn(repo_path);
+                    tracing::debug!(
+                        "git_enrich::file_churn = {:.3}s ({} files)",
+                        t.elapsed().as_secs_f32(),
+                        c.len()
+                    );
+                    c
+                },
+            )
+        },
+    );
 
-    let file_churn = compute_file_churn(input.repo_path);
+    tracing::debug!(
+        "git_enrich total = {:.3}s (parallel)",
+        t_total.elapsed().as_secs_f32()
+    );
 
+    let stats = stats_result?;
     Ok(GitEnrichOutput {
         functions_enriched: stats.functions_enriched,
         classes_enriched: stats.classes_enriched,
