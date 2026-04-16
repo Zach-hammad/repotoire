@@ -31,15 +31,13 @@ pub struct ParseOutput {
 
 /// Run tree-sitter parsers on source files in parallel via rayon.
 pub fn parse_stage(input: &ParseInput) -> Result<ParseOutput> {
-    // Configure rayon thread pool if non-default worker count
+    // Configure rayon thread pool if non-default worker count. Fall back to default
+    // builder if the sized build fails; propagate if even the default fails.
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(input.workers.max(1))
         .build()
-        .unwrap_or_else(|_| {
-            rayon::ThreadPoolBuilder::new()
-                .build()
-                .expect("failed to build fallback rayon thread pool")
-        });
+        .or_else(|_| rayon::ThreadPoolBuilder::new().build())
+        .map_err(|e| anyhow::anyhow!("failed to build rayon thread pool: {e}"))?;
 
     let results: Vec<Option<(PathBuf, Arc<ParseResult>)>> = pool.install(|| {
         input
