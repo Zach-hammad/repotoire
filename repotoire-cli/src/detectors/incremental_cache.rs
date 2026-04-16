@@ -37,6 +37,14 @@ const CACHE_VERSION: u32 = 5;
 /// Buffer size for hashing large files (64KB chunks)
 const HASH_BUFFER_SIZE: usize = 65536;
 
+/// Upper bound on number of per-file cache entries retained across runs.
+/// `prune_stale_entries` already drops entries for files that no longer exist
+/// in the current analysis, but in degenerate scenarios (huge monorepos,
+/// cross-repo reuse of a shared cache dir) it is possible for the map to
+/// balloon before pruning runs. Once exceeded, oldest-timestamp entries are
+/// evicted until the map fits.
+const MAX_CACHE_FILES: usize = 100_000;
+
 /// Cached file entry
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CachedFile {
@@ -417,6 +425,31 @@ impl IncrementalCache {
             },
         );
         self.dirty = true;
+        self.evict_oldest_if_over_cap();
+    }
+
+    /// If `cache.files` exceeds `MAX_CACHE_FILES`, drop the oldest-timestamp
+    /// entries (and their parse-cache siblings) until it fits.
+    fn evict_oldest_if_over_cap(&mut self) {
+        if self.cache.files.len() <= MAX_CACHE_FILES {
+            return;
+        }
+        let mut stamps: Vec<(String, u64)> = self
+            .cache
+            .files
+            .iter()
+            .map(|(k, v)| (k.clone(), v.timestamp))
+            .collect();
+        stamps.sort_by_key(|(_, ts)| *ts);
+        let to_drop = stamps.len() - MAX_CACHE_FILES;
+        for (key, _) in stamps.into_iter().take(to_drop) {
+            self.cache.files.remove(&key);
+            self.cache.parse_cache.remove(&key);
+        }
+        warn!(
+            "Evicted {} cache entries to stay under MAX_CACHE_FILES={}",
+            to_drop, MAX_CACHE_FILES
+        );
     }
 
     /// Filter to only files that have changed since last cache
