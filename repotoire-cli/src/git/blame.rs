@@ -199,7 +199,9 @@ impl GitBlame {
             }
 
             // Check disk cache first
-            let dc = disk_cache.read().expect("git disk cache lock poisoned");
+            let dc = disk_cache
+                .read()
+                .unwrap_or_else(|e| e.into_inner());
             let cached_entries = dc
                 .is_valid(file_path, &repo_path)
                 .then(|| dc.files.get(file_path))
@@ -212,7 +214,11 @@ impl GitBlame {
                 return;
             }
 
-            // Compute fresh blame — each thread discovers its own repo (RawRepo is not Clone)
+            // Each worker discovers its own RawRepo. Attempting to share a
+            // single Arc<RawRepo> across rayon workers regressed performance
+            // on measured benchmarks — RawRepo's internal Mutex<LruCache>
+            // serialized blame work under 8-16 parallel threads, and the
+            // added sys time dwarfed the discover savings.
             let Ok(repo) = RawRepo::discover(&repo_path) else {
                 return;
             };

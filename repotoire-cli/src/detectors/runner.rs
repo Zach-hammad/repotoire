@@ -79,10 +79,14 @@ pub fn run_detectors(
     };
 
     // ── Independent (parallel) ──────────────────────────────────────────
-    let mut results: Vec<(String, Vec<Finding>, bool)> = pool.install(|| {
+    // Each result carries its own wall-time so we can emit a summary of the
+    // slowest detectors at debug level — without that, the detect stage is a
+    // 2s black box and future perf work is blind to which of the 110
+    // detectors actually dominates.
+    let mut results: Vec<(String, Vec<Finding>, bool, u64)> = pool.install(|| {
         independent
             .par_iter()
-            .map(|detector| run_one(detector, ctx))
+            .map(|detector| run_one_timed(detector, ctx))
             .collect()
     });
 
@@ -91,19 +95,22 @@ pub fn run_detectors(
 
     let mut all_findings: Vec<Finding> = Vec::new();
     let mut skipped_count: usize = 0;
-    for (_name, findings, skipped) in results {
+    let mut timings: Vec<(String, u64)> = Vec::with_capacity(results.len() + dependent.len());
+    for (name, findings, skipped, elapsed_ms) in results {
         if skipped {
             skipped_count += 1;
         }
+        timings.push((name, elapsed_ms));
         all_findings.extend(findings);
     }
 
     // ── Dependent (sequential) ──────────────────────────────────────────
     for detector in dependent {
-        let (_name, findings, skipped) = run_one(detector, ctx);
+        let (name, findings, skipped, elapsed_ms) = run_one_timed(detector, ctx);
         if skipped {
             skipped_count += 1;
         }
+        timings.push((name, elapsed_ms));
         all_findings.extend(findings);
     }
 
@@ -114,17 +121,41 @@ pub fn run_detectors(
         );
     }
 
+    // Emit a sorted top-K slowest-detector summary at debug level. This is
+    // the hook future perf audits need to identify which detectors deserve
+    // targeted optimization — no more guessing at where the 2s goes.
+    log_slowest_detectors(&timings);
+
     (all_findings, bypass_set)
+}
+
+/// Log top-10 slowest detectors at debug level, plus total detect-stage
+/// wall time sum. Noise-free when debug logging is disabled.
+fn log_slowest_detectors(timings: &[(String, u64)]) {
+    if !tracing::enabled!(tracing::Level::DEBUG) {
+        return;
+    }
+    let mut sorted: Vec<&(String, u64)> = timings.iter().collect();
+    sorted.sort_by(|a, b| b.1.cmp(&a.1));
+    let total_ms: u64 = timings.iter().map(|(_, ms)| *ms).sum();
+    debug!(
+        "detect: {} detectors ran, total serial time {}ms (wall time amortized by rayon)",
+        timings.len(),
+        total_ms,
+    );
+    for (name, ms) in sorted.iter().take(10) {
+        debug!("  slow: {:>6}ms  {}", ms, name);
+    }
 }
 
 /// Execute a single detector with catch_unwind, timing, and max_findings.
 ///
-/// Returns `(name, findings, skipped)` where `skipped` is `true` when the
-/// detector could not run (query error or panic).
-fn run_one(
+/// Returns `(name, findings, skipped, elapsed_ms)`. The timing is surfaced so
+/// the caller can emit a top-N slowest-detector summary.
+fn run_one_timed(
     detector: &Arc<dyn Detector>,
     ctx: &AnalysisContext<'_>,
-) -> (String, Vec<Finding>, bool) {
+) -> (String, Vec<Finding>, bool, u64) {
     let name = detector.name().to_string();
     let start = Instant::now();
 
@@ -150,12 +181,12 @@ fn run_one(
                 findings.len(),
                 elapsed_ms,
             );
-            (name, findings, false)
+            (name, findings, false, elapsed_ms)
         }
         // detect() returned an error (query error, missing graph property, etc.)
         Ok(Err(e)) => {
             warn!("{} skipped (query error): {}", name, e);
-            (name, Vec::new(), true)
+            (name, Vec::new(), true, elapsed_ms)
         }
         // Detector panicked
         Err(panic_info) => {
@@ -167,7 +198,7 @@ fn run_one(
                 "Unknown panic".to_string()
             };
             error!("{} panicked: {}", name, panic_msg);
-            (name, Vec::new(), true)
+            (name, Vec::new(), true, elapsed_ms)
         }
     }
 }
